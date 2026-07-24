@@ -89,18 +89,18 @@ export async function updateAccount(userId: string, accountId: string, payload: 
 
   const result = await pool.query(
     `UPDATE accounts
-     SET name = $1, account_type = $2, initial_balance = $3,
+     SET name = $1, account_type = $2::varchar, initial_balance = $3,
          current_balance = $3::numeric + COALESCE((
            SELECT sum(
              CASE
-               WHEN $2 = 'credit_card' AND t.transaction_type = 'expense' THEN t.amount
-               WHEN $2 = 'credit_card' THEN -t.amount
+               WHEN $2::varchar = 'credit_card' AND t.transaction_type = 'expense' THEN t.amount
+               WHEN $2::varchar = 'credit_card' THEN -t.amount
                WHEN t.transaction_type = 'income' THEN t.amount
                ELSE -t.amount
              END
            )
            FROM transactions t
-           WHERE t.account_id = accounts.id
+           WHERE t.account_id = $7
          ), 0),
          currency = $4, allow_negative = $5, is_active = $6, updated_at = now()
      WHERE id = $7 AND user_id = $8

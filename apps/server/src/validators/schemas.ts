@@ -36,6 +36,8 @@ export const socialLoginSchema = z.object({
 
 export const profileUpdateSchema = z.object({
   fullName: z.string().min(2).max(160),
+  username: z.string().regex(/^[a-zA-Z0-9_.]{3,40}$/, "Username hanya boleh berisi huruf, angka, titik, dan underscore"),
+  phone: z.string().max(32).optional().nullable(),
   nickname: z.string().max(80).optional().nullable(),
   title: z.string().max(120).optional().nullable(),
   avatarUrl: z.string().max(900000).optional().nullable()
@@ -46,6 +48,8 @@ export const accountSchema = z.object({
   accountType: z.enum(["cash", "bank", "e_wallet", "credit_card", "other"]),
   initialBalance: nonNegativeMoney,
   currency: z.string().length(3).default("IDR"),
+  providerName: z.string().trim().max(120).optional().nullable(),
+  accountNumber: z.string().trim().max(120).optional().nullable(),
   allowNegative: z.boolean().default(false),
   isActive: z.boolean().default(true)
 });
@@ -83,6 +87,8 @@ export const transactionSchema = z.object({
   receiptId: uuid.optional().nullable(),
   attachmentUrl: z.string().optional().nullable(),
   status: z.string().max(40).default("posted"),
+  visibility: z.enum(["private", "selected_friends", "group_members", "everyone_involved"]).default("private"),
+  viewerIds: z.array(uuid).max(100).default([]),
   items: z.array(transactionItemSchema).default([])
 });
 
@@ -133,7 +139,8 @@ export const receiptConfirmSchema = z.object({
 });
 
 export const assistantChatSchema = z.object({
-  message: z.string().min(1).max(1000)
+  message: z.string().min(1).max(1000),
+  language: z.enum(["en", "id"]).default("id")
 });
 
 export const transactionTextParseSchema = z.object({

@@ -15,13 +15,23 @@ import { reportRoutes } from "./routes/reportRoutes.js";
 import { scheduleRoutes } from "./routes/scheduleRoutes.js";
 import { transactionRoutes } from "./routes/transactionRoutes.js";
 import { transferRoutes } from "./routes/transferRoutes.js";
+import { socialRoutes } from "./routes/socialRoutes.js";
+import { notificationRoutes } from "./routes/notificationRoutes.js";
 
 export function createApp() {
   const app = express();
   app.use(helmet());
   app.use(
     cors({
-      origin: config.clientUrl,
+      origin(origin, callback) {
+        const localDevelopmentOrigin = config.nodeEnv !== "production"
+          && Boolean(origin?.match(/^http:\/\/(localhost|127\.0\.0\.1):\d+$/));
+        if (!origin || origin === config.clientUrl || localDevelopmentOrigin) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error("Origin tidak diizinkan"));
+      },
       credentials: true
     })
   );
@@ -43,6 +53,8 @@ export function createApp() {
   app.use("/api/schedules", scheduleRoutes);
   app.use("/api/reports", reportRoutes);
   app.use("/api/assistant", assistantRoutes);
+  app.use("/api/social", socialRoutes);
+  app.use("/api/notifications", notificationRoutes);
 
   app.use(errorMiddleware);
   return app;

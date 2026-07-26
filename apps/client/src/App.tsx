@@ -10,7 +10,10 @@ import {
   Bot,
   Briefcase,
   Bus,
+  CalendarDays,
   Camera,
+  ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CheckCircle2,
   CircleDollarSign,
@@ -18,6 +21,7 @@ import {
   CirclePlus,
   CreditCard,
   Download,
+  Eye,
   FileSpreadsheet,
   Film,
   GraduationCap,
@@ -25,30 +29,42 @@ import {
   Home,
   LayoutDashboard,
   Landmark,
+  Lightbulb,
   LineChart,
   Loader2,
   LogOut,
+  MessageCircle,
   Plus,
+  QrCode,
   ReceiptText,
   Search,
   Settings,
+  Share2,
+  ShieldCheck,
   Sparkles,
   ShoppingBag,
   Smartphone,
   Store,
   Tags,
+  TriangleAlert,
   Trash2,
   TrendingUp,
   Upload,
   Utensils,
   UserRound,
+  UserPlus,
+  Users,
   Wallet,
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import heic2any from "heic2any";
+import QRCode from "qrcode";
+import jsQR from "jsqr";
 import { ApiError, apiFetch, downloadUrl, type Session } from "./lib/api";
-import { formatRupiahInput, isoDateInput, localDate, rupiah } from "./lib/format";
+import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "./lib/format";
+import { isValidSession, loadSavedSession } from "./lib/session";
+import { installUiTranslation } from "./lib/uiTranslation";
 
 declare global {
   interface Window {
@@ -80,7 +96,10 @@ type View =
   | "manage"
   | "reports"
   | "assistant"
+  | "social"
   | "profile";
+
+type AppLanguage = "en" | "id";
 
 type Account = {
   id: string;
@@ -89,6 +108,9 @@ type Account = {
   currentBalance: string;
   initialBalance: string;
   currency: string;
+  providerName?: string | null;
+  accountNumber?: string | null;
+  isSharedWalletAccount?: boolean;
   allowNegative: boolean;
   isActive: boolean;
 };
@@ -137,6 +159,8 @@ type TransactionDetail = Transaction & {
   accountId: string;
   categoryId?: string;
   receiptId?: string | null;
+  visibility?: "private" | "selected_friends" | "group_members" | "everyone_involved";
+  viewerIds?: string[];
   items?: Array<{ itemName: string; quantity: string; unitPrice: string; totalPrice: string }>;
 };
 
@@ -148,6 +172,33 @@ type DashboardSummary = {
   expenseByCategory: Array<{ category: string; total: string }>;
   lastTransactions: Transaction[];
   budgetAlerts: Array<{ id: string; category: string; usagePercent: string }>;
+  insight?: {
+    currentWeekExpense: string;
+    previousWeekExpense: string;
+    weekChangePercent: number | null;
+    scheduledUntilMonthEnd: string;
+    availableUntilMonthEnd: string;
+  };
+};
+
+type SocialSummary = {
+  totalPayable: string;
+  totalReceivable: string;
+  activeGroups: number;
+  pendingConfirmations: number;
+  unreadNotifications: number;
+};
+
+type HeaderNotification = {
+  id: string;
+  eventType: string;
+  title: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  isRead: boolean;
+  createdAt: string;
+  kind?: "social" | "schedule";
 };
 
 type ManualDraft = {
@@ -176,12 +227,12 @@ type ParsedManualTransaction = {
   interpretedText: string;
 };
 
+type AiTrackedField = "transactionType" | "transactionDate" | "amount" | "accountId" | "categoryId" | "merchantName" | "paymentMethod" | "notes";
+
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
-
-const savedSession = localStorage.getItem("finance-session");
 
 function successMessageFor(path: string, method: string) {
   if (path.includes("/assistant/") || path.includes("/receipts/upload") || path.includes("/process")) return null;
@@ -195,6 +246,7 @@ function successMessageFor(path: string, method: string) {
   if (path.startsWith("/accounts/") && method === "PUT") return "Berhasil mengubah akun";
   if (path === "/categories" && method === "POST") return "Berhasil menambah kategori";
   if (path.startsWith("/categories/") && method === "PUT") return "Berhasil mengubah kategori";
+  if (path.startsWith("/categories/") && method === "DELETE") return "Berhasil menghapus kategori";
   if (path === "/budgets" && method === "POST") return "Berhasil menyimpan budget";
   if (path.startsWith("/budgets/") && method === "PUT") return "Berhasil mengubah budget";
   if (path === "/schedules" && method === "POST") return "Berhasil menambah jadwal";
@@ -208,9 +260,16 @@ function moneyInputValue(value: string | number | null | undefined) {
 }
 
 function dateFilterIso(value: string, boundary: "start" | "end") {
-  const date = new Date(`${value}T00:00:00`);
-  if (boundary === "end") date.setHours(23, 59, 59, 999);
-  return date.toISOString();
+  return new Date(`${value}T${boundary === "start" ? "00:00:00.000" : "23:59:59.999"}+07:00`).toISOString();
+}
+
+function currentMonthDateBounds() {
+  const now = jakartaDateParts();
+  const endDay = new Date(Date.UTC(now.year, now.month, 0)).getUTCDate();
+  return {
+    from: `${now.year}-${String(now.month).padStart(2, "0")}-01`,
+    to: `${now.year}-${String(now.month).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`
+  };
 }
 
 const navigation: Array<{ id: View; label: string; icon: LucideIcon }> = [
@@ -221,33 +280,56 @@ const navigation: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "categories", label: "Kategori", icon: Tags },
   { id: "budgets", label: "Anggaran", icon: CircleDollarSign },
   { id: "reports", label: "Laporan", icon: LineChart },
-  { id: "assistant", label: "Assistant", icon: Bot },
+  { id: "assistant", label: "Kopilot Keuangan", icon: Bot },
+  { id: "social", label: "Sosial", icon: Users },
   { id: "profile", label: "Profil", icon: Settings }
 ];
 
 const mobileNavigation: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "dashboard", label: "Beranda", icon: Home },
+  { id: "assistant", label: "Kopilot", icon: Bot },
   { id: "history", label: "Transaksi", icon: ReceiptText },
   { id: "reports", label: "Insight", icon: LineChart },
-  { id: "manage", label: "Kelola", icon: Wallet }
+  { id: "social", label: "Sosial", icon: Users },
+  { id: "manage", label: "Atur", icon: Settings }
 ];
 
 function App() {
-  const [session, setSession] = useState<Session | null>(() => (savedSession ? JSON.parse(savedSession) : null));
-  const [view, setView] = useState<View>("dashboard");
+  const [session, setSession] = useState<Session | null>(() => loadSavedSession(localStorage));
+  const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
+  const [view, setView] = useState<View>(() => {
+    const requested = new URLSearchParams(window.location.search).get("view") as View | null;
+    return requested && ["dashboard", "manual", "history", "reports", "assistant", "social", "manage", "profile"].includes(requested)
+      ? requested
+      : "dashboard";
+  });
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
+  const [socialSummaryData, setSocialSummaryData] = useState<SocialSummary | null>(null);
+  const [headerNotifications, setHeaderNotifications] = useState<HeaderNotification[]>([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [pushStatus, setPushStatus] = useState<"unsupported" | "unavailable" | "default" | "granted" | "denied">(
+    () => !("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)
+      ? "unsupported"
+      : Notification.permission
+  );
   const [editing, setEditing] = useState<TransactionDetail | null>(null);
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionDetail | null>(null);
   const [historyFocusTransactionId, setHistoryFocusTransactionId] = useState<string | null>(null);
   const [historyAccountId, setHistoryAccountId] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isScrolling, setIsScrolling] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [installedAsApp, setInstalledAsApp] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const notifiedScheduleIds = useRef(new Set<string>());
+  const refreshPromiseRef = useRef<Promise<string> | null>(null);
+  const sessionExpiredAlertShown = useRef(false);
+  const [dismissedScheduleIds, setDismissedScheduleIds] = useState<Set<string>>(
+    () => storedStringSet("dismissed-schedule-notifications")
+  );
   const token = session?.accessToken;
 
   const clearSession = (message?: string) => {
@@ -256,26 +338,61 @@ function App() {
     setCategories([]);
     setSchedules([]);
     setDashboard(null);
+    setSocialSummaryData(null);
     if (message) setNotice(message);
   };
 
-  const refreshAccessToken = async () => {
-    if (!session?.refreshToken) {
-      throw new Error("Refresh token tidak tersedia");
+  const acceptSession = (nextSession: Session) => {
+    if (!isValidSession(nextSession)) {
+      clearSession("Data sesi tidak valid. Silakan login kembali.");
+      return;
     }
-
-    const refreshed = await apiFetch<{ user: Session["user"]; accessToken: string }>("/auth/refresh-token", undefined, {
-      method: "POST",
-      body: JSON.stringify({ refreshToken: session.refreshToken })
-    });
-    const nextSession = {
-      ...session,
-      user: refreshed.user,
-      accessToken: refreshed.accessToken
-    };
+    setView("dashboard");
+    setEditing(null);
+    setSelectedTransaction(null);
+    setHistoryAccountId("");
+    setHistoryFocusTransactionId(null);
+    window.history.replaceState({}, "", window.location.pathname);
+    window.scrollTo({ top: 0, behavior: "auto" });
+    sessionExpiredAlertShown.current = false;
     setSession(nextSession);
-    localStorage.setItem("finance-session", JSON.stringify(nextSession));
-    return nextSession.accessToken;
+  };
+
+  const refreshAccessToken = async () => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const activeSession = session;
+    if (!activeSession?.refreshToken) throw new Error("Refresh token tidak tersedia");
+
+    refreshPromiseRef.current = (async () => {
+      const refreshed = await apiFetch<Session>("/auth/refresh-token", undefined, {
+        method: "POST",
+        body: JSON.stringify({ refreshToken: activeSession.refreshToken })
+      });
+      const nextSession: Session = {
+        user: refreshed.user,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken
+      };
+      if (!isValidSession(nextSession)) throw new Error("Sesi tidak lengkap");
+      setSession(nextSession);
+      localStorage.setItem("finance-session", JSON.stringify(nextSession));
+      return nextSession.accessToken;
+    })();
+    try {
+      return await refreshPromiseRef.current;
+    } finally {
+      refreshPromiseRef.current = null;
+    }
+  };
+
+  const expireSession = (message = "Sesi Anda sudah selesai. Silakan login kembali.") => {
+    if (sessionExpiredAlertShown.current) return;
+    sessionExpiredAlertShown.current = true;
+    clearSession();
+    setView("dashboard");
+    window.history.replaceState({}, "", window.location.pathname);
+    window.scrollTo({ top: 0, behavior: "auto" });
+    window.alert(message);
   };
 
   const request = async <T,>(path: string, options: RequestInit = {}) => {
@@ -286,38 +403,91 @@ function App() {
       if (message) setNotice(message);
       return result;
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401 && session?.refreshToken && path !== "/auth/refresh-token") {
-        try {
-          const refreshedToken = await refreshAccessToken();
-          const result = await apiFetch<T>(path, refreshedToken, options);
-          const message = successMessageFor(path, method);
-          if (message) setNotice(message);
-          return result;
-        } catch {
-          clearSession("Sesi sudah berakhir. Silakan login kembali.");
-          throw new Error("Sesi sudah berakhir. Silakan login kembali.");
+      if (error instanceof ApiError && error.status === 401 && path !== "/auth/refresh-token") {
+        if (session?.refreshToken) {
+          try {
+            const refreshedToken = await refreshAccessToken();
+            const result = await apiFetch<T>(path, refreshedToken, options);
+            const message = successMessageFor(path, method);
+            if (message) setNotice(message);
+            return result;
+          } catch {
+            expireSession();
+            throw new Error("Sesi sudah selesai");
+          }
         }
+        expireSession();
+        throw new Error("Sesi sudah selesai");
       }
       throw error;
     }
   };
 
+  const logout = async () => {
+    const refreshToken = session?.refreshToken;
+    try {
+      if (refreshToken) {
+        await apiFetch("/auth/logout", undefined, {
+          method: "POST",
+          body: JSON.stringify({ refreshToken })
+        });
+      }
+    } finally {
+      clearSession();
+      setView("dashboard");
+      window.history.replaceState({}, "", window.location.pathname);
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  };
+
+  const syncPushSubscription = async (requestPermission: boolean) => {
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushStatus("unsupported");
+      return;
+    }
+    const pushConfig = await request<{ enabled: boolean; publicKey: string | null }>("/notifications/push/config");
+    if (!pushConfig.enabled || !pushConfig.publicKey) {
+      setPushStatus("unavailable");
+      return;
+    }
+
+    const permission = requestPermission ? await Notification.requestPermission() : Notification.permission;
+    setPushStatus(permission);
+    if (permission !== "granted") return;
+
+    const registration = await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    const subscription = existing ?? await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(pushConfig.publicKey)
+    });
+    await request("/notifications/push/subscribe", {
+      method: "POST",
+      body: JSON.stringify(subscription.toJSON())
+    });
+    setPushStatus("granted");
+  };
+
   const refreshCore = async () => {
     if (!token) return;
-    const [nextAccounts, nextCategories, nextDashboard, nextSchedules] = await Promise.all([
+    const [nextAccounts, nextCategories, nextDashboard, nextSchedules, nextSocialSummary, nextNotifications] = await Promise.all([
       request<Account[]>("/accounts"),
       request<Category[]>("/categories"),
       request<DashboardSummary>("/dashboard/summary"),
-      request<Schedule[]>("/schedules").catch(() => [])
+      request<Schedule[]>("/schedules").catch(() => []),
+      request<SocialSummary>("/social/summary").catch(() => null),
+      request<HeaderNotification[]>("/social/activity").catch(() => [])
     ]);
     setAccounts(nextAccounts);
     setCategories(nextCategories);
     setDashboard(nextDashboard);
     setSchedules(nextSchedules);
+    setSocialSummaryData(nextSocialSummary);
+    setHeaderNotifications(nextNotifications);
   };
 
   useEffect(() => {
-    if (session) {
+    if (isValidSession(session)) {
       localStorage.setItem("finance-session", JSON.stringify(session));
       refreshCore().catch((error) => setNotice(error.message));
     } else {
@@ -326,10 +496,39 @@ function App() {
   }, [session?.accessToken]);
 
   useEffect(() => {
-    const updateScrollButton = () => setShowScrollTop(window.scrollY > 360);
+    if (!session || pushStatus !== "granted") return;
+    syncPushSubscription(false).catch(() => setPushStatus("unavailable"));
+  }, [session?.accessToken]);
+
+  useEffect(() => {
+    localStorage.setItem("finance-language", language);
+    document.documentElement.lang = language;
+    return installUiTranslation(language);
+  }, [language]);
+
+  useEffect(() => {
+    if (!session?.accessToken) return;
+    request("/notifications/language", {
+      method: "PUT",
+      body: JSON.stringify({ language })
+    }).catch(() => undefined);
+  }, [language, session?.accessToken]);
+
+  useEffect(() => {
+    let scrollEndTimer = 0;
+    const updateScrollButton = () => {
+      setShowScrollTop(window.scrollY > 360);
+      setIsScrolling(true);
+      window.clearTimeout(scrollEndTimer);
+      scrollEndTimer = window.setTimeout(() => setIsScrolling(false), 180);
+    };
     updateScrollButton();
+    setIsScrolling(false);
     window.addEventListener("scroll", updateScrollButton, { passive: true });
-    return () => window.removeEventListener("scroll", updateScrollButton);
+    return () => {
+      window.removeEventListener("scroll", updateScrollButton);
+      window.clearTimeout(scrollEndTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -374,10 +573,67 @@ function App() {
     if (!dueSchedules.length) return;
     dueSchedules.forEach((schedule) => notifiedScheduleIds.current.add(schedule.id));
     setNotice(`${dueSchedules.length} jadwal perlu diperhatikan`);
+    if ("Notification" in window && Notification.permission === "granted" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.ready.then((registration) => Promise.all(dueSchedules.map((schedule) =>
+        registration.showNotification(schedule.title, {
+          body: `${localDate(schedule.nextDueDate)}${schedule.amount ? ` - ${rupiah(schedule.amount)}` : ""}`,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png",
+          tag: `schedule-${schedule.id}-${schedule.nextDueDate.slice(0, 10)}`,
+          data: { url: "/?view=manage" }
+        })
+      ))).catch(() => undefined);
+    }
   }, [schedules]);
 
-  if (!session) {
-    return <AuthView onSignedIn={setSession} onInstall={installApp} showInstall={!installedAsApp} />;
+  const scheduleNotifications: HeaderNotification[] = schedules
+    .filter((schedule) => schedule.reminderStatus !== "upcoming" && !dismissedScheduleIds.has(schedule.id))
+    .map((schedule) => ({
+      id: schedule.id,
+      eventType: "schedule_due",
+      title: schedule.title,
+      body: `${localDate(schedule.nextDueDate)}${schedule.amount ? ` - ${rupiah(schedule.amount)}` : ""}`,
+      isRead: false,
+      createdAt: schedule.nextDueDate,
+      kind: "schedule"
+    }));
+  const notificationItems = [...scheduleNotifications, ...headerNotifications]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const unreadNotificationCount = notificationItems.filter((item) => !item.isRead).length;
+
+  const markAllNotificationsRead = async () => {
+    await request("/social/activity/read", { method: "PUT", body: "{}" });
+    setHeaderNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
+    const nextDismissed = new Set(dismissedScheduleIds);
+    scheduleNotifications.forEach((item) => nextDismissed.add(item.id));
+    setDismissedScheduleIds(nextDismissed);
+    localStorage.setItem("dismissed-schedule-notifications", JSON.stringify([...nextDismissed]));
+    setSocialSummaryData((current) => current ? { ...current, unreadNotifications: 0 } : current);
+  };
+
+  const openNotification = async (item: HeaderNotification) => {
+    if (item.kind === "schedule") {
+      const nextDismissed = new Set(dismissedScheduleIds);
+      nextDismissed.add(item.id);
+      setDismissedScheduleIds(nextDismissed);
+      localStorage.setItem("dismissed-schedule-notifications", JSON.stringify([...nextDismissed]));
+      setNotificationsOpen(false);
+      setView("manage");
+      return;
+    }
+    if (!item.isRead) {
+      await request("/social/activity/read", {
+        method: "PUT",
+        body: JSON.stringify({ eventId: item.id })
+      });
+      setHeaderNotifications((current) => current.map((row) => row.id === item.id ? { ...row, isRead: true } : row));
+    }
+    setNotificationsOpen(false);
+    setView("social");
+  };
+
+  if (!isValidSession(session)) {
+    return <AuthView onSignedIn={acceptSession} onInstall={installApp} showInstall={!installedAsApp} />;
   }
 
   const navigate = (nextView: View, preserveHistoryAccount = false) => {
@@ -419,15 +675,15 @@ function App() {
   };
 
   const pageTitle =
-    navigation.find((item) => item.id === view)?.label ??
-    mobileNavigation.find((item) => item.id === view)?.label ??
+    appNavigationLabel(view, navigation.find((item) => item.id === view)?.label, language) ??
+    appNavigationLabel(view, mobileNavigation.find((item) => item.id === view)?.label, language) ??
     "Detail transaksi";
 
   return (
-    <div className="min-h-screen bg-[#f4f8ff] text-slate-950 lg:bg-slate-100 lg:text-slate-900">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-950 lg:bg-[#F8FAFC] lg:text-slate-900">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-white lg:block">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#00b817] text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#16A34A] text-white">
             <Wallet size={22} />
           </div>
           <div>
@@ -448,7 +704,7 @@ function App() {
                 }`}
               >
                 <Icon size={18} />
-                {item.label}
+                {appNavigationLabel(item.id, item.label, language)}
               </button>
             );
           })}
@@ -462,18 +718,46 @@ function App() {
               <h1 className="text-xl font-bold">{pageTitle}</h1>
               <p className="text-sm text-slate-500">{session.user.fullName} Â· {session.user.email}</p>
             </div>
-            <button
-              className="btn-secondary"
-              onClick={() => {
-                clearSession();
-              }}
-            >
-              <LogOut size={16} /> Logout
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="mobile-icon-btn"
+                aria-label={language === "en" ? "Notifications" : "Notifikasi"}
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <Bell size={18} />
+                {unreadNotificationCount > 0 && <NotificationBadge count={unreadNotificationCount} />}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={logout}
+              >
+                <LogOut size={16} /> Logout
+              </button>
+            </div>
           </div>
         </header>
 
-        <MobileTopBar user={session.user} onProfile={() => navigate("profile")} />
+        <MobileTopBar
+          user={session.user}
+          language={language}
+          unreadCount={unreadNotificationCount}
+          onLanguageChange={setLanguage}
+          onNotifications={() => setNotificationsOpen((open) => !open)}
+          onProfile={() => navigate("profile")}
+        />
+
+        {notificationsOpen && (
+          <NotificationCenter
+            language={language}
+            items={notificationItems}
+            pushStatus={pushStatus}
+            onClose={() => setNotificationsOpen(false)}
+            onEnablePush={() => syncPushSubscription(true).catch((error) => setNotice(error instanceof Error ? error.message : "Push notification gagal diaktifkan"))}
+            onMarkAllRead={() => markAllNotificationsRead().catch((error) => setNotice(error instanceof Error ? error.message : "Notifikasi gagal diperbarui"))}
+            onOpen={(item) => openNotification(item).catch((error) => setNotice(error instanceof Error ? error.message : "Notifikasi gagal dibuka"))}
+          />
+        )}
 
         {notice && (
           <div className="fixed left-4 right-4 top-4 z-50 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-lg">
@@ -491,6 +775,7 @@ function App() {
           {view === "dashboard" && (
             <DashboardView
               dashboard={dashboard}
+              language={language}
               onAdd={() => navigate("manual")}
               onAssistant={() => navigate("assistant")}
             />
@@ -500,6 +785,7 @@ function App() {
               accounts={accounts}
               categories={categories}
               editing={editing}
+              language={language}
               request={request}
               onCancel={() => {
                 if (editing && selectedTransaction) {
@@ -526,6 +812,7 @@ function App() {
           {view === "history" && (
             <HistoryView
               accounts={accounts}
+              language={language}
               request={request}
               onOpen={openTransactionDetail}
               onChanged={refreshCore}
@@ -539,6 +826,7 @@ function App() {
             <TransactionDetailView
               transaction={selectedTransaction}
               token={token!}
+              request={request}
               onBack={() => {
                 setHistoryFocusTransactionId(selectedTransaction.id);
                 navigate("history", true);
@@ -564,6 +852,7 @@ function App() {
             <ManageView
               accounts={accounts}
               categories={categories}
+              language={language}
               request={request}
               onNavigate={navigate}
               onChanged={refreshCore}
@@ -574,7 +863,18 @@ function App() {
             />
           )}
           {view === "reports" && <ReportsView request={request} />}
-          {view === "assistant" && <AssistantView request={request} />}
+          {view === "assistant" && <AssistantView request={request} language={language} onNavigate={navigate} />}
+          {view === "social" && (
+            <SocialHubView
+              request={request}
+              accounts={accounts}
+              token={session.accessToken}
+              currentUser={session.user}
+              summary={socialSummaryData}
+              language={language}
+              onChanged={refreshCore}
+            />
+          )}
           {view === "profile" && (
             <ProfileView
               session={session}
@@ -587,16 +887,16 @@ function App() {
               })}
               onInstall={installApp}
               showInstall={!installedAsApp}
-              onLogout={() => clearSession()}
+              onLogout={logout}
             />
           )}
         </main>
 
-        <MobileBottomNav view={view} onNavigate={navigate} />
+        <MobileBottomNav view={view} language={language} isScrolling={isScrolling} onNavigate={navigate} />
         {showScrollTop && view !== "assistant" && (
           <button
             type="button"
-            className="fixed bottom-24 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-[#00b817] text-white shadow-[0_12px_24px_rgba(0,184,23,0.26)] transition hover:bg-[#009714] active:scale-95 lg:bottom-6 lg:right-6"
+            className="fixed bottom-24 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-[#16A34A] text-white shadow-[0_12px_24px_rgba(22,163,74,0.26)] transition hover:bg-[#15803D] active:scale-95 lg:bottom-6 lg:right-6"
             aria-label="Kembali ke atas"
             title="Kembali ke atas"
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
@@ -609,23 +909,58 @@ function App() {
   );
 }
 
-function MobileTopBar({ user, onProfile }: { user: Session["user"]; onProfile: () => void }) {
+function MobileTopBar({
+  user,
+  language,
+  unreadCount,
+  onLanguageChange,
+  onNotifications,
+  onProfile
+}: {
+  user: Session["user"];
+  language: AppLanguage;
+  unreadCount: number;
+  onLanguageChange: (language: AppLanguage) => void;
+  onNotifications: () => void;
+  onProfile: () => void;
+}) {
   return (
-    <header className="sticky top-0 z-20 bg-[#f4f8ff]/95 px-4 pb-2 pt-4 backdrop-blur lg:hidden">
+    <header className="sticky top-0 z-20 bg-[#F8FAFC]/95 px-4 pb-2 pt-4 backdrop-blur lg:hidden">
       <div className="flex items-center justify-between">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-400 via-violet-500 to-emerald-400 text-sm font-semibold text-white shadow-sm">
             F
           </div>
           <div className="min-w-0">
-            <p className="text-base font-semibold leading-tight">Finly AI</p>
-            <p className="truncate text-xs text-slate-500">Hai, {user.nickname || user.fullName}</p>
+            <p className="text-[11px] text-slate-500">{greetingLabel(language)}</p>
+            <p className="truncate text-sm font-semibold leading-tight">{user.nickname || user.fullName}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="mobile-icon-btn" aria-label="Notifikasi" title="Notifikasi">
+          <div className="flex h-9 items-center rounded-xl border border-slate-200 bg-white p-0.5 shadow-sm" role="group" aria-label="Language">
+            {(["en", "id"] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={`flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[9px] font-semibold uppercase transition ${
+                  language === item ? "bg-[#16A34A] text-white" : "text-slate-400 hover:bg-slate-50"
+                }`}
+                aria-pressed={language === item}
+                onClick={() => onLanguageChange(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <button
+            className="mobile-icon-btn"
+            aria-label={language === "en" ? "Notifications" : "Notifikasi"}
+            title={language === "en" ? "Notifications" : "Notifikasi"}
+            aria-expanded={undefined}
+            onClick={onNotifications}
+          >
             <Bell size={18} />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white" />
+            {unreadCount > 0 && <NotificationBadge count={unreadCount} />}
           </button>
           <button className="mobile-avatar-btn" aria-label="Profil" title="Profil" onClick={onProfile}>
             {user.avatarUrl ? (
@@ -640,7 +975,154 @@ function MobileTopBar({ user, onProfile }: { user: Session["user"]; onProfile: (
   );
 }
 
-function MobileBottomNav({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
+function NotificationBadge({ count }: { count: number }) {
+  return (
+    <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-none text-white ring-2 ring-white">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
+function NotificationCenter({
+  language,
+  items,
+  pushStatus,
+  onClose,
+  onEnablePush,
+  onMarkAllRead,
+  onOpen
+}: {
+  language: AppLanguage;
+  items: HeaderNotification[];
+  pushStatus: "unsupported" | "unavailable" | "default" | "granted" | "denied";
+  onClose: () => void;
+  onEnablePush: () => void;
+  onMarkAllRead: () => void;
+  onOpen: (item: HeaderNotification) => void;
+}) {
+  const isEnglish = language === "en";
+  const pushCopy = {
+    granted: isEnglish ? "Push notifications active" : "Push notification aktif",
+    denied: isEnglish ? "Notifications blocked in device settings" : "Notifikasi diblokir di pengaturan perangkat",
+    unsupported: isEnglish ? "Push is not supported on this device" : "Push belum didukung perangkat ini",
+    unavailable: isEnglish ? "Push server is not configured" : "Server push belum dikonfigurasi",
+    default: isEnglish ? "Get reminders even when the app is closed" : "Dapatkan pengingat saat aplikasi ditutup"
+  }[pushStatus];
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-40 cursor-default bg-slate-950/10 backdrop-blur-[1px]"
+        aria-label={isEnglish ? "Close notifications" : "Tutup notifikasi"}
+        onClick={onClose}
+      />
+      <aside className="fixed inset-x-3 top-[4.5rem] z-50 mx-auto max-h-[calc(100dvh-6rem)] max-w-md overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.18)] lg:left-auto lg:right-6 lg:top-20 lg:mx-0 lg:w-96">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">{isEnglish ? "Notifications" : "Notifikasi"}</p>
+            <p className="text-[11px] text-slate-500">
+              {items.some((item) => !item.isRead)
+                ? `${items.filter((item) => !item.isRead).length} ${isEnglish ? "need attention" : "perlu diperhatikan"}`
+                : isEnglish ? "You're all caught up" : "Semua sudah dibaca"}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            {items.some((item) => !item.isRead) && (
+              <button type="button" className="rounded-lg px-2.5 py-2 text-[11px] font-semibold text-[#16A34A] hover:bg-emerald-50" onClick={onMarkAllRead}>
+                {isEnglish ? "Mark all read" : "Tandai dibaca"}
+              </button>
+            )}
+            <button type="button" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100" onClick={onClose} aria-label={isEnglish ? "Close" : "Tutup"}>
+              <X size={17} />
+            </button>
+          </div>
+        </div>
+
+        <div className="border-b border-slate-100 bg-[#F8FAFC] p-3">
+          <div className="flex items-center gap-3 rounded-xl bg-white px-3 py-2.5">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+              pushStatus === "granted" ? "bg-emerald-50 text-[#16A34A]" : "bg-slate-100 text-slate-500"
+            }`}>
+              <Bell size={17} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-slate-800">{pushCopy}</p>
+              {pushStatus === "default" && <p className="mt-0.5 text-[10px] text-slate-500">{isEnglish ? "Schedules, requests, and shared payments." : "Jadwal, permintaan, dan pembayaran bersama."}</p>}
+            </div>
+            {pushStatus === "default" && (
+              <button type="button" className="shrink-0 rounded-lg bg-[#16A34A] px-3 py-2 text-[11px] font-semibold text-white" onClick={onEnablePush}>
+                {isEnglish ? "Enable" : "Aktifkan"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="max-h-[min(58dvh,32rem)] overflow-y-auto p-2">
+          {items.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-[#16A34A]"><CheckCircle2 size={20} /></span>
+              <p className="mt-3 text-sm font-semibold text-slate-800">{isEnglish ? "No new notifications" : "Belum ada notifikasi baru"}</p>
+              <p className="mt-1 text-xs text-slate-500">{isEnglish ? "Important activity will appear here." : "Aktivitas penting akan muncul di sini."}</p>
+            </div>
+          ) : items.map((item) => (
+            <button
+              type="button"
+              key={`${item.kind ?? "social"}-${item.id}`}
+              className={`flex w-full items-start gap-3 rounded-xl p-3 text-left transition hover:bg-slate-50 ${
+                item.isRead ? "" : "bg-emerald-50/70"
+              }`}
+              onClick={() => onOpen(item)}
+            >
+              <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                item.kind === "schedule" ? "bg-amber-50 text-amber-700" : "bg-white text-[#16A34A]"
+              }`}>
+                <Bell size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-start justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-900">{item.title}</span>
+                  {!item.isRead && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#16A34A]" />}
+                </span>
+                {item.body && <span className="mt-0.5 block line-clamp-2 text-[11px] leading-4 text-slate-500">{item.body}</span>}
+                <span className="mt-1 block text-[10px] text-slate-400">{localDate(item.createdAt)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function greetingLabel(language: AppLanguage) {
+  const hour = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIME_ZONE,
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).format(new Date()));
+  if (language === "en") {
+    if (hour < 11) return "Good morning";
+    if (hour < 15) return "Good afternoon";
+    return "Good evening";
+  }
+  if (hour < 11) return "Selamat pagi";
+  if (hour < 15) return "Selamat siang";
+  if (hour < 18) return "Selamat sore";
+  return "Selamat malam";
+}
+
+function MobileBottomNav({
+  view,
+  language,
+  isScrolling,
+  onNavigate
+}: {
+  view: View;
+  language: AppLanguage;
+  isScrolling: boolean;
+  onNavigate: (view: View) => void;
+}) {
   const plusActive = view === "manual";
   const isActive = (item: { id: View }) =>
     item.id === "manage"
@@ -648,26 +1130,33 @@ function MobileBottomNav({ view, onNavigate }: { view: View; onNavigate: (view: 
       : view === item.id;
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/95 px-3 pb-3 pt-2 shadow-[0_-18px_45px_rgba(15,23,42,0.10)] backdrop-blur lg:hidden">
-      <div className="mx-auto grid max-w-md grid-cols-5 items-end">
-        {mobileNavigation.slice(0, 2).map((item) => (
-          <MobileNavButton key={item.id} item={item} active={isActive(item)} onNavigate={onNavigate} />
-        ))}
+    <nav
+      className={`mobile-bottom-nav ${isScrolling ? "mobile-bottom-nav-scrolling" : ""} lg:hidden`}
+      aria-label={language === "en" ? "Main navigation" : "Navigasi utama"}
+    >
+      <div className="mobile-bottom-nav-shell">
+        <div className="mobile-bottom-nav-surface" aria-hidden="true" />
+        <div className="mobile-bottom-nav-menus">
+          <div className="mobile-bottom-nav-side grid grid-cols-3">
+            {mobileNavigation.slice(0, 3).map((item) => (
+              <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate} />
+            ))}
+          </div>
+          <div className="mobile-bottom-nav-side grid grid-cols-3">
+            {mobileNavigation.slice(3).map((item) => (
+              <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate} />
+            ))}
+          </div>
+        </div>
         <button
-          className={`mx-auto flex items-center justify-center rounded-full transition active:scale-95 ${
-            plusActive
-              ? "-mt-7 h-14 w-14 bg-[#00b817] text-white shadow-[0_14px_28px_rgba(0,184,23,0.30)] ring-4 ring-emerald-100"
-              : "-mt-5 h-12 w-12 border border-emerald-100 bg-white text-[#00b817] shadow-[0_10px_22px_rgba(15,23,42,0.12)]"
-          }`}
-          aria-label="Tambah transaksi"
-          title="Tambah transaksi"
+          className={`mobile-fab ${plusActive ? "mobile-fab-active" : ""}`}
+          aria-label={language === "en" ? "Add transaction" : "Tambah transaksi"}
+          title={language === "en" ? "Add transaction" : "Tambah transaksi"}
+          aria-current={plusActive ? "page" : undefined}
           onClick={() => onNavigate("manual")}
         >
-          <Plus size={plusActive ? 26 : 22} strokeWidth={plusActive ? 2.6 : 2.4} />
+          <Plus size={31} strokeWidth={3} />
         </button>
-        {mobileNavigation.slice(2).map((item) => (
-          <MobileNavButton key={item.id} item={item} active={isActive(item)} onNavigate={onNavigate} />
-        ))}
       </div>
     </nav>
   );
@@ -675,29 +1164,50 @@ function MobileBottomNav({ view, onNavigate }: { view: View; onNavigate: (view: 
 
 function MobileNavButton({
   item,
+  language,
   active,
   onNavigate
 }: {
   item: { id: View; label: string; icon: LucideIcon };
+  language: AppLanguage;
   active: boolean;
   onNavigate: (view: View) => void;
 }) {
   const Icon = item.icon;
   return (
     <button
-      className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-bold transition ${
-        active ? "text-[#00b817]" : "text-slate-400"
+      className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-[10px] font-semibold transition ${
+        active ? "text-[#16A34A]" : "text-slate-400"
       }`}
       onClick={() => onNavigate(item.id)}
+      aria-current={active ? "page" : undefined}
     >
-      <span className={`flex h-8 w-8 items-center justify-center rounded-2xl transition ${
+      <span className={`flex h-7 w-8 items-center justify-center rounded-xl transition ${
         active ? "bg-emerald-50" : "bg-transparent"
       }`}>
-        <Icon size={18} strokeWidth={active ? 2.6 : 2} />
+        <Icon size={18} strokeWidth={active ? 2.5 : 1.9} />
       </span>
-      <span>{item.label}</span>
+      <span className="max-w-full truncate">{mobileNavLabel(item.id, item.label, language)}</span>
     </button>
   );
+}
+
+function mobileNavLabel(view: View, fallback: string, language: AppLanguage) {
+  if (language === "id") return fallback;
+  const labels: Partial<Record<View, string>> = {
+    dashboard: "Home",
+    history: "Transactions",
+    assistant: "Copilot",
+    reports: "Insights",
+    social: "Social",
+    manage: "Settings"
+  };
+  return labels[view] ?? fallback;
+}
+
+function appNavigationLabel(view: View, fallback: string | undefined, language: AppLanguage) {
+  if (view === "assistant") return language === "en" ? "Finance Copilot" : "Kopilot Keuangan";
+  return fallback;
 }
 
 function loadAuthScript(id: string, src: string) {
@@ -824,16 +1334,16 @@ function AuthView({
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f4f8ff] px-4 py-8">
+    <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC] px-4 py-8">
       <main className="w-full max-w-md overflow-hidden rounded-[26px] border border-white bg-white shadow-[0_24px_70px_rgba(15,23,42,0.12)] lg:rounded-lg">
         <header className="border-b border-emerald-100 bg-emerald-50/70 px-6 py-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#00b817] text-white shadow-[0_12px_26px_rgba(0,184,23,0.24)] lg:rounded-md">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#16A34A] text-white shadow-[0_12px_26px_rgba(22,163,74,0.24)] lg:rounded-md">
             <Wallet size={23} />
           </span>
           <h1 className="mt-3 text-xl font-semibold text-slate-950">Keuangan AI</h1>
           <p className="mt-1 text-sm text-slate-500">{mode === "login" ? "Masuk untuk melanjutkan pencatatanmu." : "Buat akun dan mulai kelola keuanganmu."}</p>
           {showInstall && (
-            <button type="button" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#00b817]" onClick={onInstall}>
+            <button type="button" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#16A34A]" onClick={onInstall}>
               <Download size={14} /> Pasang aplikasi
             </button>
           )}
@@ -900,7 +1410,7 @@ function ExpenseDonut({ dashboard }: { dashboard: DashboardSummary }) {
           <h3 className="font-bold">Ringkasan Pengeluaran</h3>
           <p className="text-xs text-slate-500">Bulan ini</p>
         </div>
-        <span className="text-xs font-semibold text-[#00b817]">Top 5</span>
+        <span className="text-xs font-semibold text-[#16A34A]">Top 5</span>
       </div>
       {rows.length === 0 ? (
         <EmptyState text="Kategori akan muncul setelah ada pengeluaran." />
@@ -937,10 +1447,12 @@ function ExpenseDonut({ dashboard }: { dashboard: DashboardSummary }) {
 
 function DashboardView({
   dashboard,
+  language,
   onAdd,
   onAssistant
 }: {
   dashboard: DashboardSummary | null;
+  language: AppLanguage;
   onAdd: () => void;
   onAssistant: () => void;
 }) {
@@ -953,21 +1465,50 @@ function DashboardView({
   const ratioLabel = expenseRatio > 999 ? ">999%" : `${expenseRatio}%`;
   const topCategory = dashboard.expenseByCategory[0];
   const alertCount = dashboard.budgetAlerts.length;
-  const monthLabel = new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric" }).format(new Date());
-  const averageExpense = expense / Math.max(new Date().getDate(), 1);
+  const jakartaToday = jakartaDateParts();
+  const monthLabel = new Intl.DateTimeFormat("id-ID", { timeZone: APP_TIME_ZONE, month: "long", year: "numeric" }).format(new Date());
+  const averageExpense = expense / Math.max(jakartaToday.day, 1);
   const runwayDays = averageExpense > 0 ? Math.max(Math.floor(balance / averageExpense), 0) : null;
   const healthLabel = expenseRatio <= 50 ? "Sehat" : expenseRatio <= 80 ? "Aman" : expenseRatio <= 100 ? "Waspada" : "Ketat";
   const healthClass =
     expenseRatio <= 80
-      ? "bg-emerald-50 text-[#00b817]"
+      ? "bg-emerald-50 text-[#16A34A]"
       : expenseRatio <= 100
         ? "bg-amber-50 text-amber-700"
         : "bg-rose-50 text-rose-700";
+  const insight = dashboard.insight ?? {
+    currentWeekExpense: "0",
+    previousWeekExpense: "0",
+    weekChangePercent: null,
+    scheduledUntilMonthEnd: "0",
+    availableUntilMonthEnd: dashboard.balance
+  };
+  const weekChange = insight.weekChangePercent;
+  const currentWeekExpense = Number(insight.currentWeekExpense);
+  const availableUntilMonthEnd = Number(insight.availableUntilMonthEnd);
+  const weeklyInsightText = language === "en"
+    ? weekChange !== null
+      ? `Your spending this week is ${weekChange >= 0 ? "up" : "down"} ${Math.abs(weekChange)}%.`
+      : currentWeekExpense > 0
+        ? `You have spent ${rupiah(currentWeekExpense)} this week.`
+        : "No expenses have been recorded this week."
+    : weekChange !== null
+      ? `Pengeluaranmu minggu ini ${weekChange >= 0 ? "naik" : "turun"} ${Math.abs(weekChange)}%.`
+      : currentWeekExpense > 0
+        ? `Pengeluaranmu minggu ini ${rupiah(currentWeekExpense)}.`
+        : "Belum ada pengeluaran yang tercatat minggu ini.";
+  const availabilityInsightText = language === "en"
+    ? availableUntilMonthEnd >= 0
+      ? `${rupiah(availableUntilMonthEnd)} remains after scheduled payments through month-end.`
+      : `Scheduled payments exceed your current balance by ${rupiah(Math.abs(availableUntilMonthEnd))}.`
+    : availableUntilMonthEnd >= 0
+      ? `Masih tersedia ${rupiah(availableUntilMonthEnd)} setelah jadwal pembayaran hingga akhir bulan.`
+      : `Jadwal pembayaran melebihi saldo saat ini sebesar ${rupiah(Math.abs(availableUntilMonthEnd))}.`;
 
   return (
     <div className="space-y-3 lg:space-y-5">
       <section className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="relative overflow-hidden rounded-[26px] bg-[#003d12] p-4 text-white shadow-[0_18px_42px_rgba(0,184,23,0.24)] lg:rounded-lg lg:p-5">
+        <div className="relative overflow-hidden rounded-[26px] bg-[#16A34A] p-4 text-white shadow-[0_18px_42px_rgba(22,163,74,0.24)] lg:rounded-lg lg:p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase text-white/65">Saldo aktif</p>
@@ -993,35 +1534,39 @@ function DashboardView({
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-xs font-semibold text-[#008f12] shadow-sm transition hover:bg-emerald-50 lg:rounded-md" onClick={onAdd}>
-              <Plus size={15} /> Tambah
+            <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-xs font-semibold text-[#15803D] shadow-sm transition hover:bg-emerald-50 lg:rounded-md" onClick={onAdd}>
+              <Plus size={15} /> Tambah transaksi
             </button>
           </div>
         </div>
 
         <button
           type="button"
-          className="group flex min-h-[128px] w-full flex-col justify-between rounded-[26px] border border-emerald-100 bg-white p-4 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/40 lg:rounded-lg"
+          className="group flex min-h-[160px] w-full flex-col justify-between rounded-[26px] border border-emerald-100 bg-white p-4 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-emerald-200 lg:rounded-lg"
           onClick={onAssistant}
         >
-          <span className="flex items-start justify-between gap-3">
-            <span className="flex min-w-0 items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#00b817] text-white shadow-[0_12px_24px_rgba(0,184,23,0.18)] lg:rounded-lg">
-                <Bot size={20} />
+          <span>
+            <span className="flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]">
+                <Lightbulb size={17} />
               </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-slate-950">Virtual Assistant</span>
-                <span className="mt-0.5 block text-xs font-semibold text-slate-500">Tanya kondisi uangmu dengan bahasa bebas.</span>
+              <span className="text-[11px] font-semibold uppercase text-[#16A34A]">
+                {language === "en" ? "Today's insight" : "Insight hari ini"}
               </span>
             </span>
-            <ChevronRight size={17} className="mt-1 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[#00b817]" />
+            <span className="mt-3 block text-sm font-semibold leading-5 text-slate-950">{weeklyInsightText}</span>
+            <span className={`mt-1 block text-xs leading-5 ${availableUntilMonthEnd < 0 ? "text-rose-600" : "text-slate-500"}`}>
+              {availabilityInsightText}
+            </span>
           </span>
-          <span className="mt-3 flex flex-wrap gap-1.5">
-            {["Saldo", "Budget", "Boros apa?"].map((item) => (
-              <span key={item} className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                {item}
-              </span>
-            ))}
+          <span className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+            <span className="text-xs font-medium text-slate-600">
+              {language === "en" ? "What would you like to do?" : "Apa yang ingin kamu lakukan?"}
+            </span>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]">
+              {language === "en" ? "Open Copilot" : "Buka Kopilot"}
+              <ChevronRight size={15} className="transition group-hover:translate-x-0.5" />
+            </span>
           </span>
         </button>
       </section>
@@ -1048,7 +1593,7 @@ function DashboardView({
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div
-                className={`h-full rounded-full ${expenseRatio <= 80 ? "bg-[#00b817]" : expenseRatio <= 100 ? "bg-amber-400" : "bg-rose-500"}`}
+                className={`h-full rounded-full ${expenseRatio <= 80 ? "bg-[#16A34A]" : expenseRatio <= 100 ? "bg-amber-400" : "bg-rose-500"}`}
                 style={{ width: `${Math.min(expenseRatio, 100)}%` }}
               />
             </div>
@@ -1063,7 +1608,7 @@ function DashboardView({
           </div>
           <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
             <p className="text-[11px] font-bold text-slate-400">Anggaran</p>
-            <p className={`mt-1 text-sm font-semibold ${alertCount > 0 ? "text-amber-700" : "text-[#00b817]"}`}>
+            <p className={`mt-1 text-sm font-semibold ${alertCount > 0 ? "text-amber-700" : "text-[#16A34A]"}`}>
               {alertCount > 0 ? `${alertCount} perlu dicek` : "Terkendali"}
             </p>
             <p className="mt-1 truncate text-xs font-semibold text-slate-500">
@@ -1081,7 +1626,7 @@ function DashboardView({
               <p className="text-xs font-semibold text-slate-500">Aktivitas bulan berjalan</p>
             </div>
             <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-              <span className="h-2 w-2 rounded-full bg-[#00b817]" /> Masuk
+              <span className="h-2 w-2 rounded-full bg-[#16A34A]" /> Masuk
               <span className="ml-1 h-2 w-2 rounded-full bg-rose-400" /> Keluar
             </span>
           </div>
@@ -1128,7 +1673,7 @@ function DashboardMetric({
   icon: JSX.Element;
 }) {
   const tones = {
-    income: "bg-emerald-50 text-[#00b817]",
+    income: "bg-emerald-50 text-[#16A34A]",
     expense: "bg-rose-50 text-rose-600",
     neutral: "bg-sky-50 text-sky-700"
   };
@@ -1165,10 +1710,10 @@ function MiniCashFlowChart({ daily }: { daily: DashboardSummary["daily"] }) {
         return (
           <div key={item.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
             <div className="flex h-28 w-full items-end justify-center gap-1 rounded-xl bg-slate-50 px-1.5 pb-1.5">
-              <div className="w-2 rounded-full bg-[#00b817]" style={{ height: `${incomeHeight}%` }} />
+              <div className="w-2 rounded-full bg-[#16A34A]" style={{ height: `${incomeHeight}%` }} />
               <div className="w-2 rounded-full bg-rose-400" style={{ height: `${expenseHeight}%` }} />
             </div>
-            <span className="text-[10px] font-bold text-slate-400">{new Date(item.date).getDate()}</span>
+            <span className="text-[10px] font-bold text-slate-400">{jakartaDateParts(item.date).day || "-"}</span>
           </div>
         );
       })}
@@ -1190,9 +1735,9 @@ function SummaryCard({
   className?: string;
 }) {
   const tones = {
-    income: "bg-emerald-50 text-[#008f12]",
+    income: "bg-emerald-50 text-[#15803D]",
     expense: "bg-rose-50 text-rose-700",
-    neutral: "bg-emerald-50 text-[#008f12]"
+    neutral: "bg-emerald-50 text-[#15803D]"
   };
   return (
     <div className={`card p-4 lg:p-5 ${className}`}>
@@ -1205,10 +1750,89 @@ function SummaryCard({
   );
 }
 
+function quickAmount(value: string, language: AppLanguage) {
+  const amount = Math.round(Number(value));
+  if (!Number.isFinite(amount) || amount <= 0) return "";
+  if (amount >= 1_000_000 && amount % 1_000_000 === 0) {
+    return `${amount / 1_000_000}${language === "en" ? "m" : "jt"}`;
+  }
+  if (amount >= 1_000 && amount % 1_000 === 0) {
+    return `${amount / 1_000}${language === "en" ? "k" : "rb"}`;
+  }
+  return new Intl.NumberFormat(language === "en" ? "en-US" : "id-ID").format(amount);
+}
+
+function transactionQuickExamples(transactions: Transaction[], language: AppLanguage) {
+  const fallback = language === "en"
+    ? ["buy coffee 20k cash", "buy electricity token 100k", "ride Grab 25k", "ride Gojek 20k", "ride MRT 14k", "ride KRL 5k"]
+    : ["beli kopi 20rb cash", "isi token listrik 100rb", "naik Grab 25rb", "naik Gojek 20rb", "naik MRT 14rb", "naik KRL 5rb"];
+  const patterns = new Map<string, { count: number; index: number; text: string }>();
+
+  transactions.forEach((transaction, index) => {
+    if (
+      transaction.transactionType !== "expense"
+      || /transfer/i.test(transaction.sourceType ?? "")
+    ) return;
+    const merchant = transaction.merchantName?.trim() ?? "";
+    const category = transaction.categoryName?.trim() ?? "";
+    const context = `${merchant} ${category} ${transaction.notes ?? ""}`.toLowerCase();
+    if (/top[ -]?up|transfer ke/.test(context)) return;
+    const amount = quickAmount(transaction.amount, language);
+    const payment = transaction.paymentMethod?.trim().toLowerCase() ?? "";
+    const account = transaction.accountName?.trim() ?? "";
+    let subject = merchant || category;
+    let action = language === "en" ? "pay" : "bayar";
+
+    if (/token|listrik|electric/.test(context)) {
+      subject = language === "en" ? "electricity token" : "token listrik";
+      action = language === "en" ? "buy" : "isi";
+    } else if (/\bgrab\b/.test(context)) {
+      subject = "Grab";
+      action = language === "en" ? "ride" : "naik";
+    } else if (/\bgojek\b|\bgoride\b/.test(context)) {
+      subject = "Gojek";
+      action = language === "en" ? "ride" : "naik";
+    } else if (/\bmrt\b/.test(context)) {
+      subject = "MRT";
+      action = language === "en" ? "ride" : "naik";
+    } else if (/\bkrl\b|commuter/.test(context)) {
+      subject = "KRL";
+      action = language === "en" ? "ride" : "naik";
+    } else if (/kopi|coffee|cafe|café/.test(context)) {
+      subject = merchant && !/kopi|coffee/i.test(merchant)
+        ? `${language === "en" ? "coffee at" : "kopi di"} ${merchant}`
+        : merchant || (language === "en" ? "coffee" : "kopi");
+      action = language === "en" ? "buy" : "beli";
+    } else if (!subject) {
+      return;
+    }
+
+    const text = [action, subject, amount, payment].filter(Boolean).join(" ");
+    const key = [
+      transaction.transactionType,
+      account,
+      category,
+      merchant,
+      payment
+    ].map((value) => value.trim().toLowerCase()).join("|");
+    const current = patterns.get(key);
+    patterns.set(key, current
+      ? { ...current, count: current.count + 1 }
+      : { count: 1, index, text });
+  });
+
+  const personalized = [...patterns.values()]
+    .filter((item) => item.count > 1)
+    .sort((a, b) => b.count - a.count || a.index - b.index)
+    .map((item) => item.text);
+  return [...new Set([...personalized, ...fallback])].slice(0, 5);
+}
+
 function ManualTransactionView({
   accounts,
   categories,
   editing,
+  language,
   request,
   onCancel,
   onDone
@@ -1216,14 +1840,18 @@ function ManualTransactionView({
   accounts: Account[];
   categories: Category[];
   editing: TransactionDetail | null;
+  language: AppLanguage;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onCancel: () => void;
   onDone: () => Promise<void>;
 }) {
+  const transactionAccounts = accounts.filter(
+    (account) => !account.isSharedWalletAccount || account.id === editing?.accountId
+  );
   const [transactionType, setTransactionType] = useState<"income" | "expense">(editing?.transactionType ?? "expense");
   const initialDraft = useMemo<ManualDraft>(
     () => ({
-      accountId: editing?.accountId ?? accounts[0]?.id ?? "",
+      accountId: editing?.accountId ?? transactionAccounts[0]?.id ?? "",
       transactionDate: editing ? editing.transactionDate.slice(0, 10) : isoDateInput(),
       amount: moneyInputValue(editing?.amount),
       categoryId: editing?.categoryId ?? "",
@@ -1231,36 +1859,98 @@ function ManualTransactionView({
       paymentMethod: editing?.paymentMethod ?? "",
       notes: editing?.notes ?? ""
     }),
-    [accounts[0]?.id, editing?.id]
+    [transactionAccounts[0]?.id, editing?.id]
   );
   const [draft, setDraft] = useState<ManualDraft>(initialDraft);
   const [formVersion, setFormVersion] = useState(0);
   const [freeText, setFreeText] = useState("");
   const [parseResult, setParseResult] = useState<ParsedManualTransaction | null>(null);
   const [parseLoading, setParseLoading] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState(0);
+  const [changedFields, setChangedFields] = useState<Set<AiTrackedField>>(new Set());
   const [loading, setLoading] = useState(false);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [attachmentName, setAttachmentName] = useState("");
   const [attachmentReceiptId, setAttachmentReceiptId] = useState<string | null>(editing?.receiptId ?? null);
   const [attachmentMessage, setAttachmentMessage] = useState<string | null>(null);
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
+  const [visibility, setVisibility] = useState<TransactionDetail["visibility"]>(editing?.visibility ?? "private");
+  const [viewerIds, setViewerIds] = useState<string[]>(editing?.viewerIds ?? []);
+  const [socialFriends, setSocialFriends] = useState<SocialFriend[]>([]);
+  const [suggestionTransactions, setSuggestionTransactions] = useState<Transaction[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [errorContext, setErrorContext] = useState<"parse" | "submit" | null>(null);
   const formCardRef = useRef<HTMLDivElement>(null);
-  const examples = [
-    "beli kopi fore 15.000 cash",
-    "paid mrt 14k emoney",
-    "gaji bulan ini 7jt mandiri"
-  ];
+  const copy = language === "en" ? {
+    title: "Add Transaction",
+    description: "Type your transaction in everyday language and AI will fill in the details automatically.",
+    write: "Write a transaction",
+    placeholder: "Example: buy coffee 15k cash",
+    analyze: "Analyze Transaction",
+    analyzing: "Analyzing transaction...",
+    steps: ["Reading amount", "Choosing category", "Choosing account", "Choosing payment method"],
+    addAccountFirst: "Add an account before saving a transaction.",
+    confirmation: "Confirmation",
+    confirmTitle: "Confirm AI Result",
+    confirmSubtitle: "Review the AI result before saving the transaction.",
+    confident: "confident",
+    income: "Income",
+    expense: "Expense",
+    date: "Date",
+    amount: "Amount",
+    account: "Account",
+    currentBalance: "Current balance",
+    category: "Category",
+    uncategorized: "Uncategorized",
+    merchant: "Source or merchant",
+    payment: "Payment method",
+    notes: "Notes",
+    analyzeAgain: "Analyze Again",
+    save: "Save Transaction"
+  } : {
+    title: "Tambah Transaksi",
+    description: "Ketik transaksi dengan bahasa sehari-hari, AI akan mengisi detail transaksi secara otomatis.",
+    write: "Tulis transaksi",
+    placeholder: "Contoh: beli kopi 15rb cash",
+    analyze: "Analisis Transaksi",
+    analyzing: "Menganalisis transaksi...",
+    steps: ["Membaca nominal", "Menentukan kategori", "Menentukan akun", "Menentukan metode pembayaran"],
+    addAccountFirst: "Tambahkan akun dulu sebelum menyimpan transaksi.",
+    confirmation: "Konfirmasi",
+    confirmTitle: "Konfirmasi Hasil AI",
+    confirmSubtitle: "Periksa kembali hasil AI sebelum menyimpan transaksi.",
+    confident: "yakin",
+    income: "Pemasukan",
+    expense: "Pengeluaran",
+    date: "Tanggal",
+    amount: "Nominal",
+    account: "Akun",
+    currentBalance: "Saldo saat ini",
+    category: "Kategori",
+    uncategorized: "Tanpa kategori",
+    merchant: "Sumber atau merchant",
+    payment: "Metode pembayaran",
+    notes: "Catatan",
+    analyzeAgain: "Analisis Ulang",
+    save: "Simpan Transaksi"
+  };
+  const examples = useMemo(
+    () => transactionQuickExamples(suggestionTransactions, language),
+    [suggestionTransactions, language]
+  );
 
   useEffect(() => {
     setTransactionType(editing?.transactionType ?? "expense");
     setDraft(initialDraft);
     setFormVersion((current) => current + 1);
     setParseResult(null);
+    setAnalysisStep(0);
+    setChangedFields(new Set());
     setAttachmentName("");
     setAttachmentReceiptId(editing?.receiptId ?? null);
     setAttachmentMessage(null);
+    setVisibility(editing?.visibility ?? "private");
+    setViewerIds(editing?.viewerIds ?? []);
     setError(null);
     setErrorContext(null);
   }, [editing?.id, initialDraft]);
@@ -1269,6 +1959,12 @@ function ManualTransactionView({
     request<BudgetRow[]>("/budgets")
       .then(setBudgets)
       .catch(() => setBudgets([]));
+    request<SocialFriend[]>("/social/friends")
+      .then((rows) => setSocialFriends(rows.filter((row) => row.status === "accepted")))
+      .catch(() => setSocialFriends([]));
+    request<{ data: Transaction[] }>("/transactions?limit=100&page=1&sort=transaction_date&direction=desc")
+      .then((result) => setSuggestionTransactions(result.data))
+      .catch(() => setSuggestionTransactions([]));
   }, []);
 
   const uploadAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -1311,20 +2007,30 @@ function ManualTransactionView({
     }
 
     setParseLoading(true);
+    setAnalysisStep(0);
     setError(null);
     setErrorContext(null);
     try {
-      const parsed = await request<ParsedManualTransaction>("/assistant/parse-transaction", {
-        method: "POST",
-        body: JSON.stringify({
-          text: freeText,
-          defaultAccountId: draft.accountId || accounts[0]?.id || null
-        })
-      });
+      const [parsed] = await Promise.all([
+        request<ParsedManualTransaction>("/assistant/parse-transaction", {
+          method: "POST",
+          body: JSON.stringify({
+            text: freeText,
+            defaultAccountId: draft.accountId || transactionAccounts[0]?.id || null
+          })
+        }),
+        (async () => {
+          for (let step = 1; step <= 4; step += 1) {
+            await new Promise((resolve) => window.setTimeout(resolve, 230));
+            setAnalysisStep(step);
+          }
+        })()
+      ]);
       setParseResult(parsed);
+      setChangedFields(new Set());
       setTransactionType(parsed.transactionType);
       setDraft({
-        accountId: parsed.accountId ?? draft.accountId ?? accounts[0]?.id ?? "",
+        accountId: parsed.accountId ?? draft.accountId ?? transactionAccounts[0]?.id ?? "",
         transactionDate: parsed.transactionDate.slice(0, 10),
         amount: moneyInputValue(parsed.amount),
         categoryId: parsed.categoryId ?? "",
@@ -1344,12 +2050,41 @@ function ManualTransactionView({
     }
   };
 
+  const markFieldChanged = (field: AiTrackedField) => {
+    if (!parseResult) return;
+    setChangedFields((current) => {
+      const next = new Set(current);
+      next.add(field);
+      return next;
+    });
+  };
+
+  const aiFieldStatus = (field: AiTrackedField): "ai" | "changed" | "review" | null => {
+    if (!parseResult) return null;
+    if (changedFields.has(field)) return "changed";
+    const aliases: Record<AiTrackedField, string[]> = {
+      transactionType: ["transactiontype", "type", "tipe"],
+      transactionDate: ["transactiondate", "date", "tanggal"],
+      amount: ["amount", "nominal", "jumlah"],
+      accountId: ["account", "accountid", "akun"],
+      categoryId: ["category", "categoryid", "kategori"],
+      merchantName: ["merchant", "merchantname", "source", "sumber"],
+      paymentMethod: ["paymentmethod", "payment", "metode pembayaran"],
+      notes: ["notes", "note", "catatan"]
+    };
+    const reviewFields = parseResult.reviewFields.map((value) => value.toLowerCase().replace(/[\s_-]/g, ""));
+    const needsReview = aliases[field].some((alias) => reviewFields.includes(alias.replace(/[\s_-]/g, "")));
+    if (needsReview || (parseResult.confidenceScore < 0.65 && ["amount", "categoryId", "accountId"].includes(field))) return "review";
+    return "ai";
+  };
+
   const updateAmount = (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const cursor = input.selectionStart ?? input.value.length;
     const digitsBeforeCursor = input.value.slice(0, cursor).replace(/\D/g, "").length;
     const formatted = formatRupiahInput(input.value);
 
+    markFieldChanged("amount");
     setDraft((current) => ({ ...current, amount: formatted }));
     window.requestAnimationFrame(() => {
       if (document.activeElement !== input) return;
@@ -1380,7 +2115,7 @@ function ManualTransactionView({
     const payload = {
       accountId: String(form.get("accountId")),
       transactionType,
-      transactionDate: new Date(String(form.get("transactionDate"))).toISOString(),
+      transactionDate: dateFilterIso(String(form.get("transactionDate")), "start"),
       amount: String(form.get("amount")),
       categoryId: String(form.get("categoryId") || "") || null,
       merchantName: String(form.get("merchantName") || "") || null,
@@ -1388,6 +2123,8 @@ function ManualTransactionView({
       notes: String(form.get("notes") || "") || null,
       sourceType: "manual",
       receiptId: attachmentReceiptId,
+      visibility,
+      viewerIds: visibility === "selected_friends" ? viewerIds : [],
       items: []
     };
     try {
@@ -1406,8 +2143,6 @@ function ManualTransactionView({
 
   const filteredCategories = categories.filter((category) => category.categoryType === transactionType);
   const selectedAccount = accounts.find((account) => account.id === draft.accountId);
-  const selectedAccountName = selectedAccount?.name ?? parseResult?.accountName ?? "Pilih akun";
-  const selectedCategoryName = categories.find((category) => category.id === draft.categoryId)?.name ?? parseResult?.categoryName ?? "Tanpa kategori";
   const selectedBudget = budgets.find((budget) => budget.categoryId === draft.categoryId);
   const nextExpenseAmount = transactionType === "expense" ? Number(String(draft.amount).replace(/[^\d]/g, "")) : 0;
   const budgetAfterUse = selectedBudget ? moneyValue(selectedBudget.used) + nextExpenseAmount : 0;
@@ -1416,112 +2151,100 @@ function ManualTransactionView({
   return (
     <section className="mx-auto max-w-4xl space-y-3 lg:space-y-5">
       {!editing && (
-        <div className="overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
-          <div className="border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-white px-4 py-4 lg:px-5">
-            <div className="flex items-start justify-between gap-3">
+        <div className="overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
+          <div className="border-b border-slate-100 bg-emerald-50/60 px-4 py-4 lg:px-5">
+            <div className="flex items-start gap-3">
               <div className="min-w-0">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#00b817] shadow-sm">
-                  <Sparkles size={12} /> AI quick add
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#16A34A] shadow-sm">
+                  <Sparkles size={12} /> AI Quick Add
                 </span>
-                <h2 className="mt-2 text-xl font-semibold tracking-normal text-slate-950">Tambah transaksi</h2>
-                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                  Ketik bebas, AI bantu isi nominal, kategori, akun, dan metode pembayaran.
+                <h2 className="mt-2 text-xl font-semibold tracking-normal text-slate-950">{copy.title}</h2>
+                <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
+                  {copy.description}
                 </p>
               </div>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#00b817] text-white shadow-[0_10px_20px_rgba(0,184,23,0.18)] lg:rounded-md">
-                <Bot size={19} />
-              </span>
             </div>
           </div>
 
           <div className="space-y-3 p-4 lg:p-5">
             <label className="block text-xs font-semibold text-slate-600">
-              Tulis transaksi
+              {copy.write}
               <textarea
-                className="mt-1 min-h-24 w-full resize-none rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md"
-              value={freeText}
-              onChange={(event) => setFreeText(event.target.value)}
-              onKeyDown={(event) => {
-                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  parseFreeText();
-                }
-              }}
-              placeholder="Contoh: beli kopi fore 15.000 cash"
-            />
-          </label>
+                className="mt-1 min-h-28 w-full resize-none rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:cursor-wait disabled:opacity-70 lg:rounded-md"
+                value={freeText}
+                onChange={(event) => setFreeText(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    parseFreeText();
+                  }
+                }}
+                placeholder={copy.placeholder}
+                disabled={parseLoading}
+              />
+            </label>
             <div className="flex flex-wrap gap-2">
               {examples.map((example) => (
                 <button
                   type="button"
                   key={example}
-                  className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#00b817]"
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-[#16A34A] disabled:opacity-50"
                   onClick={() => setFreeText(example)}
+                  disabled={parseLoading}
                 >
                   {example}
                 </button>
               ))}
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-[11px] font-semibold text-slate-500">
-                {accounts.length === 0 ? "Tambahkan akun dulu sebelum menyimpan transaksi." : "AI akan scroll ke detail setelah berhasil membaca teks."}
+            {parseLoading && (
+              <div className="grid grid-cols-2 gap-2 rounded-[18px] border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-4 lg:rounded-md">
+                {copy.steps.map((label, index) => {
+                  const done = analysisStep >= index + 1;
+                  const active = analysisStep === index;
+                  return (
+                    <div key={label} className="flex min-w-0 items-center gap-2">
+                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                        done ? "bg-[#16A34A] text-white" : "bg-white text-slate-400"
+                      }`}>
+                        {done ? <CheckCircle2 size={13} /> : active ? <Loader2 className="animate-spin" size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />}
+                      </span>
+                      <span className={`text-[10px] leading-4 ${done ? "font-semibold text-[#15803D]" : "text-slate-500"}`}>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(22,163,74,0.18)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md"
+              onClick={parseFreeText}
+              disabled={parseLoading}
+            >
+              {parseLoading ? <Loader2 className="animate-spin" size={17} /> : <Sparkles size={17} />}
+              {parseLoading ? copy.analyzing : copy.analyze}
+            </button>
+            {transactionAccounts.length === 0 && (
+              <p className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-center text-[11px] text-amber-700">
+                <TriangleAlert size={13} />
+                {copy.addAccountFirst}
               </p>
-              <button
-                type="button"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#00b817] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(0,184,23,0.22)] transition hover:bg-[#009714] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto lg:rounded-md"
-                onClick={parseFreeText}
-                disabled={parseLoading || accounts.length === 0}
-              >
-                {parseLoading ? <Loader2 className="animate-spin" size={17} /> : <Sparkles size={17} />}
-                Terjemahkan
-              </button>
-            </div>
+            )}
 
             {error && errorContext === "parse" && (
               <p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 lg:rounded-md">{error}</p>
-            )}
-
-            {parseResult && (
-              <div className="rounded-[20px] border border-emerald-100 bg-emerald-50/70 p-3 text-sm lg:rounded-md">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <span className="inline-flex items-center gap-2 font-semibold text-slate-950">
-                    <CheckCircle2 size={16} className="text-[#00b817]" /> Hasil AI
-                  </span>
-                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#00b817]">
-                    {Math.round(parseResult.confidenceScore * 100)}% yakin
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Tipe</p>
-                    <p className="font-semibold text-slate-950">{parseResult.transactionType === "income" ? "Pemasukan" : "Pengeluaran"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Nominal</p>
-                    <p className="font-semibold text-slate-950">{rupiah(parseResult.amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Kategori</p>
-                    <p className="truncate font-semibold text-slate-950">{selectedCategoryName}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase text-slate-400">Akun</p>
-                    <p className="truncate font-semibold text-slate-950">{selectedAccountName}</p>
-                  </div>
-                </div>
-                {parseResult.reviewFields.length > 0 && (
-                  <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 lg:rounded-md">
-                    Cek ulang: {parseResult.reviewFields.join(", ")}.
-                  </p>
-                )}
-              </div>
             )}
           </div>
         </div>
       )}
 
-      <div ref={formCardRef} className="scroll-mt-24 overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
+      <div
+        ref={formCardRef}
+        className={`scroll-mt-24 overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-lg lg:border-slate-200 ${
+          parseResult ? "ai-form-enter" : ""
+        }`}
+      >
         <div className="border-b border-slate-100 bg-white px-4 py-4 lg:px-5">
           {editing && (
             <button
@@ -1535,45 +2258,78 @@ function ManualTransactionView({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl lg:rounded-md ${
-                transactionType === "income" ? "bg-emerald-50 text-[#00b817]" : "bg-rose-50 text-rose-600"
+                transactionType === "income" ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600"
               }`}>
                 {transactionType === "income" ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />}
               </span>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase text-slate-400">{editing ? "Edit" : parseResult ? "Konfirmasi AI" : "Detail"}</p>
-                <h2 className="mt-0.5 text-base font-semibold tracking-normal text-slate-950">{editing ? "Edit transaksi" : "Detail transaksi"}</h2>
-                <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                  {editing ? "Ubah data yang diperlukan lalu simpan." : parseResult ? "Hasil AI sudah masuk, cek sebelum simpan." : "Isi manual atau mulai dari AI di atas."}
+                <p className="text-[10px] font-semibold uppercase text-[#16A34A]">{editing ? "Edit" : copy.confirmation}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="mt-0.5 text-base font-semibold tracking-normal text-slate-950">
+                    {editing ? "Edit transaksi" : copy.confirmTitle}
+                  </h2>
+                  {parseResult && (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-[#15803D]">
+                      {Math.round(parseResult.confidenceScore * 100)}% {copy.confident}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {editing ? "Ubah data yang diperlukan lalu simpan." : copy.confirmSubtitle}
                 </p>
               </div>
             </div>
-            <div className="grid w-full grid-cols-2 rounded-2xl bg-slate-100 p-1 sm:w-fit lg:rounded-md">
+            <div className="w-full sm:w-fit">
+              <div className="mb-1 flex justify-end">
+                <AiFieldBadge status={aiFieldStatus("transactionType")} language={language} />
+              </div>
+              <div className="grid grid-cols-2 rounded-2xl bg-slate-100 p-1 lg:rounded-md">
               <button
                 type="button"
                 className={`rounded-xl px-3 py-2 text-sm font-semibold transition lg:rounded-md ${
-                  transactionType === "income" ? "bg-white text-[#008f12] shadow-sm" : "text-slate-500"
+                  transactionType === "income" ? "bg-white text-[#15803D] shadow-sm" : "text-slate-500"
                 }`}
-                onClick={() => setTransactionType("income")}
+                onClick={() => {
+                  markFieldChanged("transactionType");
+                  setTransactionType("income");
+                }}
               >
-                Pemasukan
+                {copy.income}
               </button>
               <button
                 type="button"
                 className={`rounded-xl px-3 py-2 text-sm font-semibold transition lg:rounded-md ${
                   transactionType === "expense" ? "bg-white text-rose-700 shadow-sm" : "text-slate-500"
                 }`}
-                onClick={() => setTransactionType("expense")}
+                onClick={() => {
+                  markFieldChanged("transactionType");
+                  setTransactionType("expense");
+                }}
               >
-                Pengeluaran
+                {copy.expense}
               </button>
+              </div>
             </div>
           </div>
         </div>
         <form key={formVersion} className="grid gap-3 p-4 md:grid-cols-2 lg:p-5" onSubmit={submit}>
-          <Field label="Tanggal">
-            <input className="input" name="transactionDate" type="date" defaultValue={draft.transactionDate} required />
+          <Field label={copy.date} hint={<AiFieldBadge status={aiFieldStatus("transactionDate")} language={language} />}>
+            <div>
+              <input type="hidden" name="transactionDate" value={draft.transactionDate} />
+              <DateFilterPicker
+                label={copy.date}
+                value={draft.transactionDate}
+                onChange={(value) => {
+                  markFieldChanged("transactionDate");
+                  setDraft((current) => ({ ...current, transactionDate: value }));
+                }}
+                language={language}
+                showLabel={false}
+                allowClear={false}
+              />
+            </div>
           </Field>
-          <Field label="Nominal">
+          <Field label={copy.amount} hint={<AiFieldBadge status={aiFieldStatus("amount")} language={language} />}>
             <input
               className="input"
               name="amount"
@@ -1584,30 +2340,48 @@ function ManualTransactionView({
               required
             />
           </Field>
-          <Field label="Akun">
+          <Field label={copy.account} hint={<AiFieldBadge status={aiFieldStatus("accountId")} language={language} />}>
             <div>
               <select
                 className="input"
                 name="accountId"
                 value={draft.accountId}
-                onChange={(event) => setDraft((current) => ({ ...current, accountId: event.target.value }))}
+                onChange={(event) => {
+                  markFieldChanged("accountId");
+                  setDraft((current) => ({ ...current, accountId: event.target.value }));
+                }}
                 required
               >
                 {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>{account.name} - {rupiah(account.currentBalance)}</option>
+                  <option key={account.id} value={account.id} disabled={Boolean(account.isSharedWalletAccount)}>
+                    {account.name} - {rupiah(account.currentBalance)}{account.isSharedWalletAccount ? " · Dipakai dompet bersama" : ""}
+                  </option>
                 ))}
               </select>
+              {accounts.some((account) => account.isSharedWalletAccount) && (
+                <p className="mt-1.5 text-[10px] text-amber-700">
+                  Akun bertanda “Dipakai dompet bersama” tidak dapat digunakan untuk transaksi pribadi.
+                </p>
+              )}
               {selectedAccount && (
                 <div className="mt-1.5 flex items-center justify-between px-1 text-xs text-slate-500">
-                  <span>Saldo saat ini</span>
+                  <span>{copy.currentBalance}</span>
                   <span className="font-semibold text-slate-900">{rupiah(selectedAccount.currentBalance)}</span>
                 </div>
               )}
             </div>
           </Field>
-          <Field label="Kategori">
-            <select className="input" name="categoryId" defaultValue={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))}>
-              <option value="">Tanpa kategori</option>
+          <Field label={copy.category} hint={<AiFieldBadge status={aiFieldStatus("categoryId")} language={language} />}>
+            <select
+              className="input"
+              name="categoryId"
+              value={draft.categoryId}
+              onChange={(event) => {
+                markFieldChanged("categoryId");
+                setDraft((current) => ({ ...current, categoryId: event.target.value }));
+              }}
+            >
+              <option value="">{copy.uncategorized}</option>
               {filteredCategories.map((category) => (
                 <option key={category.id} value={category.id}>{category.name}</option>
               ))}
@@ -1617,22 +2391,70 @@ function ManualTransactionView({
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs md:col-span-2 lg:rounded-md">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold text-slate-600">Budget {selectedBudget.category}</span>
-                <span className={`font-semibold ${budgetAfterPercent > 100 ? "text-rose-600" : "text-[#00b817]"}`}>{budgetAfterPercent}% setelah transaksi</span>
+                <span className={`font-semibold ${budgetAfterPercent > 100 ? "text-rose-600" : "text-[#16A34A]"}`}>{budgetAfterPercent}% setelah transaksi</span>
               </div>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
-                <div className={`h-full rounded-full ${budgetAfterPercent > 100 ? "bg-rose-500" : "bg-[#00b817]"}`} style={{ width: `${Math.min(budgetAfterPercent, 100)}%` }} />
+                <div className={`h-full rounded-full ${budgetAfterPercent > 100 ? "bg-rose-500" : "bg-[#16A34A]"}`} style={{ width: `${Math.min(budgetAfterPercent, 100)}%` }} />
               </div>
               <p className="mt-2 font-semibold text-slate-500">
                 Terpakai {rupiah(selectedBudget.used)} + transaksi ini {rupiah(nextExpenseAmount)} dari {rupiah(selectedBudget.budgetAmount)}.
               </p>
             </div>
           )}
-          <Field label="Sumber atau merchant">
-            <input className="input" name="merchantName" defaultValue={draft.merchantName} />
+          <Field label={copy.merchant} hint={<AiFieldBadge status={aiFieldStatus("merchantName")} language={language} />}>
+            <input
+              className="input"
+              name="merchantName"
+              value={draft.merchantName}
+              onChange={(event) => {
+                markFieldChanged("merchantName");
+                setDraft((current) => ({ ...current, merchantName: event.target.value }));
+              }}
+            />
           </Field>
-          <Field label="Metode pembayaran">
-            <input className="input" name="paymentMethod" defaultValue={draft.paymentMethod} placeholder="Tunai, QRIS, debit" />
+          <Field label={copy.payment} hint={<AiFieldBadge status={aiFieldStatus("paymentMethod")} language={language} />}>
+            <input
+              className="input"
+              name="paymentMethod"
+              value={draft.paymentMethod}
+              onChange={(event) => {
+                markFieldChanged("paymentMethod");
+                setDraft((current) => ({ ...current, paymentMethod: event.target.value }));
+              }}
+              placeholder="Tunai, QRIS, debit"
+            />
           </Field>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
+            <Field label={language === "en" ? "Who can view this transaction" : "Siapa yang dapat melihat transaksi ini"}>
+              <select className="input" value={visibility} onChange={(event) => setVisibility(event.target.value as TransactionDetail["visibility"])}>
+                <option value="private">{language === "en" ? "Private · only you" : "Privat · hanya Anda"}</option>
+                <option value="selected_friends">{language === "en" ? "Selected friends" : "Teman pilihan"}</option>
+                <option value="everyone_involved">{language === "en" ? "Everyone involved" : "Semua pihak terlibat"}</option>
+              </select>
+            </Field>
+            {visibility === "selected_friends" && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {socialFriends.length === 0 && <p className="col-span-2 text-xs text-slate-500">Tambahkan teman dulu untuk membagikan transaksi.</p>}
+                {socialFriends.map((friend) => (
+                  <label key={friend.userId} className="flex items-center gap-2 rounded-xl bg-white p-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={viewerIds.includes(friend.userId)}
+                      onChange={() => setViewerIds((current) => current.includes(friend.userId)
+                        ? current.filter((id) => id !== friend.userId)
+                        : [...current, friend.userId])}
+                    />
+                    <span className="truncate">{friend.fullName}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-slate-500">
+              {language === "en"
+                ? "Account balances, budgets, and other transactions remain private."
+                : "Saldo akun, rekening, budget, dan transaksi lainnya tetap privat."}
+            </p>
+          </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -1641,7 +2463,7 @@ function ManualTransactionView({
                   Tambahkan gambar atau video sebagai bukti pendukung transaksi.
                 </p>
               </div>
-              <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#00b817] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-md">
+              <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-md">
                 {attachmentLoading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
                 {attachmentReceiptId ? "Ganti" : "Pilih file"}
                 <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadAttachment} disabled={attachmentLoading} />
@@ -1649,33 +2471,56 @@ function ManualTransactionView({
             </div>
             {(attachmentName || editing?.receiptId) && (
               <div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 lg:rounded-md">
-                <ReceiptText className="shrink-0 text-[#00b817]" size={14} />
+                <ReceiptText className="shrink-0 text-[#16A34A]" size={14} />
                 <span className="truncate">{attachmentName || "Attachment transaksi tersimpan"}</span>
               </div>
             )}
             {attachmentMessage && (
-              <p className={`mt-2 text-[11px] leading-4 ${attachmentMessage.includes("berhasil") ? "text-[#008f12]" : "text-slate-500"}`}>
+              <p className={`mt-2 text-[11px] leading-4 ${attachmentMessage.includes("berhasil") ? "text-[#15803D]" : "text-slate-500"}`}>
                 {attachmentMessage}
               </p>
             )}
           </div>
           <label className="block text-xs font-semibold text-slate-600 md:col-span-2">
-            Catatan
+            <span className="flex items-center justify-between gap-2">
+              <span>{copy.notes}</span>
+              <AiFieldBadge status={aiFieldStatus("notes")} language={language} />
+            </span>
             <div className="mt-1">
               <textarea
                 className="input min-h-28 whitespace-pre-wrap"
                 name="notes"
                 value={draft.notes}
-                onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+                onChange={(event) => {
+                  markFieldChanged("notes");
+                  setDraft((current) => ({ ...current, notes: event.target.value }));
+                }}
               />
             </div>
           </label>
           {error && errorContext === "submit" && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 md:col-span-2 lg:rounded-md">{error}</p>}
-          <div className="md:col-span-2">
-            <button className="btn-primary w-full" disabled={loading || attachmentLoading || accounts.length === 0}>
+          <div className="mt-2 space-y-2 border-t border-slate-100 pt-4 md:col-span-2">
+            <button
+              className="btn-primary w-full py-3"
+              disabled={loading || attachmentLoading || parseLoading || accounts.length === 0}
+            >
               {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-              Simpan transaksi
+              {copy.save}
             </button>
+            {!editing && Boolean(freeText.trim()) && (
+              <button
+                type="button"
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-[#16A34A] disabled:opacity-50"
+                onClick={parseFreeText}
+                disabled={parseLoading}
+              >
+                {parseLoading ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+                {copy.analyzeAgain}
+              </button>
+            )}
+            <p className="text-center text-[10px] leading-4 text-slate-400">
+              {language === "en" ? "Nothing is saved until you confirm." : "Transaksi baru tersimpan setelah Anda mengonfirmasi."}
+            </p>
           </div>
         </form>
       </div>
@@ -1686,12 +2531,14 @@ function ManualTransactionView({
 function TransactionDetailView({
   transaction,
   token,
+  request,
   onBack,
   onEdit,
   onDelete
 }: {
   transaction: TransactionDetail;
   token: string;
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -1701,6 +2548,16 @@ function TransactionDetailView({
   const [attachmentOriginalUrl, setAttachmentOriginalUrl] = useState<string | null>(null);
   const [attachmentPreviewLoading, setAttachmentPreviewLoading] = useState(Boolean(transaction.receiptId));
   const [attachmentContentType, setAttachmentContentType] = useState("");
+  const [comments, setComments] = useState<Array<{ id: string; authorName: string; message: string; createdAt: string }>>([]);
+  const [commentError, setCommentError] = useState<string | null>(null);
+
+  const loadComments = () => request<typeof comments>(`/social/comments/transaction/${transaction.id}`)
+    .then(setComments)
+    .catch(() => setComments([]));
+
+  useEffect(() => {
+    loadComments();
+  }, [transaction.id]);
 
   useEffect(() => {
     if (!transaction.receiptId) {
@@ -1768,6 +2625,7 @@ function TransactionDetailView({
     ["Metode", transaction.paymentMethod ?? "-"],
     ["Kategori", transaction.categoryName ?? "Tanpa kategori"],
     ["Sumber", transaction.sourceType ?? "Manual"],
+    ["Visibilitas", transaction.visibility === "selected_friends" ? "Teman pilihan" : transaction.visibility === "everyone_involved" ? "Semua yang terlibat" : "Private"],
     ...(transaction.receiptId ? [["Attachment", "File tersimpan"]] : [])
   ];
 
@@ -1794,7 +2652,7 @@ function TransactionDetailView({
               </div>
             </div>
             <div className="shrink-0 text-right">
-              <p className={`text-lg font-semibold ${isIncome ? "text-[#00b817]" : "text-slate-950"}`}>
+              <p className={`text-lg font-semibold ${isIncome ? "text-[#16A34A]" : "text-slate-950"}`}>
                 {isIncome ? "+" : "-"}{rupiah(transaction.amount)}
               </p>
               <p className="mt-1 text-xs font-semibold text-slate-400">{isIncome ? "Pemasukan" : "Pengeluaran"}</p>
@@ -1828,7 +2686,7 @@ function TransactionDetailView({
               {attachmentOriginalUrl && (
                 <button
                   type="button"
-                  className="text-xs font-semibold text-[#00b817]"
+                  className="text-xs font-semibold text-[#16A34A]"
                   onClick={() => window.open(attachmentOriginalUrl, "_blank", "noopener,noreferrer")}
                 >
                   Buka file
@@ -1855,7 +2713,7 @@ function TransactionDetailView({
             ) : attachmentOriginalUrl ? (
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-50 px-4 py-8 text-sm font-semibold text-[#00b817] lg:rounded-md"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-50 px-4 py-8 text-sm font-semibold text-[#16A34A] lg:rounded-md"
                 onClick={() => window.open(attachmentOriginalUrl, "_blank", "noopener,noreferrer")}
               >
                 <ReceiptText size={18} /> Buka attachment
@@ -1867,6 +2725,39 @@ function TransactionDetailView({
             )}
           </div>
         )}
+
+        <div className="border-t border-slate-100 px-5 py-4">
+          <p className="text-[11px] font-semibold uppercase text-slate-400">Diskusi transaksi</p>
+          <div className="mt-3 space-y-2">
+            {comments.length === 0 && <p className="text-xs text-slate-500">Belum ada komentar.</p>}
+            {comments.map((comment) => (
+              <div key={comment.id} className="rounded-2xl bg-slate-50 p-3">
+                <p className="text-xs font-semibold text-slate-900">{comment.authorName}</p>
+                <p className="mt-1 text-sm text-slate-700">{comment.message}</p>
+              </div>
+            ))}
+          </div>
+          <form className="mt-3 flex gap-2" onSubmit={async (event) => {
+            event.preventDefault();
+            const formElement = event.currentTarget;
+            const message = String(new FormData(formElement).get("message"));
+            try {
+              await request(`/social/comments/transaction/${transaction.id}`, {
+                method: "POST",
+                body: JSON.stringify({ message })
+              });
+              formElement.reset();
+              setCommentError(null);
+              await loadComments();
+            } catch (error) {
+              setCommentError(error instanceof Error ? error.message : "Komentar gagal dikirim");
+            }
+          }}>
+            <input className="input min-w-0 flex-1" name="message" placeholder="Tulis komentar" required />
+            <button className="btn-secondary shrink-0" aria-label="Kirim komentar"><MessageCircle size={15} /></button>
+          </form>
+          {commentError && <p className="mt-2 text-xs text-rose-600">{commentError}</p>}
+        </div>
 
         <div className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 p-5">
           <button type="button" className="btn-primary" onClick={onEdit}>
@@ -1959,7 +2850,7 @@ function ReceiptView({
       accountId: String(form.get("accountId")),
       categoryId: String(form.get("categoryId") || "") || null,
       merchantName: String(form.get("merchantName")),
-      transactionDate: new Date(String(form.get("transactionDate"))).toISOString(),
+      transactionDate: dateFilterIso(String(form.get("transactionDate")), "start"),
       amount: String(form.get("amount")),
       paymentMethod: String(form.get("paymentMethod") || "") || null,
       notes: String(form.get("notes") || "") || null,
@@ -1986,11 +2877,11 @@ function ReceiptView({
       <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200 lg:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase text-[#00b817]">Scan struk</p>
+            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Scan struk</p>
             <h2 className="mt-0.5 text-lg font-semibold text-slate-950">Upload atau foto struk</h2>
             <p className="mt-1 text-xs font-semibold text-slate-500">Pilih sumber, cek preview, lalu proses OCR.</p>
           </div>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#00b817] lg:rounded-md">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-md">
             <Camera size={18} />
           </span>
         </div>
@@ -2000,13 +2891,13 @@ function ReceiptView({
         <input ref={fileInputRef} className="sr-only" type="file" accept="image/jpeg,image/png,application/pdf" onChange={selectFile} />
 
         <div className="grid grid-cols-3 gap-2">
-          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#00b817] lg:rounded-md" onClick={() => cameraInputRef.current?.click()}>
+          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-md" onClick={() => cameraInputRef.current?.click()}>
             <Camera size={18} /> Kamera
           </button>
-          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#00b817] lg:rounded-md" onClick={() => galleryInputRef.current?.click()}>
+          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-md" onClick={() => galleryInputRef.current?.click()}>
             <ReceiptText size={18} /> Galeri
           </button>
-          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#00b817] lg:rounded-md" onClick={() => fileInputRef.current?.click()}>
+          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-md" onClick={() => fileInputRef.current?.click()}>
             <Upload size={18} /> File
           </button>
         </div>
@@ -2016,7 +2907,7 @@ function ReceiptView({
             <img className="max-h-96 w-full object-contain" src={preview} alt="Preview struk" />
           ) : selectedFile ? (
             <div className="flex min-h-44 flex-col items-center justify-center px-4 py-8 text-center">
-              <ReceiptText className="mb-3 text-[#00b817]" size={28} />
+              <ReceiptText className="mb-3 text-[#16A34A]" size={28} />
               <p className="text-sm font-semibold text-slate-950">{selectedFile.name}</p>
               <p className="mt-1 text-xs font-semibold text-slate-500">PDF siap diproses.</p>
             </div>
@@ -2121,8 +3012,156 @@ function ReceiptView({
   );
 }
 
+function DateFilterPicker({
+  label,
+  value,
+  onChange,
+  language,
+  align = "left",
+  showLabel = true,
+  allowClear = true
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  language: AppLanguage;
+  align?: "left" | "right";
+  showLabel?: boolean;
+  allowClear?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const todayParts = jakartaDateParts();
+  const jakartaTodayDate = new Date(Date.UTC(todayParts.year, todayParts.month - 1, todayParts.day, 12));
+  const selectedDate = value ? new Date(`${value}T12:00:00Z`) : null;
+  const [visibleMonth, setVisibleMonth] = useState(
+    () => selectedDate ?? jakartaTodayDate
+  );
+  const rootRef = useRef<HTMLDivElement>(null);
+  const locale = language === "en" ? "en-US" : "id-ID";
+
+  useEffect(() => {
+    if (open) setVisibleMonth(selectedDate ?? jakartaTodayDate);
+  }, [open, value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent | TouchEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("touchstart", closeOutside, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("touchstart", closeOutside);
+    };
+  }, [open]);
+
+  const year = visibleMonth.getUTCFullYear();
+  const month = visibleMonth.getUTCMonth();
+  const firstOfMonth = new Date(Date.UTC(year, month, 1, 12));
+  const firstGridDate = new Date(Date.UTC(year, month, 1 - firstOfMonth.getUTCDay(), 12));
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(firstGridDate);
+    date.setUTCDate(firstGridDate.getUTCDate() + index);
+    return date;
+  });
+  const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
+    new Intl.DateTimeFormat(locale, { timeZone: "UTC", weekday: "narrow" }).format(new Date(Date.UTC(2026, 7, 2 + index, 12)))
+  );
+  const toValue = (date: Date) => [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0")
+  ].join("-");
+  const displayValue = selectedDate
+    ? new Intl.DateTimeFormat(locale, { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" }).format(selectedDate)
+    : (locale === "en-US" ? "Select date" : "Pilih tanggal");
+  const todayValue = todayParts.value;
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <button
+        type="button"
+        className={`flex w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-2 text-left transition lg:rounded-md ${
+          open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"
+        }`}
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+      >
+        <span className="min-w-0">
+          {showLabel && <span className="block text-[10px] font-semibold uppercase text-slate-400">{label}</span>}
+          <span className={`${showLabel ? "mt-1" : ""} block truncate text-xs font-semibold text-slate-800`}>{displayValue}</span>
+        </span>
+        <CalendarDays size={15} className="shrink-0 text-slate-400" />
+      </button>
+
+      {open && (
+        <div className={`absolute top-[calc(100%+8px)] z-40 w-[min(18rem,calc(100vw-2.5rem))] rounded-[20px] border border-slate-100 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.18)] ${
+          align === "right" ? "right-0" : "left-0"
+        }`}>
+          <div className="flex items-center justify-between">
+            <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month - 1, 1, 12)))} aria-label="Bulan sebelumnya">
+              <ChevronLeft size={18} />
+            </button>
+            <p className="text-sm font-semibold text-slate-900">
+              {new Intl.DateTimeFormat(locale, { timeZone: "UTC", month: "long", year: "numeric" }).format(visibleMonth)}
+            </p>
+            <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month + 1, 1, 12)))} aria-label="Bulan berikutnya">
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          <div className="mt-2 grid grid-cols-7">
+            {weekdayLabels.map((day, index) => (
+              <span key={`${day}-${index}`} className="flex h-8 items-center justify-center text-[10px] font-semibold text-slate-400">{day}</span>
+            ))}
+            {days.map((date) => {
+              const dateValue = toValue(date);
+              const selected = dateValue === value;
+              const today = dateValue === todayValue;
+              const currentMonth = date.getUTCMonth() === month;
+              return (
+                <button
+                  key={dateValue}
+                  type="button"
+                  className={`mx-auto flex h-9 w-9 items-center justify-center rounded-xl text-xs transition ${
+                    selected
+                      ? "bg-[#16A34A] font-semibold text-white shadow-sm"
+                      : today
+                        ? "bg-emerald-50 font-semibold text-[#16A34A]"
+                        : currentMonth
+                          ? "text-slate-700 hover:bg-slate-100"
+                          : "text-slate-300 hover:bg-slate-50"
+                  }`}
+                  onClick={() => {
+                    onChange(dateValue);
+                    setOpen(false);
+                  }}
+                >
+                  {date.getUTCDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
+            {allowClear ? (
+              <button type="button" className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50" onClick={() => onChange("")}>
+                {language === "en" ? "Clear" : "Hapus"}
+              </button>
+            ) : <span />}
+            <button type="button" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
+              onChange(todayValue);
+              setOpen(false);
+            }}>{language === "en" ? "Today" : "Hari ini"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HistoryView({
   accounts,
+  language,
   request,
   onOpen,
   onChanged,
@@ -2132,6 +3171,7 @@ function HistoryView({
   onFocused
 }: {
   accounts: Account[];
+  language: AppLanguage;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onOpen: (id: string) => void;
   onChanged: () => Promise<void>;
@@ -2144,8 +3184,8 @@ function HistoryView({
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [accountId, setAccountId] = useState(initialAccountId ?? "");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(() => currentMonthDateBounds().from);
+  const [toDate, setToDate] = useState(() => currentMonthDateBounds().to);
   const [loading, setLoading] = useState(true);
   const [highlightedTransactionId, setHighlightedTransactionId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -2270,15 +3310,15 @@ function HistoryView({
       <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase text-[#00b817]">Transaksi</p>
+            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Transaksi</p>
             <h2 className="mt-0.5 text-base font-semibold tracking-normal text-slate-950">Riwayat transaksi</h2>
             <p className="mt-1 text-xs font-semibold text-slate-500">{rows.length} transaksi tampil</p>
           </div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-[#00b817]">
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-[#16A34A]">
             {type === "income" ? "Masuk" : type === "expense" ? "Keluar" : "Semua"}
           </span>
         </div>
-        <div className="mt-3 rounded-2xl bg-[#00b817] px-4 py-3 text-white lg:rounded-lg">
+        <div className="mt-3 rounded-2xl bg-[#16A34A] px-4 py-3 text-white lg:rounded-lg">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold text-white/75">Net transaksi</p>
@@ -2289,8 +3329,8 @@ function HistoryView({
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <div className="rounded-2xl bg-emerald-50 px-3 py-2 lg:rounded-md">
-            <p className="text-[11px] font-bold text-[#008f12]">Masuk</p>
-            <p className="mt-0.5 text-[13px] font-semibold leading-tight text-[#008f12]">{rupiah(totalIncome)}</p>
+            <p className="text-[11px] font-bold text-[#15803D]">Masuk</p>
+            <p className="mt-0.5 text-[13px] font-semibold leading-tight text-[#15803D]">{rupiah(totalIncome)}</p>
           </div>
           <div className="rounded-2xl bg-rose-50 px-3 py-2 lg:rounded-md">
             <p className="text-[11px] font-bold text-rose-700">Keluar</p>
@@ -2352,36 +3392,8 @@ function HistoryView({
         </label>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <label className="relative block rounded-2xl border border-slate-200 bg-white px-3 py-2 lg:rounded-md">
-            <span className="text-[10px] font-semibold uppercase text-slate-400">Dari</span>
-            <input
-              className="mt-1 w-full bg-transparent text-xs font-bold text-slate-800 outline-none"
-              type="date"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-              aria-label="Tanggal mulai"
-            />
-            {fromDate && (
-              <button type="button" className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Hapus tanggal mulai" onClick={() => setFromDate("")}>
-                <X size={13} />
-              </button>
-            )}
-          </label>
-          <label className="relative block rounded-2xl border border-slate-200 bg-white px-3 py-2 lg:rounded-md">
-            <span className="text-[10px] font-semibold uppercase text-slate-400">Sampai</span>
-            <input
-              className="mt-1 w-full bg-transparent text-xs font-bold text-slate-800 outline-none"
-              type="date"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-              aria-label="Tanggal akhir"
-            />
-            {toDate && (
-              <button type="button" className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Hapus tanggal akhir" onClick={() => setToDate("")}>
-                <X size={13} />
-              </button>
-            )}
-          </label>
+          <DateFilterPicker label="Dari" value={fromDate} onChange={setFromDate} language={language} />
+          <DateFilterPicker label="Sampai" value={toDate} onChange={setToDate} language={language} align="right" />
         </div>
 
         <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
@@ -2410,7 +3422,7 @@ function HistoryView({
               </button>
               <button
                 type="button"
-                className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-[#00b817] transition hover:bg-emerald-100"
+                className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-[#16A34A] transition hover:bg-emerald-100"
                 onClick={allVisibleSelected ? clearSelection : selectAllVisible}
               >
                 {allVisibleSelected ? "Batal semua" : "Pilih semua"}
@@ -2430,7 +3442,7 @@ function HistoryView({
       {!loading && rows.length > 0 && selectedCount === 0 && (
         <div className="overflow-x-auto rounded-[20px] border border-white/80 bg-white/85 px-3 py-2 shadow-soft backdrop-blur lg:rounded-lg">
           <div className="flex min-w-max items-center gap-2 text-[11px] font-semibold text-slate-500">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[#00b817]">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[#16A34A]">
               <ChevronRight size={12} /> Tap detail
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
@@ -2452,7 +3464,7 @@ function HistoryView({
                   <h3 className="text-sm font-semibold text-slate-950">{group.label}</h3>
                   <p className="text-xs font-semibold text-slate-500">{group.rows.length} transaksi</p>
                 </div>
-                <p className={`text-sm font-semibold ${group.net >= 0 ? "text-[#00b817]" : "text-slate-900"}`}>
+                <p className={`text-sm font-semibold ${group.net >= 0 ? "text-[#16A34A]" : "text-slate-900"}`}>
                   {group.net >= 0 ? "+" : "-"}{rupiah(Math.abs(group.net))}
                 </p>
               </div>
@@ -2530,7 +3542,7 @@ function accountTypeIcon(type: string): LucideIcon {
 }
 
 function budgetTone(status: string) {
-  if (status === "Aman") return "bg-emerald-50 text-[#00b817]";
+  if (status === "Aman") return "bg-emerald-50 text-[#16A34A]";
   if (status === "Peringatan") return "bg-amber-50 text-amber-700";
   return "bg-rose-50 text-rose-700";
 }
@@ -2550,6 +3562,7 @@ function SectionHeader({ title, caption, action }: { title: string; caption?: st
 function ManageView({
   accounts,
   categories,
+  language,
   request,
   onNavigate,
   onChanged,
@@ -2557,44 +3570,147 @@ function ManageView({
 }: {
   accounts: Account[];
   categories: Category[];
+  language: AppLanguage;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onNavigate: (view: View) => void;
   onChanged: () => Promise<void>;
   onOpenAccountTransactions: (accountId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<ManageTab>("budgets");
-  const totalBalance = accounts.reduce(
-    (sum, account) => sum + (account.accountType === "credit_card" ? -moneyValue(account.currentBalance) : moneyValue(account.currentBalance)),
-    0
-  );
-  const expenseCategoryCount = categories.filter((category) => category.categoryType === "expense").length;
-  const tabs: Array<{ id: ManageTab; label: string; icon: LucideIcon; meta: string }> = [
-    { id: "budgets", label: "Budget", icon: CircleDollarSign, meta: "Batas bulanan" },
-    { id: "accounts", label: "Akun", icon: Wallet, meta: `${accounts.length} aktif` },
-    { id: "categories", label: "Kategori", icon: Tags, meta: `${expenseCategoryCount} pengeluaran` },
-    { id: "schedules", label: "Jadwal", icon: Bell, meta: "Pengingat bayar" }
+  const [activeTab, setActiveTab] = useState<ManageTab | null>(null);
+  const [quickCreate, setQuickCreate] = useState<ManageTab | null>(null);
+  const [viewVersion, setViewVersion] = useState(0);
+  const [showQuickActions, setShowQuickActions] = useState(false);
+  const [budgetCount, setBudgetCount] = useState(0);
+  const [scheduleCount, setScheduleCount] = useState(0);
+
+  useEffect(() => {
+    Promise.all([
+      request<BudgetRow[]>("/budgets").catch(() => []),
+      request<Schedule[]>("/schedules").catch(() => [])
+    ]).then(([budgets, schedules]) => {
+      setBudgetCount(budgets.length);
+      setScheduleCount(schedules.length);
+    });
+  }, [accounts, categories]);
+
+  const isEnglish = language === "en";
+  const tabs: Array<{ id: ManageTab; label: string; icon: LucideIcon; count: string; meta: string; tone: string }> = [
+    { id: "accounts", label: isEnglish ? "Accounts" : "Akun", icon: CreditCard, count: `${accounts.length} ${isEnglish ? "accounts" : "akun"}`, meta: isEnglish ? "Bank, cash, and e-wallet" : "Rekening, tunai, dan e-wallet", tone: "bg-sky-50 text-sky-700" },
+    { id: "categories", label: isEnglish ? "Categories" : "Kategori", icon: Tags, count: `${categories.length} ${isEnglish ? "categories" : "kategori"}`, meta: isEnglish ? "Income and expense groups" : "Kelompok pemasukan dan pengeluaran", tone: "bg-violet-50 text-violet-700" },
+    { id: "budgets", label: isEnglish ? "Budgets" : "Budget", icon: CircleDollarSign, count: `${budgetCount} ${isEnglish ? "active" : "aktif"}`, meta: isEnglish ? "Monthly spending limits" : "Batas pengeluaran bulanan", tone: "bg-emerald-50 text-[#16A34A]" },
+    { id: "schedules", label: isEnglish ? "Schedules" : "Jadwal", icon: Bell, count: `${scheduleCount} ${isEnglish ? "reminders" : "pengingat"}`, meta: isEnglish ? "Recurring payments and transactions" : "Pembayaran dan transaksi rutin", tone: "bg-amber-50 text-amber-700" }
   ];
 
-  return (
-    <section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
-      <div className="grid gap-3 lg:grid-cols-[1.05fr_1.35fr]">
-        <div className="rounded-[26px] bg-[#003d12] p-4 text-white shadow-[0_18px_42px_rgba(0,184,23,0.18)] lg:rounded-lg lg:p-5">
-          <p className="text-[10px] font-semibold uppercase text-white/60">Kelola</p>
-          <h2 className="mt-1 text-xl font-semibold tracking-normal">Dompet & aturan</h2>
-          <p className="mt-1 text-xs font-semibold text-white/70">Atur akun, kategori, dan batas budget dari satu tempat.</p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-              <p className="text-[10px] font-bold text-white/60">Saldo akun</p>
-              <p className="mt-1 truncate text-sm font-semibold">{rupiah(totalBalance)}</p>
-            </div>
-            <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-              <p className="text-[10px] font-bold text-white/60">Kategori</p>
-              <p className="mt-1 truncate text-sm font-semibold">{categories.length} aktif</p>
+  const openSection = (id: ManageTab, create = false) => {
+    setActiveTab(id);
+    setQuickCreate(create ? id : null);
+    setShowQuickActions(false);
+    setViewVersion((current) => current + 1);
+  };
+
+  if (activeTab) {
+    const activeItem = tabs.find((item) => item.id === activeTab)!;
+    const ActiveIcon = activeItem.icon;
+    return (
+      <section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
+        <div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95"
+            onClick={() => {
+              setActiveTab(null);
+              setQuickCreate(null);
+            }}
+          >
+            <ArrowLeft size={16} /> {isEnglish ? "Back to Settings" : "Kembali ke Atur"}
+          </button>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${activeItem.tone}`}>
+              <ActiveIcon size={17} />
+            </span>
+            <div className="min-w-0 text-right">
+              <p className="truncate text-sm font-semibold text-slate-950">{activeItem.label}</p>
+              <p className="text-[10px] text-slate-500">{activeItem.count}</p>
             </div>
           </div>
         </div>
 
-        <div className="grid gap-2 rounded-[26px] border border-white/80 bg-white p-2 shadow-soft lg:rounded-lg lg:border-slate-200">
+        {activeTab === "budgets" && (
+          <BudgetsView
+            key={`budgets-${viewVersion}`}
+            categories={categories}
+            request={request}
+            onChanged={onChanged}
+            initialView={quickCreate === "budgets" ? "form" : "list"}
+          />
+        )}
+        {activeTab === "accounts" && (
+          <AccountsView
+            key={`accounts-${viewVersion}`}
+            accounts={accounts}
+            request={request}
+            onChanged={onChanged}
+            onOpenTransactions={onOpenAccountTransactions}
+            initialView={quickCreate === "accounts" ? "account-form" : "list"}
+          />
+        )}
+        {activeTab === "categories" && (
+          <CategoriesView
+            key={`categories-${viewVersion}`}
+            categories={categories}
+            request={request}
+            onChanged={onChanged}
+            initialView={quickCreate === "categories" ? "form" : "list"}
+          />
+        )}
+        {activeTab === "schedules" && (
+          <SchedulesView
+            key={`schedules-${viewVersion}`}
+            accounts={accounts}
+            categories={categories}
+            request={request}
+            onNavigate={onNavigate}
+            onTransfer={() => openSection("accounts")}
+            initialView={quickCreate === "schedules" ? "form" : "list"}
+          />
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
+      <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-lg">
+        <div className="relative flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">{isEnglish ? "Settings" : "Atur"}</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isEnglish ? "Finance & reminders" : "Keuangan & pengingat"}</h2>
+            <p className="mt-1 text-xs text-slate-500">{isEnglish ? "All essential settings in one place." : "Semua pengaturan penting dalam satu tempat."}</p>
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[#16A34A] px-3.5 text-xs font-semibold text-white shadow-sm transition active:scale-95"
+            onClick={() => setShowQuickActions((current) => !current)}
+            aria-expanded={showQuickActions}
+          >
+            <Plus size={16} /> {isEnglish ? "Add" : "Tambah"}
+          </button>
+          {showQuickActions && (
+            <div className="absolute right-0 top-12 z-20 w-52 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+              {tabs.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button key={item.id} type="button" className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]" onClick={() => openSection(item.id, true)}>
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${item.tone}`}><Icon size={16} /></span>
+                    {isEnglish ? "Add" : "Tambah"} {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -2602,40 +3718,28 @@ function ManageView({
               <button
                 key={tab.id}
                 type="button"
-                className={`flex items-center justify-between gap-3 rounded-[18px] px-3 py-3 text-left transition lg:rounded-md ${
-                  active ? "bg-emerald-50 text-slate-950" : "text-slate-500 hover:bg-slate-50"
+                className={`ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border p-3 text-left transition lg:rounded-md ${
+                  active ? "border-emerald-200 bg-emerald-50/70" : "border-slate-100 bg-white hover:border-emerald-100 hover:bg-slate-50"
                 }`}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => openSection(tab.id)}
               >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl lg:rounded-md ${
-                    active ? "bg-[#00b817] text-white" : "bg-slate-100 text-slate-500"
-                  }`}>
-                    <Icon size={17} />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">{tab.label}</span>
-                    <span className="mt-0.5 block truncate text-[11px] font-semibold opacity-70">{tab.meta}</span>
-                  </span>
+                <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tab.tone}`}>
+                  <Icon size={23} strokeWidth={2} />
                 </span>
-                {active && <CheckCircle2 size={16} className="shrink-0 text-[#00b817]" />}
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-slate-950">{tab.label}</span>
+                    <span className="max-w-[110px] shrink-0 truncate rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{tab.count}</span>
+                  </span>
+                  <span className="mt-1 block truncate text-[11px] text-slate-500">{tab.meta}</span>
+                </span>
+                <ChevronRight size={19} className="shrink-0 text-slate-300" />
               </button>
             );
           })}
         </div>
       </div>
 
-      {activeTab === "budgets" && <BudgetsView categories={categories} request={request} onChanged={onChanged} />}
-      {activeTab === "accounts" && (
-        <AccountsView
-          accounts={accounts}
-          request={request}
-          onChanged={onChanged}
-          onOpenTransactions={onOpenAccountTransactions}
-        />
-      )}
-      {activeTab === "categories" && <CategoriesView categories={categories} request={request} onChanged={onChanged} />}
-      {activeTab === "schedules" && <SchedulesView accounts={accounts} categories={categories} request={request} onNavigate={onNavigate} onTransfer={() => setActiveTab("accounts")} />}
     </section>
   );
 }
@@ -2643,7 +3747,7 @@ function ManageView({
 function scheduleTone(status: Schedule["reminderStatus"]) {
   if (status === "overdue") return "bg-rose-50 text-rose-700";
   if (status === "soon") return "bg-amber-50 text-amber-700";
-  return "bg-emerald-50 text-[#00b817]";
+  return "bg-emerald-50 text-[#16A34A]";
 }
 
 function SchedulesView({
@@ -2651,19 +3755,21 @@ function SchedulesView({
   categories,
   request,
   onNavigate,
-  onTransfer
+  onTransfer,
+  initialView = "list"
 }: {
   accounts: Account[];
   categories: Category[];
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onNavigate: (view: View) => void;
   onTransfer: () => void;
+  initialView?: "list" | "form";
 }) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
-  const [scheduleView, setScheduleView] = useState<"list" | "form">("list");
+  const [scheduleView, setScheduleView] = useState<"list" | "form">(initialView);
   const expenseCategories = categories.filter((category) => category.categoryType === "expense");
 
   const load = async () => {
@@ -2723,7 +3829,7 @@ function SchedulesView({
           action={(
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#00b817]"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]"
               onClick={() => {
                 setError(null);
                 setEditingSchedule(null);
@@ -2759,14 +3865,14 @@ function SchedulesView({
                 <div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
                   <button
                     type="button"
-                    className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#00b817] transition hover:bg-emerald-100"
+                    className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A] transition hover:bg-emerald-100"
                     onClick={() => schedule.scheduleType === "transaction" ? onNavigate("manual") : onTransfer()}
                   >
                     Buat sekarang
                   </button>
                   <button
                     type="button"
-                    className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#00b817]"
+                    className="rounded-full bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
                     onClick={() => {
                       setError(null);
                       setEditingSchedule(schedule);
@@ -2863,16 +3969,18 @@ function AccountsView({
   accounts,
   request,
   onChanged,
-  onOpenTransactions
+  onOpenTransactions,
+  initialView = "list"
 }: {
   accounts: Account[];
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onChanged: () => Promise<void>;
   onOpenTransactions: (accountId: string) => void;
+  initialView?: "list" | "account-form";
 }) {
   const [error, setError] = useState<string | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [accountView, setAccountView] = useState<"list" | "account-form" | "transfer-form">("list");
+  const [accountView, setAccountView] = useState<"list" | "account-form" | "transfer-form">(initialView);
   const [sourceAccountId, setSourceAccountId] = useState("");
   const [destinationAccountId, setDestinationAccountId] = useState("");
   const [transferAttachmentId, setTransferAttachmentId] = useState<string | null>(null);
@@ -2943,6 +4051,8 @@ function AccountsView({
         accountType: String(form.get("accountType")),
         initialBalance: String(form.get("initialBalance")),
         currency: "IDR",
+        providerName: String(form.get("providerName") || "") || null,
+        accountNumber: String(form.get("accountNumber") || "") || null,
         allowNegative: form.get("allowNegative") === "on"
       };
       await request(editingAccount ? `/accounts/${editingAccount.id}` : "/accounts", {
@@ -2997,7 +4107,7 @@ function AccountsView({
           destinationAccountId: String(form.get("destinationAccountId")),
           amount: String(form.get("amount")),
           feeAmount: String(form.get("feeAmount") || "0"),
-          transferDate: new Date(String(form.get("transferDate"))).toISOString(),
+          transferDate: dateFilterIso(String(form.get("transferDate")), "start"),
           notes: String(form.get("notes") || "") || null,
           receiptId: transferAttachmentId
         })
@@ -3023,7 +4133,7 @@ function AccountsView({
           action={(
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#00b817]"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]"
               onClick={() => {
                 setError(null);
                 setEditingAccount(null);
@@ -3061,11 +4171,16 @@ function AccountsView({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-950">{account.name}</p>
                       <p className="mt-0.5 text-xs font-semibold text-slate-500">{accountTypeLabel(account.accountType)}</p>
+                      {(account.providerName || account.accountNumber) && (
+                        <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                          {[account.providerName, account.accountNumber].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <button
                     type="button"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#00b817] transition hover:bg-emerald-100 active:scale-95 lg:rounded-md"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] transition hover:bg-emerald-100 active:scale-95 lg:rounded-md"
                     onClick={() => onOpenTransactions(account.id)}
                     aria-label={`Lihat riwayat transaksi akun ${account.name}`}
                     title="Lihat riwayat transaksi"
@@ -3078,7 +4193,7 @@ function AccountsView({
                   <p className="text-[11px] font-semibold text-slate-500">Saldo awal {rupiah(account.initialBalance)}</p>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#00b817]"
+                    className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
                     onClick={() => {
                       setError(null);
                       setEditingAccount(account);
@@ -3139,6 +4254,25 @@ function AccountsView({
                 required
               />
             </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Bank / penyedia">
+                <input
+                  className="input"
+                  name="providerName"
+                  placeholder="BCA, GoPay, DANA"
+                  defaultValue={editingAccount?.providerName ?? ""}
+                />
+              </Field>
+              <Field label="Nomor rekening / e-money">
+                <input
+                  className="input"
+                  name="accountNumber"
+                  inputMode="numeric"
+                  placeholder="Nomor akun"
+                  defaultValue={editingAccount?.accountNumber ?? ""}
+                />
+              </Field>
+            </div>
             {editingAccount && (
               <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500 lg:rounded-md">
                 Mengubah saldo awal akan menghitung ulang saldo sekarang tanpa menghapus transaksi. Saldo sekarang {rupiah(editingAccount.currentBalance)}.
@@ -3249,7 +4383,7 @@ function AccountsView({
                   <p className="text-xs font-semibold text-slate-700">Attachment transfer</p>
                   <p className="mt-0.5 text-[11px] leading-4 text-slate-500">Tambahkan gambar atau video sebagai bukti transfer.</p>
                 </div>
-                <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#00b817] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-md">
+                <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-md">
                   {transferAttachmentLoading ? <Loader2 className="animate-spin" size={14} /> : <Upload size={14} />}
                   {transferAttachmentId ? "Ganti" : "Pilih file"}
                   <input
@@ -3263,12 +4397,12 @@ function AccountsView({
               </div>
               {transferAttachmentName && (
                 <div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 lg:rounded-md">
-                  <ReceiptText className="shrink-0 text-[#00b817]" size={14} />
+                  <ReceiptText className="shrink-0 text-[#16A34A]" size={14} />
                   <span className="truncate">{transferAttachmentName}</span>
                 </div>
               )}
               {transferAttachmentMessage && (
-                <p className={`mt-2 text-[11px] leading-4 ${transferAttachmentMessage.includes("berhasil") ? "text-[#008f12]" : "text-slate-500"}`}>
+                <p className={`mt-2 text-[11px] leading-4 ${transferAttachmentMessage.includes("berhasil") ? "text-[#15803D]" : "text-slate-500"}`}>
                   {transferAttachmentMessage}
                 </p>
               )}
@@ -3283,10 +4417,21 @@ function AccountsView({
   );
 }
 
-function CategoriesView({ categories, request, onChanged }: { categories: Category[]; request: <T>(path: string, options?: RequestInit) => Promise<T>; onChanged: () => Promise<void> }) {
+function CategoriesView({
+  categories,
+  request,
+  onChanged,
+  initialView = "list"
+}: {
+  categories: Category[];
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+  onChanged: () => Promise<void>;
+  initialView?: "list" | "form";
+}) {
   const [error, setError] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [categoryView, setCategoryView] = useState<"list" | "form">("list");
+  const [categoryView, setCategoryView] = useState<"list" | "form">(initialView);
+  const [deleting, setDeleting] = useState(false);
   const expenseCategories = categories.filter((category) => category.categoryType === "expense");
   const incomeCategories = categories.filter((category) => category.categoryType === "income");
 
@@ -3295,6 +4440,12 @@ function CategoriesView({ categories, request, onChanged }: { categories: Catego
     setError(null);
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const nextCategoryType = String(form.get("categoryType"));
+    if (
+      editingCategory &&
+      editingCategory.categoryType !== nextCategoryType &&
+      !window.confirm("Ubah tipe kategori? Transaksi lama yang tidak sesuai akan menjadi Tanpa kategori.")
+    ) return;
     try {
       await request(editingCategory ? `/categories/${editingCategory.id}` : "/categories", {
         method: editingCategory ? "PUT" : "POST",
@@ -3313,6 +4464,23 @@ function CategoriesView({ categories, request, onChanged }: { categories: Catego
     }
   };
 
+  const removeCategory = async () => {
+    if (!editingCategory || editingCategory.isDefault) return;
+    if (!window.confirm("Hapus kategori ini? Transaksi yang menggunakannya akan tetap tersimpan sebagai Tanpa kategori.")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await request(`/categories/${editingCategory.id}`, { method: "DELETE" });
+      setEditingCategory(null);
+      await onChanged();
+      setCategoryView("list");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kategori gagal dihapus");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {categoryView === "list" && (
@@ -3323,7 +4491,7 @@ function CategoriesView({ categories, request, onChanged }: { categories: Catego
           action={(
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#00b817]"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]"
               onClick={() => {
                 setError(null);
                 setEditingCategory(null);
@@ -3336,11 +4504,13 @@ function CategoriesView({ categories, request, onChanged }: { categories: Catego
         />
         <div className="space-y-4">
           <CategoryGroup title="Pengeluaran" rows={expenseCategories} tone="expense" onEdit={(category) => {
+            if (category.isDefault) return;
             setError(null);
             setEditingCategory(category);
             setCategoryView("form");
           }} />
           <CategoryGroup title="Pemasukan" rows={incomeCategories} tone="income" onEdit={(category) => {
+            if (category.isDefault) return;
             setError(null);
             setEditingCategory(category);
             setCategoryView("form");
@@ -3378,7 +4548,24 @@ function CategoriesView({ categories, request, onChanged }: { categories: Catego
               <option value="income">Pemasukan</option>
             </select>
           </Field>
-          <button className="btn-primary w-full">{editingCategory ? <CheckCircle2 size={16} /> : <Plus size={16} />} {editingCategory ? "Simpan perubahan" : "Tambah kategori"}</button>
+          <button className="btn-primary w-full" disabled={deleting}>{editingCategory ? <CheckCircle2 size={16} /> : <Plus size={16} />} {editingCategory ? "Simpan perubahan" : "Tambah kategori"}</button>
+          {editingCategory?.isDefault && (
+            <p className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-500 lg:rounded-md">
+              <ShieldCheck size={15} className="shrink-0 text-[#16A34A]" />
+              Kategori bawaan sistem dilindungi dan tidak dapat dihapus.
+            </p>
+          )}
+          {editingCategory && !editingCategory.isDefault && (
+            <button
+              type="button"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md"
+              onClick={removeCategory}
+              disabled={deleting}
+            >
+              {deleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+              {deleting ? "Menghapus kategori..." : "Hapus kategori"}
+            </button>
+          )}
           {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
         </div>
       </form>
@@ -3388,7 +4575,7 @@ function CategoriesView({ categories, request, onChanged }: { categories: Catego
 }
 
 function CategoryGroup({ title, rows, tone, onEdit }: { title: string; rows: Category[]; tone: "income" | "expense"; onEdit?: (category: Category) => void }) {
-  const toneClass = tone === "income" ? "bg-emerald-50 text-[#00b817]" : "bg-rose-50 text-rose-600";
+  const toneClass = tone === "income" ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600";
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
@@ -3410,13 +4597,15 @@ function CategoryGroup({ title, rows, tone, onEdit }: { title: string; rows: Cat
                   <p className="text-[11px] font-semibold text-slate-500">{category.isDefault ? "Default" : "Custom"}</p>
                 </div>
               </div>
-              <button
-                type="button"
-                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#00b817]"
-                onClick={() => onEdit?.(category)}
-              >
-                <Settings size={12} /> Edit
-              </button>
+              {!category.isDefault && (
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
+                  onClick={() => onEdit?.(category)}
+                >
+                  <Settings size={12} /> Edit
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -3466,17 +4655,19 @@ function LegacyCategoriesView({ categories, request, onChanged }: { categories: 
 function BudgetsView({
   categories,
   request,
-  onChanged
+  onChanged,
+  initialView = "list"
 }: {
   categories: Category[];
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onChanged?: () => Promise<void>;
+  initialView?: "list" | "form";
 }) {
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBudget, setEditingBudget] = useState<BudgetRow | null>(null);
-  const [budgetView, setBudgetView] = useState<"list" | "form">("list");
+  const [budgetView, setBudgetView] = useState<"list" | "form">(initialView);
   const expenseCategories = categories.filter((category) => category.categoryType === "expense");
   const load = async () => {
     setLoading(true);
@@ -3514,7 +4705,7 @@ function BudgetsView({
     }
   };
 
-  const now = new Date();
+  const now = jakartaDateParts();
   const totalBudget = budgets.reduce((sum, budget) => sum + moneyValue(budget.budgetAmount), 0);
   const totalUsed = budgets.reduce((sum, budget) => sum + moneyValue(budget.used), 0);
   const totalPercent = totalBudget > 0 ? Math.round((totalUsed / totalBudget) * 100) : 0;
@@ -3530,7 +4721,7 @@ function BudgetsView({
           action={(
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#00b817]"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]"
               onClick={() => {
                 setError(null);
                 setEditingBudget(null);
@@ -3543,7 +4734,7 @@ function BudgetsView({
         />
         <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100">
           <div
-            className={`h-full rounded-full ${totalPercent <= 80 ? "bg-[#00b817]" : totalPercent <= 100 ? "bg-amber-400" : "bg-rose-500"}`}
+            className={`h-full rounded-full ${totalPercent <= 80 ? "bg-[#16A34A]" : totalPercent <= 100 ? "bg-amber-400" : "bg-rose-500"}`}
             style={{ width: `${Math.min(totalPercent, 100)}%` }}
           />
         </div>
@@ -3572,14 +4763,14 @@ function BudgetsView({
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className={`h-full rounded-full ${percent <= 80 ? "bg-[#00b817]" : percent <= 100 ? "bg-amber-400" : "bg-rose-500"}`}
+                      className={`h-full rounded-full ${percent <= 80 ? "bg-[#16A34A]" : percent <= 100 ? "bg-amber-400" : "bg-rose-500"}`}
                       style={{ width: `${Math.min(percent, 100)}%` }}
                     />
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#00b817]"
+                      className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
                       onClick={() => {
                         setError(null);
                         setEditingBudget(budget);
@@ -3625,10 +4816,10 @@ function BudgetsView({
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Bulan">
-              <input className="input" name="month" type="number" min={1} max={12} defaultValue={editingBudget?.month ?? now.getMonth() + 1} required />
+              <input className="input" name="month" type="number" min={1} max={12} defaultValue={editingBudget?.month ?? now.month} required />
             </Field>
             <Field label="Tahun">
-              <input className="input" name="year" type="number" min={2000} max={2100} defaultValue={editingBudget?.year ?? now.getFullYear()} required />
+              <input className="input" name="year" type="number" min={2000} max={2100} defaultValue={editingBudget?.year ?? now.year} required />
             </Field>
           </div>
           <Field label="Nilai budget">
@@ -3664,7 +4855,7 @@ function LegacyBudgetsView({ categories, request }: { categories: Category[]; re
     event.currentTarget.reset();
     await load();
   };
-  const now = new Date();
+  const now = jakartaDateParts();
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
       <section className="grid gap-4 md:grid-cols-2">
@@ -3672,7 +4863,7 @@ function LegacyBudgetsView({ categories, request }: { categories: Category[]; re
           <div key={budget.id} className="card p-5">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">{budget.category}</h3>
-              <span className={`rounded px-2 py-1 text-xs font-bold ${budget.status === "Aman" ? "bg-emerald-50 text-[#008f12]" : budget.status === "Peringatan" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>{budget.status}</span>
+              <span className={`rounded px-2 py-1 text-xs font-bold ${budget.status === "Aman" ? "bg-emerald-50 text-[#15803D]" : budget.status === "Peringatan" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>{budget.status}</span>
             </div>
             <p className="mt-3 text-2xl font-bold">{rupiah(budget.used)} / {rupiah(budget.budgetAmount)}</p>
             <div className="mt-4 h-3 rounded bg-slate-100">
@@ -3686,8 +4877,8 @@ function LegacyBudgetsView({ categories, request }: { categories: Category[]; re
         <h2 className="font-bold">Anggaran bulanan</h2>
         <select className="input" name="categoryId" required>{expenseCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <div className="grid grid-cols-2 gap-3">
-          <input className="input" name="month" type="number" min={1} max={12} defaultValue={now.getMonth() + 1} required />
-          <input className="input" name="year" type="number" min={2000} max={2100} defaultValue={now.getFullYear()} required />
+          <input className="input" name="month" type="number" min={1} max={12} defaultValue={now.month} required />
+          <input className="input" name="year" type="number" min={2000} max={2100} defaultValue={now.year} required />
         </div>
         <input className="input" name="budgetAmount" placeholder="Nilai anggaran" required />
         <button className="btn-primary w-full"><CheckCircle2 size={16} /> Simpan anggaran</button>
@@ -3701,7 +4892,7 @@ type CategoryReportRow = { category: string | null; transactionType: "income" | 
 type MonthlyReportRow = { month: string; income: string; expense: string };
 
 function monthYearLabel(value: string | Date) {
-  return new Intl.DateTimeFormat("id-ID", { month: "short", year: "numeric" }).format(new Date(value));
+  return new Intl.DateTimeFormat("id-ID", { timeZone: APP_TIME_ZONE, month: "short", year: "numeric" }).format(new Date(value));
 }
 
 function ReportsView({ request }: { request: <T>(path: string, options?: RequestInit) => Promise<T> }) {
@@ -3763,31 +4954,31 @@ function ReportsView({ request }: { request: <T>(path: string, options?: Request
 
   return (
     <section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
-      <div className="rounded-[26px] bg-[#003d12] p-4 text-white shadow-[0_18px_42px_rgba(0,184,23,0.20)] lg:rounded-lg lg:p-5">
+      <div className="rounded-[26px] border border-slate-100 bg-white p-4 text-slate-950 shadow-soft lg:rounded-lg lg:p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase text-white/60">Insight</p>
+            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Insight</p>
             <h2 className="mt-1 text-xl font-semibold tracking-normal">Laporan keuangan</h2>
-            <p className="mt-1 text-xs font-semibold text-white/70">Ringkasan dari transaksi bulan berjalan dan perbandingan bulanan.</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">Ringkasan dari transaksi bulan berjalan dan perbandingan bulanan.</p>
           </div>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-            totalNet >= 0 ? "bg-emerald-50 text-[#00b817]" : "bg-rose-50 text-rose-700"
+            totalNet >= 0 ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-700"
           }`}>
             {totalNet >= 0 ? "Surplus" : "Defisit"}
           </span>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-            <p className="text-[10px] font-bold text-white/60">Masuk</p>
-            <p className="mt-1 truncate text-sm font-semibold">{rupiah(totalIncome)}</p>
+          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-md">
+            <p className="text-[10px] font-medium text-slate-500">Masuk</p>
+            <p className="mt-1 truncate text-sm font-semibold text-[#16A34A]">{rupiah(totalIncome)}</p>
           </div>
-          <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-            <p className="text-[10px] font-bold text-white/60">Keluar</p>
-            <p className="mt-1 truncate text-sm font-semibold">{rupiah(totalExpense)}</p>
+          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-md">
+            <p className="text-[10px] font-medium text-slate-500">Keluar</p>
+            <p className="mt-1 truncate text-sm font-semibold text-rose-600">{rupiah(totalExpense)}</p>
           </div>
-          <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-            <p className="text-[10px] font-bold text-white/60">Net</p>
-            <p className="mt-1 truncate text-sm font-semibold">{totalNet >= 0 ? "+" : "-"}{rupiah(Math.abs(totalNet))}</p>
+          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-md">
+            <p className="text-[10px] font-medium text-slate-500">Net</p>
+            <p className={`mt-1 truncate text-sm font-semibold ${totalNet >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>{totalNet >= 0 ? "+" : "-"}{rupiah(Math.abs(totalNet))}</p>
           </div>
         </div>
       </div>
@@ -3830,7 +5021,7 @@ function ReportsView({ request }: { request: <T>(path: string, options?: Request
               <h3 className="text-sm font-semibold text-slate-950">Arus kas</h3>
               <p className="text-xs font-semibold text-slate-500">{cashFlow.length} hari tercatat</p>
             </div>
-            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-[#00b817]">Harian</span>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-[#16A34A]">Harian</span>
           </div>
           <CashFlowInsightList rows={cashFlow} />
         </section>
@@ -3876,7 +5067,7 @@ function ReportInsightCard({
 }) {
   const toneClass =
     tone === "income"
-      ? "bg-emerald-50 text-[#00b817]"
+      ? "bg-emerald-50 text-[#16A34A]"
       : tone === "expense"
         ? "bg-rose-50 text-rose-600"
         : "bg-slate-100 text-slate-500";
@@ -3914,13 +5105,13 @@ function CashFlowInsightList({ rows }: { rows: CashFlowReportRow[] }) {
                 <p className="mt-0.5 text-[11px] font-semibold text-slate-500">Net {net >= 0 ? "+" : "-"}{rupiah(Math.abs(net))}</p>
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-[11px] font-semibold text-[#00b817]">{rupiah(row.income)}</p>
+                <p className="text-[11px] font-semibold text-[#16A34A]">{rupiah(row.income)}</p>
                 <p className="text-[11px] font-semibold text-rose-500">{rupiah(row.expense)}</p>
               </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-1">
               <div className="h-1.5 overflow-hidden rounded-full bg-emerald-50">
-                <div className="h-full rounded-full bg-[#00b817]" style={{ width: `${incomePercent}%` }} />
+                <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${incomePercent}%` }} />
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-rose-50">
                 <div className="h-full rounded-full bg-rose-400" style={{ width: `${expensePercent}%` }} />
@@ -3978,7 +5169,7 @@ function MonthlyInsightList({ rows }: { rows: MonthlyReportRow[] }) {
         const expense = Number(row.expense);
         const net = income - expense;
         const expenseRatio = Math.round((expense / Math.max(income, 1)) * 100);
-        const ratioTone = expenseRatio <= 80 ? "bg-[#00b817]" : expenseRatio <= 100 ? "bg-amber-400" : "bg-rose-500";
+        const ratioTone = expenseRatio <= 80 ? "bg-[#16A34A]" : expenseRatio <= 100 ? "bg-amber-400" : "bg-rose-500";
         return (
           <div key={row.month} className="rounded-2xl border border-slate-100 bg-white p-3 lg:rounded-md">
             <div className="flex items-start justify-between gap-3">
@@ -3987,7 +5178,7 @@ function MonthlyInsightList({ rows }: { rows: MonthlyReportRow[] }) {
                 <p className="mt-0.5 text-[11px] font-semibold text-slate-500">Ringkasan bulanan</p>
               </div>
               <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                net >= 0 ? "bg-emerald-50 text-[#00b817]" : "bg-rose-50 text-rose-600"
+                net >= 0 ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600"
               }`}>
                 {net >= 0 ? "Surplus" : "Defisit"}
               </span>
@@ -3995,8 +5186,8 @@ function MonthlyInsightList({ rows }: { rows: MonthlyReportRow[] }) {
 
             <div className="mt-3 grid grid-cols-3 gap-2">
               <div className="rounded-2xl bg-emerald-50 px-2.5 py-2 lg:rounded-md">
-                <p className="text-[10px] font-semibold uppercase text-[#008f12]">Masuk</p>
-                <p className="mt-1 truncate text-xs font-semibold text-[#00b817]">{rupiah(income)}</p>
+                <p className="text-[10px] font-semibold uppercase text-[#15803D]">Masuk</p>
+                <p className="mt-1 truncate text-xs font-semibold text-[#16A34A]">{rupiah(income)}</p>
               </div>
               <div className="rounded-2xl bg-rose-50 px-2.5 py-2 lg:rounded-md">
                 <p className="text-[10px] font-semibold uppercase text-rose-600">Keluar</p>
@@ -4004,7 +5195,7 @@ function MonthlyInsightList({ rows }: { rows: MonthlyReportRow[] }) {
               </div>
               <div className="rounded-2xl bg-slate-50 px-2.5 py-2 lg:rounded-md">
                 <p className="text-[10px] font-semibold uppercase text-slate-500">Net</p>
-                <p className={`mt-1 truncate text-xs font-semibold ${net >= 0 ? "text-[#00b817]" : "text-rose-600"}`}>
+                <p className={`mt-1 truncate text-xs font-semibold ${net >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>
                   {net >= 0 ? "+" : "-"}{rupiah(Math.abs(net))}
                 </p>
               </div>
@@ -4031,24 +5222,71 @@ type AssistantMessage = {
   text: string;
   disclaimer?: string | null;
   suggestions?: string[];
+  tone?: "positive" | "warning" | "danger" | "neutral";
+  highlights?: Array<{
+    label: string;
+    value: string;
+    tone: "positive" | "warning" | "danger" | "neutral";
+  }>;
+  actions?: Array<{ label: string; view: string }>;
 };
 
-function AssistantView({ request }: { request: <T>(path: string, options?: RequestInit) => Promise<T> }) {
-  const initialSuggestions = [
-    "Saldo sekarang",
-    "Pengeluaran bulan ini",
-    "Kategori paling boros",
-    "Prediksi akhir bulan"
-  ];
+function AssistantView({
+  request,
+  language,
+  onNavigate
+}: {
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+  language: AppLanguage;
+  onNavigate: (view: View) => void;
+}) {
+  const copy = language === "en" ? {
+    greeting: "Hi, I can help you make financial decisions using the data recorded in this app.",
+    header: "Finance Copilot",
+    subheader: "Ask about affordability, budgets, bills, balances, or shared debt",
+    placeholder: "Example: Can I afford shoes for 1 million?",
+    send: "Send",
+    loading: "Checking your finances...",
+    error: "The assistant is temporarily unavailable. Please try again.",
+    suggestions: [
+      "Can I afford shoes for 1 million?",
+      "Check my finances this month",
+      "Any bills due soon?",
+      "How do I use the app features?"
+    ]
+  } : {
+    greeting: "Hai, aku bisa membantu mengambil keputusan keuangan berdasarkan data yang tercatat di aplikasi ini.",
+    header: "Kopilot Keuangan",
+    subheader: "Tanya kelayakan belanja, budget, tagihan, saldo, atau utang bersama",
+    placeholder: "Contoh: Boleh beli sepatu 1 juta?",
+    send: "Kirim",
+    loading: "Memeriksa kondisi keuangan...",
+    error: "Kopilot sedang tidak bisa menjawab. Coba lagi sebentar.",
+    suggestions: [
+      "Boleh beli sepatu 1 juta?",
+      "Cek kondisi keuangan bulan ini",
+      "Ada tagihan yang segera jatuh tempo?",
+      "Bagaimana cara menggunakan fitur aplikasi?"
+    ]
+  };
+  const initialSuggestions = copy.suggestions;
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
-      text: "Halo, aku siap bantu baca kondisi keuanganmu. Tulis bebas, bisa satu kata seperti saldo, budget, kategori, atau pertanyaan lengkap.",
+      text: copy.greeting,
       suggestions: initialSuggestions
     }
   ]);
   const [loading, setLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setMessages([{
+      role: "assistant",
+      text: copy.greeting,
+      suggestions: copy.suggestions
+    }]);
+  }, [language]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -4061,9 +5299,16 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
     setMessages((current) => [...current, { role: "user", text: message }]);
     setLoading(true);
     try {
-      const answer = await request<{ answer: string; disclaimer?: string | null; suggestions?: string[] }>("/assistant/chat", {
+      const answer = await request<{
+        answer: string;
+        disclaimer?: string | null;
+        suggestions?: string[];
+        tone?: AssistantMessage["tone"];
+        highlights?: AssistantMessage["highlights"];
+        actions?: AssistantMessage["actions"];
+      }>("/assistant/chat", {
         method: "POST",
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message, language })
       });
       setMessages((current) => [
         ...current,
@@ -4071,15 +5316,18 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
           role: "assistant",
           text: answer.answer,
           disclaimer: answer.disclaimer,
-          suggestions: answer.suggestions
+          suggestions: answer.suggestions,
+          tone: answer.tone,
+          highlights: answer.highlights,
+          actions: answer.actions
         }
       ]);
-    } catch (err) {
+    } catch {
       setMessages((current) => [
         ...current,
         {
           role: "assistant",
-          text: err instanceof Error ? err.message : "Assistant sedang tidak bisa menjawab. Coba lagi sebentar.",
+          text: copy.error,
           suggestions: initialSuggestions
         }
       ]);
@@ -4099,14 +5347,14 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
 
   return (
     <section className="mx-auto flex h-full min-h-0 max-w-3xl flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:h-[calc(100vh-8rem)] lg:rounded-lg lg:border-slate-200">
-      <div className="shrink-0 bg-[#00b817] px-4 py-3 text-white lg:px-5 lg:py-4">
+      <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 lg:px-5 lg:py-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/18 text-white lg:rounded-lg">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-lg">
             <Bot size={20} />
           </span>
           <div className="min-w-0">
-            <h2 className="text-base font-semibold leading-tight">Virtual Assistant</h2>
-            <p className="mt-0.5 truncate text-xs font-semibold text-white/75">Tanya saldo, spending, budget, atau insight singkat</p>
+            <h2 className="text-base font-semibold leading-tight text-slate-950">{copy.header}</h2>
+            <p className="mt-0.5 truncate text-xs text-slate-500">{copy.subheader}</p>
           </div>
         </div>
       </div>
@@ -4115,17 +5363,58 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
         <div className="space-y-3">
           {messages.map((message, index) => {
             const isUser = message.role === "user";
+            const responseTone = message.tone ?? "neutral";
+            const responseStyles = {
+              positive: "border-emerald-100 bg-emerald-50/50",
+              warning: "border-amber-100 bg-amber-50/50",
+              danger: "border-rose-100 bg-rose-50/50",
+              neutral: "border-slate-100 bg-white"
+            };
+            const highlightStyles = {
+              positive: "bg-emerald-50 text-[#15803D]",
+              warning: "bg-amber-50 text-amber-800",
+              danger: "bg-rose-50 text-rose-700",
+              neutral: "bg-slate-50 text-slate-800"
+            };
             return (
               <div key={index} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[86%] ${isUser ? "items-end" : "items-start"}`}>
+                <div className={`${isUser ? "max-w-[86%] items-end" : "w-full items-start"}`}>
                   <div
                     className={`rounded-[18px] px-3.5 py-2.5 text-sm leading-relaxed shadow-sm lg:rounded-lg ${
                       isUser
-                        ? "rounded-br-md bg-[#0078a8] text-white"
-                        : "rounded-bl-md border border-slate-100 bg-white text-slate-800"
+                        ? "rounded-br-md bg-[#15803D] text-white"
+                        : `rounded-bl-md border text-slate-800 ${responseStyles[responseTone]}`
                     }`}
                   >
                     <p>{message.text}</p>
+                    {!isUser && message.highlights && message.highlights.length > 0 && (
+                      <div className={`mt-3 grid gap-2 ${message.highlights.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                        {message.highlights.map((highlight) => (
+                          <div key={`${highlight.label}-${highlight.value}`} className={`min-w-0 rounded-xl px-2.5 py-2 ${highlightStyles[highlight.tone]}`}>
+                            <p className="truncate text-[10px] opacity-70">{highlight.label}</p>
+                            <p className="mt-0.5 break-words text-xs font-semibold leading-4">{highlight.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!isUser && message.actions && message.actions.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {message.actions.map((action) => (
+                          <button
+                            key={`${action.view}-${action.label}`}
+                            type="button"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#15803D]"
+                            onClick={() => {
+                              const allowedViews: View[] = ["manual", "history", "manage", "social", "profile", "dashboard"];
+                              if (allowedViews.includes(action.view as View)) onNavigate(action.view as View);
+                            }}
+                          >
+                            {action.label}
+                            <ChevronRight size={14} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {message.disclaimer && <p className="mt-2 text-[11px] font-semibold opacity-70">{message.disclaimer}</p>}
                   </div>
                   {!isUser && message.suggestions && message.suggestions.length > 0 && (
@@ -4134,7 +5423,7 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
                         <button
                           key={suggestion}
                           type="button"
-                          className="rounded-full border border-emerald-100 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#00b817] shadow-sm transition hover:bg-emerald-50 disabled:opacity-50"
+                          className="rounded-full border border-emerald-100 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#16A34A] shadow-sm transition hover:bg-emerald-50 disabled:opacity-50"
                           onClick={() => sendMessage(suggestion)}
                           disabled={loading}
                         >
@@ -4149,8 +5438,8 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
           })}
           {loading && (
             <div className="flex justify-start">
-              <div className="inline-flex items-center gap-2 rounded-[18px] rounded-bl-md border border-slate-100 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-500 shadow-sm lg:rounded-lg">
-                <Loader2 className="animate-spin text-[#00b817]" size={15} /> Menghitung...
+              <div className="inline-flex items-center gap-2 rounded-[18px] rounded-bl-md border border-emerald-100 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-500 shadow-sm lg:rounded-lg">
+                <Loader2 className="animate-spin text-[#16A34A]" size={15} /> {copy.loading}
               </div>
             </div>
           )}
@@ -4163,19 +5452,2239 @@ function AssistantView({ request }: { request: <T>(path: string, options?: Reque
           <input
             className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md"
             name="message"
-            placeholder="Tulis: saldo, budget, spending..."
+            placeholder={copy.placeholder}
             autoComplete="off"
             disabled={loading}
           />
           <button
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#00b817] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(0,184,23,0.22)] transition hover:bg-[#009714] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md"
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#16A34A] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(22,163,74,0.22)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md"
             disabled={loading}
           >
             {loading ? <Loader2 className="animate-spin" size={16} /> : <Bot size={16} />}
-            Kirim
+            {copy.send}
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+type SocialFriend = {
+  id: string;
+  userId: string;
+  fullName: string;
+  username: string;
+  avatarUrl?: string | null;
+  status: string;
+  incoming: boolean;
+};
+
+type SocialGroup = {
+  id: string;
+  name: string;
+  description?: string | null;
+  memberCount: number;
+  myBalance: string;
+  role: string;
+  status: string;
+};
+
+type SocialWallet = {
+  id: string;
+  name: string;
+  description?: string | null;
+  balance: string;
+  pendingCount: number;
+  role: string;
+  status: string;
+  storageType: "cash" | "bank" | "e_wallet" | "other";
+  storageAccountId?: string | null;
+  storageAccountName?: string | null;
+  storageProvider?: string | null;
+  storageAccountNumber?: string | null;
+};
+
+type WalletReminder = {
+  id: string;
+  intervalType: "daily" | "weekly" | "monthly";
+  reminderTime: string;
+  dayOfWeek?: number | null;
+  dayOfMonth?: number | null;
+  entryType: "deposit" | "expense";
+  message: string;
+  timezone: string;
+  isActive: boolean;
+  targetUserId?: string | null;
+};
+
+type SocialActivity = {
+  id: string;
+  eventType: string;
+  title: string;
+  body?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  isRead: boolean;
+  createdAt: string;
+};
+
+type GroupDetail = SocialGroup & {
+  members: Array<{ id: string; fullName: string; username: string; role: string; status: string }>;
+  expenses: Array<{
+    id: string;
+    description: string;
+    amount: string;
+    paidByName: string;
+    paidBy: string;
+    createdBy: string;
+    expenseDate: string;
+    participants: Array<{ userId: string; name: string; shareAmount: string; status: string }>;
+  }>;
+  simplifiedDebts: Array<{ fromUserId: string; fromName: string; toUserId: string; toName: string; amount: string }>;
+  comments: Array<{ id: string; authorName: string; message: string; createdAt: string }>;
+  auditHistory: Array<{ id: string; action: string; actorName?: string; createdAt: string }>;
+};
+
+type WalletDetail = SocialWallet & {
+  totalDeposit: string;
+  totalExpense: string;
+  storageAccountId?: string | null;
+  storageAccountName?: string | null;
+  members: Array<{ id: string; fullName: string; username: string; role: string; status: string }>;
+  memberSummary: Array<{ userId: string; fullName: string; role: string; deposit: string; expense: string }>;
+  entries: Array<{
+    id: string;
+    entryType: "deposit" | "expense";
+    amount: string;
+    description: string;
+    status: string;
+    createdByName: string;
+    createdAt: string;
+    transactionDate: string;
+    receiptId?: string | null;
+  }>;
+};
+
+function SocialMetric({
+  label,
+  value,
+  tone,
+  icon
+}: {
+  label: string;
+  value: string;
+  tone: "income" | "expense" | "neutral";
+  icon: JSX.Element;
+}) {
+  const tones = {
+    income: "bg-emerald-50 text-[#16A34A]",
+    expense: "bg-rose-50 text-rose-600",
+    neutral: "bg-sky-50 text-sky-700"
+  };
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-[11px] text-slate-400">{label}</p>
+        <p className="mt-1 truncate text-sm font-semibold text-slate-950">{value}</p>
+      </div>
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl ${tones[tone]}`}>{icon}</span>
+    </div>
+  );
+}
+
+function SocialSkeleton() {
+  return (
+    <div className="space-y-3" aria-label="Memuat data sosial">
+      {[104, 188, 112].map((height) => (
+        <div key={height} className="animate-pulse rounded-[20px] border border-slate-100 bg-white p-4 shadow-soft" style={{ height }}>
+          <div className="h-3 w-24 rounded bg-slate-100" />
+          <div className="mt-3 h-10 rounded-xl bg-slate-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SocialFriendPicker({
+  friends,
+  selectedIds,
+  onToggle,
+  excludedIds = new Set<string>(),
+  title = "Pilih anggota"
+}: {
+  friends: SocialFriend[];
+  selectedIds: Set<string>;
+  onToggle: (friendId: string) => void;
+  excludedIds?: Set<string>;
+  title?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const acceptedFriends = friends.filter(
+    (friend) => friend.status === "accepted" && !excludedIds.has(friend.userId)
+  );
+  const selectedFriends = acceptedFriends.filter((friend) => selectedIds.has(friend.userId));
+  const normalizedQuery = query.trim().toLowerCase();
+  const suggestions = acceptedFriends
+    .filter((friend) => !selectedIds.has(friend.userId))
+    .filter((friend) => !normalizedQuery
+      || friend.fullName.toLowerCase().includes(normalizedQuery)
+      || friend.username.toLowerCase().includes(normalizedQuery))
+    .slice(0, 8);
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-slate-700">{title}</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">Hanya teman Anda yang dapat dipilih.</p>
+        </div>
+        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-[#16A34A]">
+          {selectedIds.size} dipilih
+        </span>
+      </div>
+      {acceptedFriends.length === 0 ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-400"><UserPlus size={17} /></span>
+          <div>
+            <p className="text-xs font-medium text-slate-700">Belum ada teman yang dapat dipilih</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">Tambahkan teman dan tunggu hingga permintaan diterima.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="relative">
+          {selectedFriends.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {selectedFriends.map((friend) => (
+                <button
+                  key={friend.userId}
+                  type="button"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1.5 text-[11px] font-medium text-emerald-800 transition hover:bg-emerald-100"
+                  onClick={() => onToggle(friend.userId)}
+                  title="Hapus pilihan"
+                >
+                  <span className="max-w-32 truncate">{friend.fullName}</span>
+                  <X size={12} />
+                </button>
+              ))}
+            </div>
+          )}
+          <div className={`flex items-center gap-2 rounded-2xl border bg-white px-3 transition ${
+            open ? "border-[#16A34A] ring-2 ring-emerald-100" : "border-slate-200"
+          }`}>
+            <Search size={15} className="shrink-0 text-slate-400" />
+            <input
+              className="h-11 min-w-0 flex-1 bg-transparent text-xs text-slate-900 outline-none placeholder:text-slate-400"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              onBlur={() => window.setTimeout(() => setOpen(false), 140)}
+              placeholder="Cari nama atau username..."
+              autoComplete="off"
+            />
+            <ChevronDown size={15} className={`shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`} />
+          </div>
+          {open && (
+            <div className="absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.16)]">
+              {suggestions.length > 0 ? suggestions.map((friend) => (
+                <button
+                  key={friend.userId}
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition hover:bg-slate-50"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    onToggle(friend.userId);
+                    setQuery("");
+                  }}
+                >
+                  {friend.avatarUrl
+                    ? <img src={friend.avatarUrl} className="h-9 w-9 shrink-0 rounded-xl object-cover" alt="" />
+                    : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]"><UserRound size={16} /></span>}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-slate-900">{friend.fullName}</span>
+                    <span className="block truncate text-[10px] text-slate-500">@{friend.username}</span>
+                  </span>
+                  <Plus size={15} className="shrink-0 text-[#16A34A]" />
+                </button>
+              )) : (
+                <p className="px-3 py-3 text-xs text-slate-500">
+                  {selectedIds.size === acceptedFriends.length ? "Semua teman sudah dipilih." : "Teman tidak ditemukan."}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SocialFriendsPanel({
+  currentUser,
+  friends,
+  groups,
+  summary,
+  qrDataUrl,
+  searchResults,
+  searchPerson,
+  scanQrFile,
+  shareQr,
+  runAction,
+  request,
+  onNavigate,
+  onOpenGroups,
+  onOpenPrivacy,
+  selectedFriend,
+  setSelectedFriend,
+  friendSearchRef
+}: {
+  currentUser: Session["user"];
+  friends: SocialFriend[];
+  groups: SocialGroup[];
+  summary: SocialSummary | null;
+  qrDataUrl: string;
+  searchResults: any[];
+  searchPerson: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  scanQrFile: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  shareQr: () => Promise<void>;
+  runAction: (work: () => Promise<unknown>, success: string) => Promise<void>;
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+  onNavigate: (view: View) => void;
+  onOpenGroups: (create?: boolean) => void;
+  onOpenPrivacy: () => void;
+  selectedFriend: any;
+  setSelectedFriend: (friend: any) => void;
+  friendSearchRef: { current: HTMLInputElement | null };
+}) {
+  const accepted = friends.filter((friend) => friend.status === "accepted");
+  const incoming = friends.filter((friend) => friend.status === "pending" && friend.incoming);
+  const outgoing = friends.filter((friend) => friend.status === "pending" && !friend.incoming);
+  const focusSearch = () => {
+    friendSearchRef.current?.focus();
+    friendSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  return (
+    <div className="space-y-3">
+      <form className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={searchPerson}>
+        <SectionHeader title="Tambah teman" caption="Cari menggunakan username, email, nomor, atau QR Code." />
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              ref={friendSearchRef}
+              className="input h-11 w-full pl-9 transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              name="query"
+              placeholder="Cari username atau email..."
+              required
+            />
+          </div>
+          <button className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-[#16A34A] px-4 text-xs font-semibold text-white shadow-sm transition active:scale-[0.97]" aria-label="Cari pengguna">
+            <Search size={17} /><span className="ml-1.5 hidden sm:inline">Cari</span>
+          </button>
+        </div>
+        {searchResults.length > 0 && (
+          <div className="mt-3 space-y-2 border-t border-[#E5E7EB] pt-3">
+            {searchResults.map((person) => (
+              <div key={person.id} className="flex items-center justify-between gap-2 rounded-2xl bg-[#F8FAFC] p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#111827]">{person.fullName}</p>
+                  <p className="truncate text-xs text-[#6B7280]">@{person.username}</p>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A] disabled:text-slate-400"
+                  disabled={person.relationshipStatus !== "none"}
+                  onClick={() => runAction(
+                    () => request("/social/friends/request", {
+                      method: "POST",
+                      body: JSON.stringify({ identifier: person.username })
+                    }),
+                    "Permintaan pertemanan dikirim"
+                  )}
+                >
+                  {person.relationshipStatus === "none" ? "Tambah" : "Terhubung"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </form>
+
+      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
+        <SectionHeader title="QR akun Anda" caption="Tunjukkan atau bagikan agar teman dapat menemukan Anda." />
+        <div className="flex flex-col items-center">
+          <div className="rounded-[20px] border border-slate-100 bg-white p-3 shadow-sm">
+            {qrDataUrl
+              ? <img src={qrDataUrl} className="h-40 w-40 rounded-xl" alt={`QR akun @${currentUser.username ?? ""}`} />
+              : <span className="flex h-40 w-40 items-center justify-center rounded-xl bg-slate-50 text-[#16A34A]"><QrCode size={54} /></span>}
+          </div>
+          <p className="mt-3 text-sm font-semibold text-[#111827]">@{currentUser.username ?? "atur-username"}</p>
+          <p className="mt-0.5 max-w-full truncate text-[11px] text-[#6B7280]">ID {currentUser.id}</p>
+          <div className="mt-4 grid w-full grid-cols-2 gap-2">
+            <button type="button" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white text-xs font-semibold text-[#374151] transition active:scale-[0.98]" onClick={shareQr}>
+              <Share2 size={16} /> Bagikan
+            </button>
+            <label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#16A34A] text-xs font-semibold text-white shadow-sm transition active:scale-[0.98]">
+              <QrCode size={16} /> Scan QR
+              <input className="sr-only" type="file" accept="image/*" capture="environment" onChange={scanQrFile} />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
+        <SectionHeader title={`Permintaan pertemanan${incoming.length ? ` (${incoming.length})` : ""}`} caption="Tinjau orang yang ingin terhubung dengan Anda." />
+        {incoming.length === 0 ? (
+          <div className="flex items-center gap-3 rounded-2xl bg-[#F8FAFC] p-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-400"><UserPlus size={16} /></span>
+            <p className="text-xs text-[#6B7280]">Tidak ada permintaan baru.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {incoming.map((friend) => (
+              <div key={friend.id} className="flex items-center gap-2 rounded-2xl bg-[#F8FAFC] p-3">
+                {friend.avatarUrl
+                  ? <img src={friend.avatarUrl} className="h-10 w-10 rounded-xl object-cover" alt="" />
+                  : <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#16A34A]"><UserRound size={17} /></span>}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[#111827]">{friend.fullName}</p>
+                  <p className="truncate text-xs text-[#6B7280]">@{friend.username}</p>
+                </div>
+                <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white transition active:scale-95" onClick={() => runAction(
+                  () => request(`/social/friends/${friend.id}/respond`, { method: "PUT", body: JSON.stringify({ status: "accepted" }) }),
+                  "Pertemanan diterima"
+                )}>Terima</button>
+                <button className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-xs font-semibold text-[#6B7280] transition active:scale-95" onClick={() => runAction(
+                  () => request(`/social/friends/${friend.id}/respond`, { method: "PUT", body: JSON.stringify({ status: "rejected" }) }),
+                  "Permintaan ditolak"
+                )}>Tolak</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="social-enter grid grid-cols-4 gap-2">
+        {[
+          { label: "Teman", value: String(accepted.length), tone: "text-[#16A34A]" },
+          { label: "Grup", value: String(groups.filter((group) => group.status === "accepted").length), tone: "text-sky-700" },
+          { label: "Piutang", value: rupiah(summary?.totalReceivable ?? 0), tone: "text-[#16A34A]" },
+          { label: "Utang", value: rupiah(summary?.totalPayable ?? 0), tone: "text-rose-600" }
+        ].map((metric) => (
+          <div key={metric.label} className="min-w-0 rounded-[18px] border border-[#E5E7EB] bg-white px-2 py-3 text-center shadow-soft">
+            <p className="text-[10px] text-[#6B7280]">{metric.label}</p>
+            <p className={`mt-1 truncate text-xs font-semibold ${metric.tone}`} title={metric.value}>{metric.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="social-enter overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-2">
+          {[
+            { label: "Split Bill", icon: Users, action: () => onOpenGroups() },
+            { label: "Request Money", icon: CircleDollarSign, action: focusSearch },
+            { label: "Transfer", icon: ArrowLeftRight, action: () => onNavigate("accounts") },
+            { label: "Buat Grup", icon: UserPlus, action: () => onOpenGroups(true) }
+          ].map((action) => {
+            const Icon = action.icon;
+            return (
+              <button key={action.label} type="button" className="flex w-[108px] flex-col items-center gap-2 rounded-[18px] border border-[#E5E7EB] bg-white px-3 py-3 text-[11px] font-medium text-[#374151] shadow-soft transition active:scale-[0.97]" onClick={action.action}>
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]"><Icon size={17} strokeWidth={1.9} /></span>
+                {action.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
+        <SectionHeader title="Teman" caption={`${accepted.length} teman${outgoing.length ? ` · ${outgoing.length} menunggu` : ""}`} />
+        {accepted.length === 0 ? (
+          <div className="rounded-[18px] bg-[#F8FAFC] px-4 py-6 text-center">
+            <div className="relative mx-auto h-20 w-28" aria-hidden="true">
+              <span className="absolute left-3 top-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-[#16A34A]"><UserRound size={22} /></span>
+              <span className="absolute right-3 top-2 flex h-12 w-12 items-center justify-center rounded-2xl border-4 border-[#F8FAFC] bg-white text-sky-600 shadow-sm"><UserPlus size={21} /></span>
+            </div>
+            <p className="mt-1 text-sm font-semibold text-[#111827]">Belum ada teman.</p>
+            <p className="mx-auto mt-1 max-w-xs text-xs leading-5 text-[#6B7280]">Mulai tambahkan teman untuk berbagi pengeluaran, split bill, dan utang piutang.</p>
+            <button type="button" className="mt-4 rounded-xl bg-[#16A34A] px-4 py-2.5 text-xs font-semibold text-white" onClick={focusSearch}>Tambah teman</button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {accepted.map((friend) => (
+              <div key={friend.id} className="rounded-[18px] border border-[#E5E7EB] p-3">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 text-left"
+                  onClick={async () => setSelectedFriend({
+                    ...await request<Record<string, unknown>>(`/social/friends/profile/${friend.userId}`),
+                    friendshipId: friend.id,
+                    userId: friend.userId
+                  })}
+                >
+                  {friend.avatarUrl
+                    ? <img src={friend.avatarUrl} className="h-11 w-11 rounded-2xl object-cover" alt="" />
+                    : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]"><UserRound size={18} /></span>}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[#111827]">{friend.fullName}</p>
+                    <p className="truncate text-xs text-[#6B7280]">@{friend.username}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Lihat transaksi bersama</p>
+                  </div>
+                  <ChevronRight size={16} className="text-slate-300" />
+                </button>
+                <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#E5E7EB] pt-3">
+                  <button type="button" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => onOpenGroups()}>Split Bill</button>
+                  <button type="button" className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-[#374151]" onClick={focusSearch}>Request</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {selectedFriend && (
+          <div className="mt-3 rounded-[18px] bg-[#F8FAFC] p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#111827]">{selectedFriend.fullName}</p>
+                <p className="text-xs text-[#6B7280]">@{selectedFriend.username} · {selectedFriend.commonGroups} grup bersama</p>
+              </div>
+              <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-500" onClick={() => setSelectedFriend(null)}><X size={15} /></button>
+            </div>
+            <p className="mt-3 text-xs text-[#6B7280]">Posisi dengan Anda</p>
+            <p className={`mt-0.5 text-lg font-semibold ${Number(selectedFriend.balance) >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>
+              {Number(selectedFriend.balance) === 0 ? "Selesai" : rupiah(Math.abs(Number(selectedFriend.balance)))}
+            </p>
+            <div className="mt-3 space-y-2">
+              {selectedFriend.sharedTransactions?.map((row: any) => (
+                <div key={row.id} className="flex justify-between gap-3 border-t border-[#E5E7EB] pt-2 text-xs">
+                  <span>{row.description} · {row.groupName}</span><span className="font-semibold">{rupiah(row.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="social-enter min-h-[108px] rounded-[20px] bg-[#16A34A] p-4 text-white shadow-[0_14px_34px_rgba(22,163,74,0.16)] lg:rounded-lg">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <span className="rounded-full bg-white/10 px-2 py-1 text-[9px] font-semibold uppercase text-emerald-100">Keuangan sosial</span>
+            <h3 className="mt-2 text-base font-semibold">Bayar bareng tanpa buka data pribadi</h3>
+            <p className="mt-1 text-[11px] leading-4 text-emerald-50/80">Hanya transaksi yang melibatkan teman yang akan terlihat.</p>
+          </div>
+          <button type="button" className="shrink-0 rounded-xl bg-white px-3 py-2 text-[11px] font-semibold text-[#16A34A]" onClick={onOpenPrivacy}>Pelajari</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SocialHubView({
+  request,
+  accounts,
+  token,
+  currentUser,
+  summary,
+  language,
+  onChanged
+}: {
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+  accounts: Account[];
+  token: string;
+  currentUser: Session["user"];
+  summary: SocialSummary | null;
+  language: AppLanguage;
+  onChanged: () => Promise<void>;
+}) {
+  const [tab, setTab] = useState<"friends" | "groups" | "wallets" | "activity" | "privacy" | null>(null);
+  const [friends, setFriends] = useState<SocialFriend[]>([]);
+  const [groups, setGroups] = useState<SocialGroup[]>([]);
+  const [wallets, setWallets] = useState<SocialWallet[]>([]);
+  const [activity, setActivity] = useState<SocialActivity[]>([]);
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false);
+  const [activityHasMore, setActivityHasMore] = useState(true);
+  const [privacy, setPrivacy] = useState({
+    allowWalletInvites: true,
+    allowGroupInvites: true,
+    searchableBy: "username",
+    hidePhone: true
+  });
+  const [selectedGroup, setSelectedGroup] = useState<GroupDetail | null>(null);
+  const [selectedWallet, setSelectedWallet] = useState<WalletDetail | null>(null);
+  const [walletReminders, setWalletReminders] = useState<WalletReminder[]>([]);
+  const [showWalletReminderForm, setShowWalletReminderForm] = useState(false);
+  const [showWalletEntryForm, setShowWalletEntryForm] = useState(false);
+  const [walletEntryReceiptId, setWalletEntryReceiptId] = useState<string | null>(null);
+  const [walletEntryAttachmentName, setWalletEntryAttachmentName] = useState("");
+  const [walletEntryDate, setWalletEntryDate] = useState(isoDateInput());
+  const [walletEntryAttachmentLoading, setWalletEntryAttachmentLoading] = useState(false);
+  const [walletStorageMode, setWalletStorageMode] = useState<"account" | "manual">("account");
+  const [walletStorageAccountId, setWalletStorageAccountId] = useState("");
+  const [walletAdminIds, setWalletAdminIds] = useState<Set<string>>(new Set());
+  const [walletReminderInterval, setWalletReminderInterval] = useState<"daily" | "weekly" | "monthly">("daily");
+  const [selectedFriend, setSelectedFriend] = useState<any>(null);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [friendSearchQuery, setFriendSearchQuery] = useState("");
+  const [friendSearchLoading, setFriendSearchLoading] = useState(false);
+  const [friendSearchAttempted, setFriendSearchAttempted] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showCreateWallet, setShowCreateWallet] = useState(false);
+  const [groupMemberIds, setGroupMemberIds] = useState<Set<string>>(new Set());
+  const [walletMemberIds, setWalletMemberIds] = useState<Set<string>>(new Set());
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [editingGroupExpense, setEditingGroupExpense] = useState<GroupDetail["expenses"][number] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const friendSearchRef = useRef<HTMLInputElement>(null);
+  const activitySentinelRef = useRef<HTMLDivElement>(null);
+  const walletEntryFormRef = useRef<HTMLFormElement>(null);
+  const walletDeepLinkHandled = useRef(false);
+  const toggleSelectedFriend = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    friendId: string
+  ) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(friendId)) next.delete(friendId);
+      else next.add(friendId);
+      return next;
+    });
+  };
+  const socialEnumLabel = (value: string) => {
+    const labels: Record<string, { en: string; id: string }> = {
+      accepted: { en: "Accepted", id: "Diterima" },
+      pending: { en: "Pending", id: "Menunggu" },
+      rejected: { en: "Rejected", id: "Ditolak" },
+      blocked: { en: "Blocked", id: "Diblokir" },
+      approved: { en: "Approved", id: "Disetujui" },
+      cancelled: { en: "Cancelled", id: "Dibatalkan" },
+      owner: { en: "Owner", id: "Pemilik" },
+      admin: { en: "Admin", id: "Admin" },
+      member: { en: "Member", id: "Anggota" },
+      viewer: { en: "Viewer", id: "Pengamat" }
+    };
+    return labels[value]?.[language] ?? value;
+  };
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const [nextFriends, nextGroups, nextWallets, nextActivity, nextPrivacy] = await Promise.all([
+        request<SocialFriend[]>("/social/friends"),
+        request<SocialGroup[]>("/social/groups"),
+        request<SocialWallet[]>("/social/wallets"),
+        request<SocialActivity[]>("/social/activity?limit=20&offset=0"),
+        request<typeof privacy>("/social/privacy")
+      ]);
+      setFriends(nextFriends);
+      setGroups(nextGroups);
+      setWallets(nextWallets);
+      setActivity(nextActivity);
+      setActivityHasMore(nextActivity.length === 20);
+      setPrivacy(nextPrivacy);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Data sosial gagal dimuat");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  useEffect(() => {
+    const query = friendSearchQuery.trim();
+    if (tab !== "friends" || query.length < 2) {
+      setSearchResults([]);
+      setFriendSearchAttempted(false);
+      setFriendSearchLoading(false);
+      if (tab === "friends") setMessage(null);
+      return;
+    }
+
+    let active = true;
+    setMessage(null);
+    const timer = window.setTimeout(async () => {
+      setFriendSearchLoading(true);
+      try {
+        const results = await request<any[]>(`/social/people/search?q=${encodeURIComponent(query)}`);
+        if (!active) return;
+        setSearchResults(results);
+        setFriendSearchAttempted(true);
+        if (results.length > 0) setMessage(null);
+      } catch {
+        if (!active) return;
+        setSearchResults([]);
+        setFriendSearchAttempted(true);
+      } finally {
+        if (active) setFriendSearchLoading(false);
+      }
+    }, 320);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [friendSearchQuery, tab]);
+
+  useEffect(() => {
+    if (!currentUser.username) return;
+    QRCode.toDataURL(`finance-ai:user:${currentUser.username}`, {
+      width: 220,
+      margin: 1,
+      color: { dark: "#16A34A", light: "#ffffff" }
+    }).then(setQrDataUrl).catch(() => setQrDataUrl(""));
+  }, [currentUser.username]);
+
+  const scanQrFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const Detector = (window as any).BarcodeDetector;
+      const bitmap = await createImageBitmap(file);
+      let value = "";
+      if (Detector) {
+        const detector = new Detector({ formats: ["qr_code"] });
+        const codes = await detector.detect(bitmap);
+        value = String(codes[0]?.rawValue ?? "");
+      } else {
+        const maxSide = 1400;
+        const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        const pixels = context?.getImageData(0, 0, canvas.width, canvas.height);
+        value = pixels ? jsQR(pixels.data, pixels.width, pixels.height)?.data ?? "" : "";
+      }
+      bitmap.close();
+      if (!value) throw new Error("QR code tidak terbaca");
+      setSearchResults(await request<any[]>(`/social/people/search?q=${encodeURIComponent(value)}`));
+      setMessage(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "QR code gagal dibaca");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const runAction = async (work: () => Promise<unknown>, success: string) => {
+    setMessage(null);
+    try {
+      await work();
+      setMessage(success);
+      await refresh();
+      await onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Aksi gagal");
+    }
+  };
+
+  const searchPerson = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = friendSearchQuery.trim() || String(new FormData(event.currentTarget).get("query") || "").trim();
+    if (query.length < 2) return;
+    setFriendSearchLoading(true);
+    try {
+      const results = await request<any[]>(`/social/people/search?q=${encodeURIComponent(query)}`);
+      setSearchResults(results);
+      setFriendSearchAttempted(true);
+      if (results.length > 0) setMessage(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Pencarian gagal");
+    } finally {
+      setFriendSearchLoading(false);
+    }
+  };
+
+  const shareAccountQr = async () => {
+    const accountCode = `finance-ai:user:${currentUser.username ?? currentUser.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: "Tambah saya di Finly AI",
+          text: `Temukan saya dengan username @${currentUser.username ?? currentUser.id}\n${accountCode}`
+        });
+      } else {
+        await navigator.clipboard.writeText(accountCode);
+        setMessage("Kode akun berhasil disalin");
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setMessage("Kode akun belum dapat dibagikan");
+    }
+  };
+
+  const uploadWalletEntryAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setWalletEntryAttachmentLoading(true);
+    setWalletEntryAttachmentName(file.name);
+    try {
+      const uploadForm = new FormData();
+      uploadForm.set("receipt", file);
+      try {
+        const uploaded = await request<{ id: string }>("/receipts/upload", {
+          method: "POST",
+          body: uploadForm
+        });
+        setWalletEntryReceiptId(uploaded.id);
+      } catch (error) {
+        const duplicateId = error instanceof ApiError && error.status === 409 && error.details && typeof error.details === "object"
+          ? String((error.details as { receiptId?: unknown }).receiptId ?? "")
+          : "";
+        if (!duplicateId) throw error;
+        setWalletEntryReceiptId(duplicateId);
+      }
+      setMessage("Attachment berhasil diunggah");
+    } catch (error) {
+      setWalletEntryAttachmentName("");
+      setMessage(error instanceof Error ? error.message : "Attachment gagal diunggah");
+    } finally {
+      setWalletEntryAttachmentLoading(false);
+      event.target.value = "";
+    }
+  };
+
+  const openWalletAttachment = async (receiptId: string) => {
+    try {
+      const response = await fetch(downloadUrl(`/receipts/${receiptId}/file`), {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Attachment tidak dapat dimuat");
+      const blob = await response.blob();
+      const signature = new TextDecoder("ascii").decode(await blob.slice(4, 16).arrayBuffer());
+      const isHeic = /image\/hei[cf]/i.test(blob.type) || /ftyp(?:heic|heix|hevc|hevx|mif1|msf1)/i.test(signature);
+      const previewBlob = isHeic
+        ? (await heic2any({ blob, toType: "image/jpeg", quality: 0.9 }))
+        : blob;
+      const resolvedBlob = Array.isArray(previewBlob) ? previewBlob[0] : previewBlob;
+      const url = URL.createObjectURL(resolvedBlob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Attachment tidak dapat dibuka");
+    }
+  };
+
+  const openGroup = async (id: string) => {
+    setSelectedGroup(await request<GroupDetail>(`/social/groups/${id}`));
+    setGroupMemberIds(new Set());
+    setShowExpenseForm(false);
+  };
+
+  const openWallet = async (id: string) => {
+    const [wallet, reminders] = await Promise.all([
+      request<WalletDetail>(`/social/wallets/${id}`),
+      request<WalletReminder[]>(`/social/wallets/${id}/reminders`).catch(() => [])
+    ]);
+    setSelectedWallet(wallet);
+    setWalletMemberIds(new Set());
+    setWalletReminders(reminders);
+  };
+
+  useEffect(() => {
+    if (loading || walletDeepLinkHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const walletId = params.get("walletId");
+    if (!walletId) return;
+    walletDeepLinkHandled.current = true;
+    setTab("wallets");
+    openWallet(walletId)
+      .then(() => {
+        if (params.get("walletAction") === "record") {
+          setShowWalletEntryForm(true);
+          window.setTimeout(() => walletEntryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 180);
+        }
+      })
+      .catch(() => setMessage("Dompet bersama tidak dapat dibuka"));
+  }, [loading]);
+
+  const loadMoreActivity = async () => {
+    if (activityLoadingMore || !activityHasMore) return;
+    setActivityLoadingMore(true);
+    try {
+      const rows = await request<SocialActivity[]>(`/social/activity?limit=20&offset=${activity.length}`);
+      setActivity((current) => {
+        const existingIds = new Set(current.map((item) => item.id));
+        return [...current, ...rows.filter((item) => !existingIds.has(item.id))];
+      });
+      setActivityHasMore(rows.length === 20);
+    } catch {
+      setActivityHasMore(false);
+    } finally {
+      setActivityLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab !== "activity" || !activitySentinelRef.current || !activityHasMore) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) loadMoreActivity();
+      },
+      { rootMargin: "180px 0px" }
+    );
+    observer.observe(activitySentinelRef.current);
+    return () => observer.disconnect();
+  }, [tab, activity.length, activityHasMore, activityLoadingMore]);
+
+  const tabs = [
+    {
+      id: "friends" as const,
+      label: "Teman",
+      icon: UserPlus,
+      count: `${friends.filter((friend) => friend.status === "accepted").length} teman`,
+      meta: friends.some((friend) => friend.incoming) ? `${friends.filter((friend) => friend.incoming).length} permintaan menunggu` : "Cari teman dan kelola transaksi bersama",
+      tone: "bg-emerald-50 text-[#16A34A]"
+    },
+    {
+      id: "groups" as const,
+      label: "Grup",
+      icon: Users,
+      count: `${groups.length} grup`,
+      meta: "Split bill dan pengeluaran bersama",
+      tone: "bg-sky-50 text-sky-700"
+    },
+    {
+      id: "wallets" as const,
+      label: "Dompet bersama",
+      icon: Wallet,
+      count: `${wallets.length} dompet`,
+      meta: "Kelola kas dan saldo bersama",
+      tone: "bg-violet-50 text-violet-700"
+    },
+    {
+      id: "activity" as const,
+      label: "Aktivitas",
+      icon: Bell,
+      count: `${activity.filter((row) => !row.isRead).length} baru`,
+      meta: "Permintaan dan perubahan yang melibatkan Anda",
+      tone: "bg-amber-50 text-amber-700"
+    },
+    {
+      id: "privacy" as const,
+      label: "Privasi",
+      icon: ShieldCheck,
+      count: "Terlindungi",
+      meta: "Atur pencarian dan izin undangan",
+      tone: "bg-rose-50 text-rose-700"
+    }
+  ];
+  const groupedActivity = activity.reduce<Array<{ key: string; label: string; items: SocialActivity[] }>>((groups, item) => {
+    const date = new Date(item.createdAt);
+    const key = jakartaDateParts(date).value;
+    const existing = groups.find((group) => group.key === key);
+    if (existing) {
+      existing.items.push(item);
+      return groups;
+    }
+    groups.push({
+      key,
+      label: new Intl.DateTimeFormat(language === "en" ? "en-US" : "id-ID", {
+        timeZone: APP_TIME_ZONE,
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric"
+      }).format(date),
+      items: [item]
+    });
+    return groups;
+  }, []);
+  const selectedWalletStorageAccount = accounts.find((account) => account.id === walletStorageAccountId);
+
+  return (
+    <section className="mx-auto max-w-6xl space-y-3">
+      {tab === null ? (
+        <>
+          <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-lg">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Social</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-950">Keuangan bersama</h2>
+                <p className="mt-1 text-xs text-slate-500">Teman, grup, dan tagihan dalam satu tempat.</p>
+              </div>
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]">
+                <Users size={21} />
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <SocialMetric label="Harus dibayar" value={rupiah(summary?.totalPayable ?? 0)} tone="expense" icon={<ArrowUpRight size={14} />} />
+              <SocialMetric label="Harus diterima" value={rupiah(summary?.totalReceivable ?? 0)} tone="income" icon={<ArrowDownLeft size={14} />} />
+              <SocialMetric label="Grup aktif" value={String(summary?.activeGroups ?? 0)} tone="neutral" icon={<Users size={14} />} />
+              <SocialMetric label="Perlu konfirmasi" value={String(summary?.pendingConfirmations ?? 0)} tone="neutral" icon={<Bell size={14} />} />
+            </div>
+          </div>
+
+          <div className="rounded-[22px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+            <div className="grid grid-cols-1 gap-3">
+              {tabs.filter((item) => item.id !== "activity").map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border border-slate-100 bg-white p-3 text-left transition hover:border-emerald-100 hover:bg-slate-50 active:scale-[0.99] lg:rounded-md"
+                    onClick={() => {
+                      setTab(item.id);
+                      setSelectedGroup(null);
+                      setSelectedWallet(null);
+                      setSelectedFriend(null);
+                      setShowCreateGroup(false);
+                      setShowCreateWallet(false);
+                      setGroupMemberIds(new Set());
+                      setWalletMemberIds(new Set());
+                    }}
+                  >
+                    <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${item.tone}`}>
+                      <Icon size={23} strokeWidth={2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-slate-950">{item.label}</span>
+                        <span className="max-w-[120px] shrink-0 truncate rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{item.count}</span>
+                      </span>
+                      <span className="mt-1 block truncate text-[11px] text-slate-500">{item.meta}</span>
+                    </span>
+                    <ChevronRight size={19} className="shrink-0 text-slate-300" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-lg">
+            <SectionHeader
+              title="Aktivitas terbaru"
+              caption="Pembaruan yang melibatkan Anda"
+              action={activity.length > 0 ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]"
+                  onClick={() => setTab("activity")}
+                >
+                  Lihat selengkapnya <ChevronRight size={14} />
+                </button>
+              ) : undefined}
+            />
+            <div className="space-y-1">
+              {loading && <SocialSkeleton />}
+              {!loading && activity.length === 0 && <EmptyState text="Belum ada aktivitas sosial." />}
+              {!loading && activity.slice(0, 5).map((event) => (
+                <button
+                  key={event.id}
+                  type="button"
+                  className="flex w-full items-start gap-3 rounded-2xl px-2 py-3 text-left transition hover:bg-slate-50"
+                  onClick={() => setTab("activity")}
+                >
+                  <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${event.isRead ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-[#16A34A]"}`}>
+                    <Bell size={16} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-slate-900">{event.title}</span>
+                      {!event.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-[#16A34A]" />}
+                    </span>
+                    {event.body && <span className="mt-0.5 block truncate text-xs text-slate-500">{event.body}</span>}
+                    <span className="mt-1 block text-[10px] text-slate-400">{localDate(event.createdAt)}</span>
+                  </span>
+                  <ChevronRight size={16} className="mt-2 shrink-0 text-slate-300" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : !selectedGroup && !selectedWallet && !showCreateGroup && !showCreateWallet ? (
+        <div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95"
+            onClick={() => {
+              setTab(null);
+              setSelectedGroup(null);
+              setSelectedWallet(null);
+              setSelectedFriend(null);
+              setShowCreateGroup(false);
+              setShowCreateWallet(false);
+              setGroupMemberIds(new Set());
+              setWalletMemberIds(new Set());
+            }}
+          >
+            <ArrowLeft size={16} /> Kembali ke Social
+          </button>
+          {(() => {
+            const activeItem = tabs.find((item) => item.id === tab)!;
+            const Icon = activeItem.icon;
+            return (
+              <div className="flex min-w-0 items-center gap-2">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${activeItem.tone}`}>
+                  <Icon size={17} />
+                </span>
+                <div className="min-w-0 text-right">
+                  <p className="truncate text-sm font-semibold text-slate-950">{activeItem.label}</p>
+                  <p className="text-[10px] text-slate-500">{activeItem.count}</p>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      ) : null}
+
+      {message && <p className="rounded-2xl bg-white px-3 py-2 text-sm text-slate-600 shadow-soft">{message}</p>}
+      {loading && tab !== null && <LoadingState />}
+
+      {!loading && tab === "friends" && (
+        <div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="space-y-3">
+            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={searchPerson}>
+              <SectionHeader title="Tambah teman" caption="Cari lewat username, email, telepon, atau kode QR." />
+              <div className="relative">
+                <div className="flex gap-2">
+                  <input
+                    ref={friendSearchRef}
+                    className="input min-w-0 flex-1"
+                    name="query"
+                    value={friendSearchQuery}
+                    onChange={(event) => {
+                      setFriendSearchQuery(event.target.value);
+                      setMessage(null);
+                    }}
+                    placeholder="Cari username atau email..."
+                    autoComplete="off"
+                    required
+                  />
+                  <button className="btn-primary shrink-0" aria-label="Cari pengguna" disabled={friendSearchLoading}>
+                    {friendSearchLoading ? <Loader2 className="animate-spin" size={16} /> : <Search size={16} />}
+                  </button>
+                </div>
+                {friendSearchQuery.trim().length >= 2 && (
+                  <div className="absolute inset-x-0 top-[calc(100%+6px)] z-30 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_18px_44px_rgba(15,23,42,0.16)]">
+                    {friendSearchLoading && searchResults.length === 0 ? (
+                      <div className="flex items-center gap-2 px-3 py-3 text-xs text-slate-500">
+                        <Loader2 className="animate-spin text-[#16A34A]" size={15} />
+                        Mencari pengguna...
+                      </div>
+                    ) : searchResults.length > 0 ? searchResults.map((person) => {
+                      const statusLabels: Record<string, string> = {
+                        self: "Akun Anda",
+                        pending: "Menunggu",
+                        incoming: "Perlu respons",
+                        accepted: "Teman",
+                        rejected: "Tambah lagi",
+                        none: "Tambah"
+                      };
+                      const canAdd = person.relationshipStatus === "none" || person.relationshipStatus === "rejected";
+                      return (
+                        <div key={person.id} className="flex items-center gap-2 rounded-xl px-2.5 py-2 transition hover:bg-slate-50">
+                          {person.avatarUrl
+                            ? <img src={person.avatarUrl} className="h-9 w-9 shrink-0 rounded-xl object-cover" alt="" />
+                            : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]"><UserRound size={16} /></span>}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-semibold text-slate-900">{person.fullName}</p>
+                            <p className="truncate text-[10px] text-slate-500">
+                              @{person.username}{person.email ? ` - ${person.email}` : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className={`shrink-0 rounded-xl px-3 py-2 text-[11px] font-semibold ${
+                              canAdd ? "bg-emerald-50 text-[#16A34A]" : "bg-slate-100 text-slate-400"
+                            }`}
+                            disabled={!canAdd}
+                            onClick={() => runAction(
+                              async () => {
+                                await request("/social/friends/request", {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  identifier: person.username,
+                                  targetUserId: person.id
+                                })
+                                });
+                                setFriendSearchQuery("");
+                                setSearchResults([]);
+                                setFriendSearchAttempted(false);
+                              },
+                              "Permintaan pertemanan dikirim"
+                            )}
+                          >
+                            {statusLabels[person.relationshipStatus] ?? "Terhubung"}
+                          </button>
+                        </div>
+                      );
+                    }) : friendSearchAttempted ? (
+                      <div className="px-3 py-3 text-xs text-slate-500">
+                        Pengguna tidak ditemukan atau tidak mengizinkan pencarian dengan data tersebut.
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-[#F8FAFC] p-4 text-center">
+                <div className="mx-auto w-fit rounded-2xl bg-white p-3 shadow-sm">
+                  {qrDataUrl
+                    ? <img src={qrDataUrl} className="h-44 w-44 rounded-xl" alt="QR akun" />
+                    : <span className="flex h-44 w-44 items-center justify-center rounded-xl bg-slate-50 text-[#16A34A]"><QrCode size={52} /></span>}
+                </div>
+                <p className="mt-3 text-sm font-semibold text-slate-900">@{currentUser.username ?? "atur-username"}</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700" onClick={shareAccountQr}>
+                    <Share2 size={15} /> Bagikan QR
+                  </button>
+                  <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-3 py-2.5 text-xs font-semibold text-white">
+                    <QrCode size={15} /> Scan QR
+                    <input className="sr-only" type="file" accept="image/*" capture="environment" onChange={scanQrFile} />
+                  </label>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+            <SectionHeader title="Teman & permintaan" caption={`${friends.length} hubungan`} />
+            <div className="space-y-2">
+              {friends.length === 0 && (
+                <div className="rounded-2xl bg-[#F8FAFC] p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-[#16A34A]"><UserPlus size={20} /></span>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Belum ada teman</p>
+                      <p className="mt-0.5 text-xs text-slate-500">Mulai terhubung untuk mencatat transaksi bersama.</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2 text-xs text-slate-600">
+                    <button type="button" className="flex w-full items-center gap-3 rounded-xl bg-white px-3 py-2.5 text-left" onClick={() => friendSearchRef.current?.focus()}>
+                      <Search size={15} className="text-[#16A34A]" /> Cari username
+                    </button>
+                    <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white px-3 py-2.5 text-left">
+                      <QrCode size={15} className="text-[#16A34A]" /> Scan QR
+                      <input className="sr-only" type="file" accept="image/*" capture="environment" onChange={scanQrFile} />
+                    </label>
+                    <button type="button" className="flex w-full items-center gap-3 rounded-xl bg-white px-3 py-2.5 text-left" onClick={shareAccountQr}>
+                      <Share2 size={15} className="text-[#16A34A]" /> Undang teman
+                    </button>
+                  </div>
+                  <button type="button" className="mt-3 w-full rounded-xl bg-[#16A34A] px-4 py-2.5 text-xs font-semibold text-white" onClick={() => {
+                    friendSearchRef.current?.focus();
+                    friendSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}>Tambah Teman</button>
+                </div>
+              )}
+              {friends.map((friend) => (
+                <div key={friend.id} className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3">
+                  {friend.avatarUrl
+                    ? <img src={friend.avatarUrl} className="h-10 w-10 rounded-xl object-cover" alt="" />
+                    : <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]"><UserRound size={17} /></span>}
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    disabled={friend.status !== "accepted"}
+                    onClick={async () => setSelectedFriend({
+                      ...await request<Record<string, unknown>>(`/social/friends/profile/${friend.userId}`),
+                      friendshipId: friend.id,
+                      userId: friend.userId
+                    })}
+                  >
+                    <p className="truncate text-sm font-semibold">{friend.fullName}</p>
+                    <p className="text-xs text-slate-500">@{friend.username} · {friend.incoming ? "Menunggu jawaban Anda" : socialEnumLabel(friend.status)}</p>
+                  </button>
+                  {friend.incoming ? (
+                    <div className="flex gap-1">
+                      <button className="rounded-full bg-emerald-50 p-2 text-[#16A34A]" onClick={() => runAction(
+                        () => request(`/social/friends/${friend.id}/respond`, { method: "PUT", body: JSON.stringify({ status: "accepted" }) }),
+                        "Pertemanan diterima"
+                      )}><CheckCircle2 size={15} /></button>
+                      <button className="rounded-full bg-rose-50 p-2 text-rose-600" onClick={() => runAction(
+                        () => request(`/social/friends/${friend.id}/respond`, { method: "PUT", body: JSON.stringify({ status: "rejected" }) }),
+                        "Permintaan ditolak"
+                      )}><X size={15} /></button>
+                    </div>
+                  ) : friend.status === "accepted" ? (
+                    <ChevronRight size={16} className="text-slate-300" />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+            {selectedFriend && (
+              <div className="mt-3 rounded-2xl bg-slate-50 p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="font-semibold">{selectedFriend.fullName}</p>
+                    <p className="text-xs text-slate-500">@{selectedFriend.username} · {selectedFriend.commonGroups} grup bersama</p>
+                  </div>
+                  <button onClick={() => setSelectedFriend(null)}><X size={15} /></button>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">Utang/piutang dengan Anda</p>
+                <p className={`text-lg font-semibold ${Number(selectedFriend.balance) >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>
+                  {rupiah(Math.abs(Number(selectedFriend.balance)))}
+                </p>
+                <div className="mt-3 space-y-2">
+                  {selectedFriend.sharedTransactions?.map((row: any) => (
+                    <div key={row.id} className="flex justify-between gap-3 border-t border-slate-200 pt-2 text-xs">
+                      <span>{row.description} · {row.groupName}</span><span className="font-semibold">{rupiah(row.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-200 pt-3">
+                  <button className="rounded-xl bg-white px-2 py-2 text-[11px] font-semibold text-slate-600" onClick={() => {
+                    if (!window.confirm(`Hapus ${selectedFriend.fullName} dari daftar teman?`)) return;
+                    runAction(
+                      () => request(`/social/friends/${selectedFriend.friendshipId}`, { method: "DELETE" }),
+                      "Teman berhasil dihapus"
+                    ).then(() => setSelectedFriend(null));
+                  }}>Hapus teman</button>
+                  <button className="rounded-xl bg-rose-50 px-2 py-2 text-[11px] font-semibold text-rose-600" onClick={() => {
+                    if (!window.confirm(`Blokir ${selectedFriend.fullName}?`)) return;
+                    runAction(
+                      () => request(`/social/friends/${selectedFriend.friendshipId}/block`, { method: "POST" }),
+                      "Pengguna berhasil diblokir"
+                    ).then(() => setSelectedFriend(null));
+                  }}>Blokir</button>
+                  <button className="rounded-xl bg-amber-50 px-2 py-2 text-[11px] font-semibold text-amber-700" onClick={() => {
+                    const reason = window.prompt("Alasan melaporkan pengguna:");
+                    if (!reason?.trim()) return;
+                    runAction(
+                      () => request(`/social/people/${selectedFriend.userId}/report`, {
+                        method: "POST",
+                        body: JSON.stringify({ reason: reason.trim() })
+                      }),
+                      "Laporan berhasil dikirim"
+                    );
+                  }}>Laporkan</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!loading && tab === "groups" && !selectedGroup && (
+        <div className="space-y-3">
+          {!showCreateGroup && (
+            <button className="btn-primary w-full" onClick={() => setShowCreateGroup(true)}><Plus size={16} /> Buat grup</button>
+          )}
+          {showCreateGroup && (
+            <>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-white active:scale-95"
+              onClick={() => {
+                setShowCreateGroup(false);
+                setGroupMemberIds(new Set());
+              }}
+            >
+              <ArrowLeft size={16} /> Kembali ke grup
+            </button>
+            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              runAction(
+                () => request("/social/groups", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    name: String(form.get("name")),
+                    description: String(form.get("description") || ""),
+                    memberIds: [...groupMemberIds]
+                  })
+                }),
+                "Grup berhasil dibuat"
+              ).then(() => {
+                setShowCreateGroup(false);
+                setGroupMemberIds(new Set());
+              });
+            }}>
+              <div className="mb-5 flex items-start gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700"><Users size={20} /></span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-950">Buat grup baru</h3>
+                    <p className="mt-0.5 text-[11px] text-slate-500">Pilih teman yang akan berbagi pengeluaran.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <Field label="Nama grup">
+                  <input className="input" name="name" placeholder="Contoh: Trip Bali" required />
+                </Field>
+                <Field label="Deskripsi (opsional)">
+                  <textarea className="input min-h-24 resize-none" name="description" placeholder="Tujuan atau catatan singkat grup" />
+                </Field>
+                <SocialFriendPicker
+                  friends={friends}
+                  selectedIds={groupMemberIds}
+                  onToggle={(friendId) => toggleSelectedFriend(setGroupMemberIds, friendId)}
+                />
+                <div className="rounded-2xl bg-slate-50 px-3 py-2.5 text-[11px] leading-4 text-slate-500">
+                  Teman yang dipilih akan menerima undangan dan bergabung setelah menyetujuinya.
+                </div>
+                <button className="btn-primary w-full"><Users size={16} /> Buat grup</button>
+              </div>
+            </form>
+            </>
+          )}
+          {!showCreateGroup && <div className="grid gap-2 md:grid-cols-2">
+            {groups.length === 0 && <EmptyState text="Belum ada grup keuangan." />}
+            {groups.map((group) => (
+              <div key={group.id} className="rounded-[22px] bg-white p-4 text-left shadow-soft lg:rounded-lg">
+                <button className="w-full text-left" disabled={group.status === "pending"} onClick={() => openGroup(group.id)}>
+                  <div className="flex justify-between gap-3"><p className="font-semibold">{group.name}</p>{group.status !== "pending" && <ChevronRight size={16} className="text-slate-300" />}</div>
+                  <p className="mt-1 text-xs text-slate-500">{group.status === "pending" ? "Undangan grup menunggu jawaban" : `${group.memberCount} anggota · ${socialEnumLabel(group.role)}`}</p>
+                  {group.status !== "pending" && (
+                    <p className={`mt-3 text-sm font-semibold ${Number(group.myBalance) >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>
+                      Posisi Anda {Number(group.myBalance) >= 0 ? "+" : "-"}{rupiah(Math.abs(Number(group.myBalance)))}
+                    </p>
+                  )}
+                </button>
+                {group.status === "pending" && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white" onClick={() => runAction(
+                      () => request(`/social/groups/${group.id}/invite`, { method: "PUT", body: JSON.stringify({ status: "accepted" }) }),
+                      "Undangan grup diterima"
+                    )}>Terima</button>
+                    <button className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600" onClick={() => runAction(
+                      () => request(`/social/groups/${group.id}/invite`, { method: "PUT", body: JSON.stringify({ status: "rejected" }) }),
+                      "Undangan grup ditolak"
+                    )}>Tolak</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>}
+        </div>
+      )}
+
+      {!loading && tab === "groups" && selectedGroup && (
+        <div className="space-y-3">
+          <button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" onClick={() => setSelectedGroup(null)}><ArrowLeft size={14} /> Kembali ke grup</button>
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+            <SectionHeader title={selectedGroup.name} caption={`${selectedGroup.members.filter((item) => item.status === "accepted").length} anggota`} />
+            <div className="flex -space-x-2">
+              {selectedGroup.members.filter((item) => item.status === "accepted").slice(0, 8).map((member) => (
+                <span key={member.id} title={member.fullName} className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-emerald-50 text-[11px] font-semibold text-[#16A34A]">
+                  {member.fullName.slice(0, 2).toUpperCase()}
+                </span>
+              ))}
+            </div>
+            <form className="mt-4" onSubmit={(event) => {
+              event.preventDefault();
+              runAction(
+                () => Promise.all([...groupMemberIds].map((userId) =>
+                  request(`/social/groups/${selectedGroup.id}/members`, {
+                    method: "POST",
+                    body: JSON.stringify({ userId })
+                  })
+                )),
+                "Undangan anggota dikirim"
+              ).then(() => {
+                setGroupMemberIds(new Set());
+                openGroup(selectedGroup.id);
+              });
+            }}>
+              <SocialFriendPicker
+                friends={friends}
+                selectedIds={groupMemberIds}
+                excludedIds={new Set(selectedGroup.members.map((member) => member.id))}
+                title="Tambah teman ke grup"
+                onToggle={(friendId) => toggleSelectedFriend(setGroupMemberIds, friendId)}
+              />
+              <button className="btn-secondary mt-2 w-full" disabled={groupMemberIds.size === 0}>
+                <UserPlus size={15} /> Undang {groupMemberIds.size || ""} teman
+              </button>
+            </form>
+            <button className="btn-primary mt-3 w-full" onClick={() => {
+              setEditingGroupExpense(null);
+              setShowExpenseForm((value) => !value);
+            }}><Plus size={16} /> Catat pengeluaran grup</button>
+          </div>
+
+          {showExpenseForm && (
+            <form key={editingGroupExpense?.id ?? "new-group-expense"} className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const participantIds = form.getAll("participantIds").map(String);
+              runAction(
+                () => request(editingGroupExpense ? `/social/expenses/${editingGroupExpense.id}` : `/social/groups/${selectedGroup.id}/expenses`, {
+                  method: editingGroupExpense ? "PUT" : "POST",
+                  body: JSON.stringify({
+                    description: String(form.get("description")),
+                    amount: String(form.get("amount")),
+                    paidBy: String(form.get("paidBy")),
+                    participantIds
+                  })
+                }),
+                editingGroupExpense ? "Pengeluaran diubah dan meminta konfirmasi ulang" : "Pengeluaran grup berhasil ditambahkan"
+              ).then(() => {
+                setEditingGroupExpense(null);
+                openGroup(selectedGroup.id);
+              });
+            }}>
+              <SectionHeader
+                title={editingGroupExpense ? "Edit split bill" : "Split bill"}
+                caption={editingGroupExpense ? "Perubahan nominal meminta konfirmasi ulang semua pihak terdampak." : "Bagian dibagi rata dan sisa pembulatan dibagikan otomatis."}
+                action={editingGroupExpense ? <button type="button" onClick={() => { setEditingGroupExpense(null); setShowExpenseForm(false); }}><X size={15} /></button> : undefined}
+              />
+              <div className="space-y-3">
+                <input className="input" name="description" placeholder="Contoh: Makan malam" defaultValue={editingGroupExpense?.description ?? ""} required />
+                <input className="input" name="amount" inputMode="numeric" placeholder="Total nominal" defaultValue={editingGroupExpense ? moneyInputValue(editingGroupExpense.amount) : ""} onInput={handleMoneyInput} required />
+                <Field label="Dibayar oleh">
+                  <select className="input" name="paidBy" defaultValue={editingGroupExpense?.paidBy ?? currentUser.id}>
+                    {selectedGroup.members.filter((item) => item.status === "accepted").map((member) => <option key={member.id} value={member.id}>{member.fullName}</option>)}
+                  </select>
+                </Field>
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-slate-600">Yang ikut menikmati</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {selectedGroup.members.filter((item) => item.status === "accepted").map((member) => (
+                      <label key={member.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-2 text-xs">
+                        <input
+                          type="checkbox"
+                          name="participantIds"
+                          value={member.id}
+                          defaultChecked={!editingGroupExpense || editingGroupExpense.participants.some((participant) => participant.userId === member.id)}
+                        /> {member.fullName}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button className="btn-primary w-full">Simpan & split otomatis</button>
+              </div>
+            </form>
+          )}
+
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+            <SectionHeader title="Penyelesaian minimum" caption="Simplify debt mengurangi jumlah transfer." />
+            <div className="space-y-2">
+              {selectedGroup.simplifiedDebts.length === 0 && <EmptyState text="Semua anggota sudah seimbang." />}
+              {selectedGroup.simplifiedDebts.map((debt, index) => (
+                <div key={`${debt.fromUserId}-${debt.toUserId}-${index}`} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3 text-xs">
+                  <span className="min-w-0"><strong>{debt.fromName}</strong> membayar <strong>{debt.toName}</strong></span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="font-semibold text-rose-600">{rupiah(debt.amount)}</span>
+                    {debt.fromUserId === currentUser.id && (
+                      <button className="rounded-full bg-white px-2 py-1 font-semibold text-[#16A34A]" onClick={() => runAction(
+                        () => request(`/social/groups/${selectedGroup.id}/settlements`, {
+                          method: "POST",
+                          body: JSON.stringify({ toUserId: debt.toUserId, amount: debt.amount })
+                        }),
+                        "Pembayaran menunggu konfirmasi penerima"
+                      )}>Bayar</button>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+            <SectionHeader title="Riwayat grup" caption="Hanya transaksi anggota grup." />
+            <div className="space-y-2">
+              {selectedGroup.expenses.map((expense) => (
+                <div key={expense.id} className="rounded-2xl border border-slate-100 p-3">
+                  <div className="flex justify-between gap-3"><p className="text-sm font-semibold">{expense.description}</p><p className="text-sm font-semibold">{rupiah(expense.amount)}</p></div>
+                  <p className="mt-1 text-xs text-slate-500">Dibayar {expense.paidByName} · {localDate(expense.expenseDate)}</p>
+                  {(expense.createdBy === currentUser.id || ["owner", "admin"].includes(selectedGroup.role)) && (
+                    <button className="mt-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
+                      setEditingGroupExpense(expense);
+                      setShowExpenseForm(true);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}>Edit transaksi</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <form className="mt-3 flex gap-2" onSubmit={(event) => {
+              event.preventDefault();
+              const formElement = event.currentTarget;
+              const messageValue = String(new FormData(formElement).get("message"));
+              runAction(
+                () => request(`/social/comments/group/${selectedGroup.id}`, { method: "POST", body: JSON.stringify({ message: messageValue }) }),
+                "Komentar ditambahkan"
+              ).then(() => {
+                formElement.reset();
+                openGroup(selectedGroup.id);
+              });
+            }}>
+              <input className="input min-w-0 flex-1" name="message" placeholder="Komentar grup" required />
+              <button className="btn-secondary shrink-0"><MessageCircle size={15} /></button>
+            </form>
+          </div>
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+            <SectionHeader title="Audit history" caption="Perubahan transaksi tercatat dan dapat ditelusuri." />
+            <div className="space-y-2">
+              {selectedGroup.auditHistory.length === 0 && <EmptyState text="Belum ada perubahan tercatat." />}
+              {selectedGroup.auditHistory.map((entry) => (
+                <div key={entry.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3 text-xs">
+                  <span><strong>{entry.actorName ?? "Sistem"}</strong> · {entry.action === "CREATE" ? "membuat transaksi" : "mengubah transaksi dan meminta konfirmasi ulang"}</span>
+                  <span className="shrink-0 text-slate-400">{localDate(entry.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && tab === "wallets" && !selectedWallet && (
+        <div className="space-y-3">
+          {!showCreateWallet && (
+            <button className="btn-primary w-full" onClick={() => setShowCreateWallet(true)}><Plus size={16} /> Buat dompet bersama</button>
+          )}
+          {showCreateWallet && (
+            <>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-white active:scale-95"
+              onClick={() => {
+                setShowCreateWallet(false);
+                setWalletMemberIds(new Set());
+              }}
+            >
+              <ArrowLeft size={16} /> Kembali ke dompet bersama
+            </button>
+            <form className="rounded-[22px] bg-white p-4 shadow-soft" onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              runAction(
+                () => request("/social/wallets", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    name: String(form.get("name")),
+                    description: String(form.get("description") || ""),
+                    spendingLimit: String(form.get("spendingLimit") || "") || undefined,
+                    requireApproval: form.get("requireApproval") === "on",
+                    memberIds: [...walletMemberIds],
+                    adminIds: [...walletAdminIds],
+                    storageAccountId: walletStorageMode === "account" ? String(form.get("storageAccountId") || "") || null : null,
+                    storageType: walletStorageMode === "account" ? "bank" : String(form.get("storageType")),
+                    storageProvider: String(form.get("storageProvider") || "") || undefined,
+                    storageAccountNumber: String(form.get("storageAccountNumber") || "") || undefined
+                  })
+                }),
+                "Dompet bersama dibuat"
+              ).then(() => {
+                setShowCreateWallet(false);
+                setWalletMemberIds(new Set());
+                setWalletAdminIds(new Set());
+                setWalletStorageAccountId("");
+              });
+            }}>
+              <div className="mb-5 flex items-start gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-700"><Wallet size={20} /></span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-950">Buat dompet bersama</h3>
+                    <p className="mt-0.5 text-[11px] text-slate-500">Saldo bersama tetap terpisah dari akun pribadi.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <Field label="Nama dompet">
+                  <input className="input" name="name" placeholder="Contoh: Kas rumah" required />
+                </Field>
+                <Field label="Deskripsi (opsional)">
+                  <textarea className="input min-h-20 resize-none" name="description" placeholder="Tujuan penggunaan dompet" />
+                </Field>
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-slate-700">Tempat dana</p>
+                  <div className="grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
+                    <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${walletStorageMode === "account" ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`} onClick={() => setWalletStorageMode("account")}>Pilih akun</button>
+                    <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${walletStorageMode === "manual" ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`} onClick={() => setWalletStorageMode("manual")}>Input manual</button>
+                  </div>
+                </div>
+                {walletStorageMode === "account" ? (
+                  <Field label="Akun penyimpanan">
+                    <select
+                      className="input"
+                      name="storageAccountId"
+                      required={walletStorageMode === "account"}
+                      value={walletStorageAccountId}
+                      onChange={(event) => setWalletStorageAccountId(event.target.value)}
+                    >
+                      <option value="" disabled>Pilih akun Anda</option>
+                      {accounts.filter((account) => account.isActive && !account.isSharedWalletAccount).map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name} · {rupiah(account.currentBalance)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : (
+                  <>
+                  <div className="grid grid-cols-2 gap-2">
+                  <Field label="Jenis penyimpanan">
+                    <select className="input" name="storageType" defaultValue="bank">
+                      <option value="bank">Bank</option>
+                      <option value="e_wallet">E-money / E-wallet</option>
+                      <option value="cash">Tunai</option>
+                      <option value="other">Lainnya</option>
+                    </select>
+                  </Field>
+                  <Field label="Bank / penyedia">
+                    <input className="input" name="storageProvider" placeholder="BCA, GoPay, DANA" />
+                  </Field>
+                  </div>
+                <Field label="Nomor rekening / e-money">
+                  <input className="input" name="storageAccountNumber" inputMode="numeric" placeholder="Nomor tujuan penyimpanan dana" />
+                </Field>
+                  </>
+                )}
+                {walletStorageMode === "account" && selectedWalletStorageAccount && (
+                  <>
+                    <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-[11px] leading-4 text-amber-800">
+                      Akun ini akan menjadi tempat dana dompet bersama dan tidak dapat digunakan untuk transaksi pribadi selama masih terhubung.
+                    </div>
+                    {selectedWalletStorageAccount.accountType !== "cash"
+                      && (!selectedWalletStorageAccount.providerName || !selectedWalletStorageAccount.accountNumber) && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Bank / penyedia">
+                          <input
+                            className="input"
+                            name="storageProvider"
+                            placeholder="BCA, GoPay, DANA"
+                            defaultValue={selectedWalletStorageAccount.providerName ?? ""}
+                            required
+                          />
+                        </Field>
+                        <Field label="Nomor rekening / e-money">
+                          <input
+                            className="input"
+                            name="storageAccountNumber"
+                            placeholder="Nomor akun"
+                            defaultValue={selectedWalletStorageAccount.accountNumber ?? ""}
+                            required
+                          />
+                        </Field>
+                      </div>
+                    )}
+                  </>
+                )}
+                <Field label="Batas pengeluaran (opsional)">
+                  <div className="relative">
+                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs font-semibold text-slate-400">Rp</span>
+                    <input className="input pl-9" name="spendingLimit" inputMode="numeric" placeholder="0" onInput={handleMoneyInput} />
+                  </div>
+                </Field>
+                <SocialFriendPicker
+                  friends={friends}
+                  selectedIds={walletMemberIds}
+                  onToggle={(friendId) => toggleSelectedFriend(setWalletMemberIds, friendId)}
+                />
+                {walletMemberIds.size > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-semibold text-slate-700">Pilih admin dompet</p>
+                    <div className="flex flex-wrap gap-2">
+                      {friends
+                        .filter((friend) => walletMemberIds.has(friend.userId))
+                        .map((friend) => {
+                          const admin = walletAdminIds.has(friend.userId);
+                          return (
+                            <button
+                              key={friend.userId}
+                              type="button"
+                              className={`rounded-full px-3 py-1.5 text-[11px] font-semibold ${
+                                admin ? "bg-[#16A34A] text-white" : "bg-slate-100 text-slate-600"
+                              }`}
+                              onClick={() => toggleSelectedFriend(setWalletAdminIds, friend.userId)}
+                            >
+                              {friend.fullName}{admin ? " · Admin" : ""}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                  <span>
+                    <span className="block text-xs font-semibold text-slate-800">Persetujuan pengeluaran</span>
+                    <span className="mt-0.5 block text-[10px] text-slate-500">Pengeluaran yang dicatat member perlu ditinjau owner atau admin sebelum mengurangi saldo.</span>
+                  </span>
+                  <input className="h-4 w-4 accent-[#16A34A]" type="checkbox" name="requireApproval" defaultChecked />
+                </label>
+                <button className="btn-primary w-full"><Wallet size={16} /> Buat dompet bersama</button>
+              </div>
+            </form>
+            </>
+          )}
+          {!showCreateWallet && <div className="grid gap-2 md:grid-cols-2">
+            {wallets.length === 0 && <EmptyState text="Belum ada dompet bersama." />}
+            {wallets.map((wallet) => (
+              <div key={wallet.id} className="rounded-[22px] bg-white p-4 text-left shadow-soft">
+                <button
+                  className="w-full text-left"
+                  disabled={wallet.status === "pending"}
+                  onClick={() => openWallet(wallet.id)}
+                >
+                  <div className="flex justify-between gap-3">
+                    <p className="font-semibold">{wallet.name}</p>
+                    {wallet.status !== "pending" && <ChevronRight size={16} />}
+                  </div>
+                  {wallet.status === "pending" ? (
+                    <p className="mt-1 text-xs text-slate-500">Undangan dompet menunggu jawaban Anda</p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-lg font-semibold text-[#16A34A]">{rupiah(wallet.balance)}</p>
+                      <p className="text-xs text-slate-500">{wallet.pendingCount} menunggu approval · {socialEnumLabel(wallet.role)}</p>
+                      <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2.5">
+                        <p className="text-[9px] font-semibold uppercase text-slate-400">
+                          {wallet.storageType === "e_wallet" ? "E-wallet" : wallet.storageType === "bank" ? "Bank" : wallet.storageType === "cash" ? "Tunai" : "Penyimpanan lain"}
+                        </p>
+                        <p className="mt-1 truncate text-xs font-semibold text-slate-700">
+                          {wallet.storageAccountName || wallet.storageProvider || "Belum diatur"}
+                        </p>
+                        {wallet.storageAccountNumber && <p className="mt-0.5 truncate text-[10px] text-slate-500">{wallet.storageAccountNumber}</p>}
+                      </div>
+                    </>
+                  )}
+                </button>
+                {wallet.status === "pending" && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white" onClick={() => runAction(
+                      () => request(`/social/wallets/${wallet.id}/invite`, {
+                        method: "PUT",
+                        body: JSON.stringify({ status: "accepted" })
+                      }),
+                      "Undangan dompet diterima"
+                    )}>Terima</button>
+                    <button className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600" onClick={() => runAction(
+                      () => request(`/social/wallets/${wallet.id}/invite`, {
+                        method: "PUT",
+                        body: JSON.stringify({ status: "rejected" })
+                      }),
+                      "Undangan dompet ditolak"
+                    )}>Tolak</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>}
+        </div>
+      )}
+
+      {!loading && tab === "wallets" && selectedWallet && (
+        <div className="space-y-3">
+          <button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" onClick={() => setSelectedWallet(null)}><ArrowLeft size={14} /> Kembali</button>
+          <div className="rounded-[22px] bg-[#16A34A] p-4 text-white shadow-soft">
+            <p className="text-xs text-white/70">Saldo bersama · tidak termasuk saldo pribadi</p>
+            <h3 className="mt-1 text-2xl font-semibold">{rupiah(selectedWallet.balance)}</h3>
+            <p className="mt-1 text-xs text-white/70">
+              {selectedWallet.name} · {selectedWallet.members.filter((member) => member.status === "accepted").length} anggota
+            </p>
+            <div className="mt-3 grid grid-cols-3 divide-x divide-white/15 rounded-2xl bg-white/10 py-3">
+              <div className="min-w-0 px-3">
+                <p className="text-[9px] text-white/65">Setoran</p>
+                <p className="mt-1 truncate text-xs font-semibold">{rupiah(selectedWallet.totalDeposit)}</p>
+              </div>
+              <div className="min-w-0 px-3">
+                <p className="text-[9px] text-white/65">Pengeluaran</p>
+                <p className="mt-1 truncate text-xs font-semibold">{rupiah(selectedWallet.totalExpense)}</p>
+              </div>
+              <div className="min-w-0 px-3">
+                <p className="text-[9px] text-white/65">Saldo bersih</p>
+                <p className="mt-1 truncate text-xs font-semibold">{rupiah(selectedWallet.balance)}</p>
+              </div>
+            </div>
+            <div className="mt-3 rounded-2xl bg-white/10 px-3 py-2.5">
+              <p className="text-[10px] font-medium uppercase text-white/60">Dana disimpan di</p>
+              <p className="mt-1 text-[10px] text-white/65">
+                {selectedWallet.storageType === "e_wallet" ? "E-wallet / e-money" : selectedWallet.storageType === "bank" ? "Rekening bank" : selectedWallet.storageType === "cash" ? "Tunai" : "Penyimpanan lainnya"}
+              </p>
+              <p className="mt-1 text-sm font-semibold">
+                {selectedWallet.storageAccountName || selectedWallet.storageProvider || (selectedWallet.storageType === "cash" ? "Tunai" : selectedWallet.storageType)}
+              </p>
+              {selectedWallet.storageAccountNumber && <p className="mt-0.5 text-xs text-white/75">{selectedWallet.storageAccountNumber}</p>}
+            </div>
+          </div>
+          {["owner", "admin"].includes(selectedWallet.role) && (
+            <form className="rounded-[22px] bg-white p-4 shadow-soft" onSubmit={(event) => {
+              event.preventDefault();
+              const role = String(new FormData(event.currentTarget).get("role"));
+              runAction(
+                () => Promise.all([...walletMemberIds].map((userId) =>
+                  request(`/social/wallets/${selectedWallet.id}/members`, {
+                    method: "POST",
+                    body: JSON.stringify({ userId, role })
+                  })
+                )),
+                "Anggota dompet ditambahkan"
+              ).then(() => {
+                setWalletMemberIds(new Set());
+                openWallet(selectedWallet.id);
+              });
+            }}>
+              <SectionHeader title="Tambah anggota" caption="Pilih role sesuai akses yang dibutuhkan." />
+              {selectedWallet.members.some((member) => member.status === "pending") && (
+                <div className="mb-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
+                  <p className="text-[11px] font-semibold text-amber-800">
+                    Menunggu persetujuan ({selectedWallet.members.filter((member) => member.status === "pending").length})
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedWallet.members
+                      .filter((member) => member.status === "pending")
+                      .map((member) => (
+                        <span key={member.id} className="inline-flex items-center gap-2 rounded-full bg-white px-2.5 py-1.5 text-[11px] text-slate-700 shadow-sm">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-[9px] font-semibold text-amber-700">
+                            {member.fullName.slice(0, 2).toUpperCase()}
+                          </span>
+                          {member.fullName}
+                          <span className="text-[9px] text-amber-600">Menunggu</span>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              )}
+              <div className="space-y-3">
+                <SocialFriendPicker
+                  friends={friends}
+                  selectedIds={walletMemberIds}
+                  excludedIds={new Set(selectedWallet.members.map((member) => member.id))}
+                  title="Pilih teman"
+                  onToggle={(friendId) => toggleSelectedFriend(setWalletMemberIds, friendId)}
+                />
+                <Field label="Role anggota">
+                <select className="input" name="role" defaultValue="member">
+                  <option value="admin">Admin</option>
+                  <option value="member">Member</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+                </Field>
+              </div>
+              <button className="btn-secondary mt-3 w-full" disabled={walletMemberIds.size === 0}>
+                <UserPlus size={15} /> Tambahkan {walletMemberIds.size || ""} anggota
+              </button>
+            </form>
+          )}
+          <section className="rounded-[22px] bg-white p-4 shadow-soft">
+            <SectionHeader
+              title="Pengingat dompet"
+              caption={`${walletReminders.length} pengingat aktif`}
+              action={["owner", "admin"].includes(selectedWallet.role) ? (
+                <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => setShowWalletReminderForm((current) => !current)}>
+                  <Plus size={14} /> Tambah
+                </button>
+              ) : undefined}
+            />
+            {showWalletReminderForm && (
+              <form className="mb-3 space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/40 p-3" onSubmit={(event) => {
+                event.preventDefault();
+                const form = new FormData(event.currentTarget);
+                runAction(
+                  () => request(`/social/wallets/${selectedWallet.id}/reminders`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      intervalType: walletReminderInterval,
+                      reminderTime: String(form.get("reminderTime")),
+                      dayOfWeek: walletReminderInterval === "weekly" ? Number(form.get("dayOfWeek")) : null,
+                      dayOfMonth: walletReminderInterval === "monthly" ? Number(form.get("dayOfMonth")) : null,
+                      entryType: String(form.get("entryType")),
+                      message: String(form.get("message")),
+                      targetUserId: String(form.get("targetUserId") || "") || null,
+                      timezone: APP_TIME_ZONE
+                    })
+                  }),
+                  "Pengingat dompet berhasil dibuat"
+                ).then(() => {
+                  setShowWalletReminderForm(false);
+                  openWallet(selectedWallet.id);
+                });
+              }}>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Interval">
+                    <select className="input" value={walletReminderInterval} onChange={(event) => setWalletReminderInterval(event.target.value as typeof walletReminderInterval)}>
+                      <option value="daily">Setiap hari</option>
+                      <option value="weekly">Setiap minggu</option>
+                      <option value="monthly">Setiap bulan</option>
+                    </select>
+                  </Field>
+                  <Field label="Waktu">
+                    <input className="input" type="time" name="reminderTime" defaultValue="12:00" required />
+                  </Field>
+                </div>
+                {walletReminderInterval === "weekly" && (
+                  <Field label="Hari">
+                    <select className="input" name="dayOfWeek" defaultValue="1">
+                      {["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"].map((day, index) => <option key={day} value={index}>{day}</option>)}
+                    </select>
+                  </Field>
+                )}
+                {walletReminderInterval === "monthly" && (
+                  <Field label="Tanggal setiap bulan">
+                    <input className="input" name="dayOfMonth" type="number" min="1" max="31" defaultValue="1" required />
+                  </Field>
+                )}
+                <Field label="Buka form">
+                  <select className="input" name="entryType" defaultValue="deposit">
+                    <option value="deposit">Deposit / setoran</option>
+                    <option value="expense">Expense / pengeluaran</option>
+                  </select>
+                </Field>
+                <Field label="Kirim pengingat kepada">
+                  <select className="input" name="targetUserId" defaultValue="">
+                    <option value="">Semua anggota</option>
+                    {selectedWallet.members
+                      .filter((member) => member.status === "accepted")
+                      .map((member) => <option key={member.id} value={member.id}>{member.fullName}</option>)}
+                  </select>
+                </Field>
+                <Field label="Pesan notifikasi">
+                  <input className="input" name="message" defaultValue="Jangan lupa nabung ya hari ini" maxLength={240} required />
+                </Field>
+                <button className="btn-primary w-full"><Bell size={15} /> Simpan pengingat</button>
+              </form>
+            )}
+            <div className="space-y-2">
+              {walletReminders.length === 0 && <p className="rounded-2xl bg-slate-50 px-3 py-3 text-xs text-slate-500">Belum ada pengingat dompet.</p>}
+              {walletReminders.map((reminder) => (
+                <div key={reminder.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><Bell size={16} /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-semibold text-slate-800">{reminder.message}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      {reminder.intervalType} · {reminder.reminderTime.slice(0, 5)} · {reminder.entryType} · {
+                        reminder.targetUserId
+                          ? selectedWallet.members.find((member) => member.id === reminder.targetUserId)?.fullName ?? "Anggota"
+                          : "Semua anggota"
+                      }
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+          {!showWalletEntryForm && (
+            <button
+              type="button"
+              className="btn-primary w-full"
+              onClick={() => {
+                setShowWalletEntryForm(true);
+                window.setTimeout(() => walletEntryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+              }}
+            >
+              <Plus size={16} /> Tambah transaksi dompet
+            </button>
+          )}
+          {showWalletEntryForm && <form ref={walletEntryFormRef} className="rounded-[22px] bg-white p-4 shadow-soft" onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            runAction(
+              () => request(`/social/wallets/${selectedWallet.id}/entries`, {
+                method: "POST",
+                body: JSON.stringify({
+                  entryType: String(form.get("entryType")),
+                  amount: String(form.get("amount")),
+                  description: String(form.get("description")),
+                  transactionDate: String(form.get("transactionDate")),
+                  receiptId: walletEntryReceiptId
+                })
+              }),
+              "Transaksi dompet dicatat"
+            ).then(() => {
+              setShowWalletEntryForm(false);
+              setWalletEntryReceiptId(null);
+              setWalletEntryAttachmentName("");
+              openWallet(selectedWallet.id);
+            });
+          }}>
+            <SectionHeader
+              title="Catat transaksi dompet"
+              caption="Pengeluaran mengikuti aturan approval."
+              action={<button type="button" onClick={() => { setShowWalletEntryForm(false); setWalletEntryReceiptId(null); setWalletEntryAttachmentName(""); }}><X size={15} /></button>}
+            />
+            <div className="space-y-3">
+              <select className="input" name="entryType" defaultValue={new URLSearchParams(window.location.search).get("entryType") === "expense" ? "expense" : "deposit"}><option value="deposit">Setoran</option><option value="expense">Pengeluaran</option></select>
+              <Field label="Tanggal transaksi">
+                <input type="hidden" name="transactionDate" value={walletEntryDate} />
+                <DateFilterPicker
+                  label="Tanggal transaksi"
+                  value={walletEntryDate}
+                  onChange={setWalletEntryDate}
+                  language={language}
+                  showLabel={false}
+                  allowClear={false}
+                />
+              </Field>
+              <input className="input" name="amount" inputMode="numeric" placeholder="Nominal" onInput={handleMoneyInput} required />
+              <input className="input" name="description" placeholder="Keterangan" required />
+              <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3">
+                <span className="flex items-center gap-2 text-xs text-slate-600">
+                  {walletEntryAttachmentLoading ? <Loader2 className="animate-spin" size={15} /> : <Upload size={15} />}
+                  {walletEntryAttachmentName || (walletEntryReceiptId ? "Attachment tersimpan" : "Tambah attachment")}
+                </span>
+                <span className="text-[10px] font-semibold text-[#16A34A]">{walletEntryReceiptId ? "Ganti" : "Pilih file"}</span>
+                <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadWalletEntryAttachment} />
+              </label>
+              <button className="btn-primary w-full">Simpan transaksi</button>
+            </div>
+          </form>}
+          <section className="rounded-[22px] bg-white p-4 shadow-soft">
+            <SectionHeader title="Ringkasan anggota" caption="Kontribusi dari transaksi yang sudah disetujui." />
+            <div className="space-y-2">
+              {selectedWallet.memberSummary.map((member) => (
+                <div key={member.userId} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-2xl bg-slate-50 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-slate-900">
+                      {member.fullName}{["owner", "admin"].includes(member.role) ? " (admin)" : ""}
+                    </p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">Aktivitas dompet</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-slate-400">Deposit</p>
+                    <p className="text-[11px] font-semibold text-[#16A34A]">{rupiah(member.deposit)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-slate-400">Pengeluaran</p>
+                    <p className="text-[11px] font-semibold text-rose-600">{rupiah(member.expense)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+          <div className="rounded-[22px] bg-white p-4 shadow-soft">
+            <SectionHeader title="Riwayat transaksi" caption="Dikelompokkan berdasarkan tanggal transaksi." />
+            <div className="space-y-4">
+              {Object.entries(selectedWallet.entries.reduce<Record<string, WalletDetail["entries"]>>((groups, entry) => {
+                const key = entry.transactionDate || entry.createdAt.slice(0, 10);
+                (groups[key] ??= []).push(entry);
+                return groups;
+              }, {})).map(([date, entries]) => (
+                <section key={date}>
+                  <p className="mb-2 text-[11px] font-semibold text-slate-500">{localDate(`${date}T00:00:00+07:00`)}</p>
+                  <div className="space-y-2">
+                  {entries.map((entry) => (
+                  <div key={entry.id} className="rounded-2xl border border-slate-100 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{entry.description}</p>
+                    <p className="text-xs text-slate-500">{entry.createdByName} · {socialEnumLabel(entry.status)}</p>
+                  </div>
+                  {entry.receiptId && (
+                    <button
+                      type="button"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition hover:bg-emerald-50 hover:text-[#16A34A]"
+                      onClick={() => openWalletAttachment(entry.receiptId!)}
+                      aria-label="Lihat attachment"
+                      title="Lihat attachment"
+                    >
+                      <Eye size={15} />
+                    </button>
+                  )}
+                  <p className={`text-sm font-semibold ${entry.entryType === "deposit" ? "text-[#16A34A]" : "text-rose-600"}`}>{entry.entryType === "deposit" ? "+" : "-"}{rupiah(entry.amount)}</p>
+                  </div>
+                  {entry.status === "pending" && ["owner", "admin"].includes(selectedWallet.role) && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white" onClick={() => runAction(
+                        () => request(`/social/wallet-entries/${entry.id}/approve`, { method: "PUT", body: JSON.stringify({ status: "approved" }) }),
+                        "Transaksi disetujui"
+                      ).then(() => openWallet(selectedWallet.id))}>Setujui</button>
+                      <button className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => runAction(
+                        () => request(`/social/wallet-entries/${entry.id}/approve`, { method: "PUT", body: JSON.stringify({ status: "rejected" }) }),
+                        "Transaksi ditolak"
+                      ).then(() => openWallet(selectedWallet.id))}>Tolak</button>
+                    </div>
+                  )}
+                </div>
+                  ))}
+                  </div>
+                </section>
+              ))}
+              {selectedWallet.entries.length === 0 && <EmptyState text="Belum ada transaksi dompet." />}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && tab === "activity" && (
+        <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <SectionHeader
+            title="Aktivitas Anda"
+            caption="Tidak ada feed publik; hanya aktivitas yang melibatkan Anda."
+            action={<button className="text-xs font-semibold text-[#16A34A]" onClick={() => runAction(
+              () => request("/social/activity/read", { method: "PUT", body: "{}" }),
+              "Semua notifikasi ditandai dibaca"
+            )}>Tandai dibaca</button>}
+          />
+          <div className="space-y-5">
+            {activity.length === 0 && <EmptyState text="Belum ada aktivitas sosial." />}
+            {groupedActivity.map((group) => (
+              <section key={group.key}>
+                <div className="sticky top-16 z-10 mb-2 bg-white/95 py-1 backdrop-blur">
+                  <p className="text-[11px] font-semibold uppercase text-slate-400">{group.label}</p>
+                </div>
+                <div className="space-y-2">
+                  {group.items.map((event) => (
+                    <div key={event.id} className={`rounded-2xl p-3 ${event.isRead ? "bg-slate-50" : "border border-emerald-100 bg-emerald-50"}`}>
+                      <div className="flex justify-between gap-3"><p className="text-sm font-semibold">{event.title}</p>{!event.isRead && <span className="h-2 w-2 rounded-full bg-[#16A34A]" />}</div>
+                      {event.body && <p className="mt-1 text-xs text-slate-600">{event.body}</p>}
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        {new Intl.DateTimeFormat(language === "en" ? "en-US" : "id-ID", { timeZone: APP_TIME_ZONE, hour: "2-digit", minute: "2-digit" }).format(new Date(event.createdAt))}
+                      </p>
+                      {event.eventType === "payment_received" && event.entityId && (
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white" onClick={() => runAction(
+                            () => request(`/social/settlements/${event.entityId}/confirm`, { method: "PUT", body: JSON.stringify({ status: "confirmed" }) }),
+                            "Pembayaran dikonfirmasi"
+                          )}>Sudah diterima</button>
+                          <button className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => runAction(
+                            () => request(`/social/settlements/${event.entityId}/confirm`, { method: "PUT", body: JSON.stringify({ status: "cancelled" }) }),
+                            "Pembayaran ditolak"
+                          )}>Tolak</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+            <div ref={activitySentinelRef} className="flex min-h-12 items-center justify-center">
+              {activityLoadingMore && (
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <Loader2 size={15} className="animate-spin" /> Memuat aktivitas...
+                </div>
+              )}
+              {!activityHasMore && activity.length > 0 && <p className="text-[11px] text-slate-400">Semua aktivitas sudah ditampilkan.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && tab === "privacy" && (
+        <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          runAction(
+            () => request("/social/privacy", {
+              method: "PUT",
+              body: JSON.stringify({
+                allowWalletInvites: form.get("allowWalletInvites") === "on",
+                allowGroupInvites: form.get("allowGroupInvites") === "on",
+                searchableBy: String(form.get("searchableBy")),
+                hidePhone: form.get("hidePhone") === "on"
+              })
+            }),
+            "Pengaturan privasi disimpan"
+          );
+        }}>
+          <SectionHeader title="Kontrol privasi" caption="Saldo, rekening, budget, dan transaksi pribadi tidak pernah dibagikan otomatis." />
+          <div className="space-y-3">
+            <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-3 text-sm"><span>Izinkan ditambahkan ke dompet bersama</span><input type="checkbox" name="allowWalletInvites" defaultChecked={privacy.allowWalletInvites} /></label>
+            <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-3 text-sm"><span>Izinkan ditambahkan ke grup</span><input type="checkbox" name="allowGroupInvites" defaultChecked={privacy.allowGroupInvites} /></label>
+            <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-3 text-sm"><span>Sembunyikan nomor telepon</span><input type="checkbox" name="hidePhone" defaultChecked={privacy.hidePhone} /></label>
+            <Field label="Siapa yang dapat mencari akun">
+              <select className="input" name="searchableBy" defaultValue={privacy.searchableBy}>
+                <option value="everyone">Username, email, dan telepon</option>
+                <option value="username">Hanya username</option>
+                <option value="friends">Teman saja</option>
+                <option value="nobody">Tidak seorang pun</option>
+              </select>
+            </Field>
+            <button className="btn-primary w-full"><ShieldCheck size={16} /> Simpan privasi</button>
+          </div>
+        </form>
+      )}
     </section>
   );
 }
@@ -4198,6 +7707,7 @@ function ProfileView({
   const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState(session.user.avatarUrl ?? "");
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   useEffect(() => {
     request<Session["user"]>("/auth/profile")
@@ -4252,6 +7762,8 @@ function ProfileView({
         method: "PUT",
         body: JSON.stringify({
           fullName: String(form.get("fullName")),
+          username: String(form.get("username")),
+          phone: String(form.get("phone") || "") || null,
           nickname: String(form.get("nickname") || "") || null,
           title: String(form.get("title") || "") || null,
           avatarUrl: avatarUrl || null
@@ -4259,6 +7771,7 @@ function ProfileView({
       });
       onProfileUpdated(user);
       setProfileMessage("Profil berhasil diperbarui.");
+      setIsEditingProfile(false);
     } catch (err) {
       setProfileMessage(err instanceof Error ? err.message : "Profil gagal diperbarui");
     }
@@ -4284,7 +7797,7 @@ function ProfileView({
   };
   return (
     <div className="mx-auto grid max-w-5xl gap-3 xl:grid-cols-[0.85fr_1.15fr]">
-      <section className="rounded-[26px] bg-[#003d12] p-4 text-white shadow-[0_18px_42px_rgba(0,184,23,0.18)] lg:rounded-lg lg:p-5">
+      <section className="rounded-[26px] bg-[#16A34A] p-4 text-white shadow-[0_18px_42px_rgba(22,163,74,0.18)] lg:rounded-lg lg:p-5">
         <div className="flex items-start gap-3">
           {avatarUrl ? (
             <img className="h-14 w-14 shrink-0 rounded-2xl object-cover ring-2 ring-white/20 lg:rounded-lg" src={avatarUrl} alt="Foto profil" />
@@ -4314,7 +7827,7 @@ function ProfileView({
         {onLogout && (
           <button
             type="button"
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#003d12] transition hover:bg-emerald-50 lg:hidden"
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#16A34A] transition hover:bg-emerald-50 lg:hidden"
             onClick={onLogout}
           >
             <LogOut size={16} /> Logout
@@ -4322,27 +7835,83 @@ function ProfileView({
         )}
       </section>
       <div className="space-y-3">
-        <form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={saveProfile}>
-          <SectionHeader title="Edit profil" caption="Atur identitas yang tampil di aplikasi." />
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 lg:rounded-md">
-              {avatarUrl ? <img className="h-12 w-12 rounded-xl object-cover" src={avatarUrl} alt="" /> : <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-slate-400"><UserRound size={20} /></span>}
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-slate-700">Foto profil</p>
-                <p className="text-[11px] text-slate-500">Gambar akan dirapikan otomatis.</p>
+        {!isEditingProfile ? (
+          <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+            <SectionHeader
+              title="Profil saya"
+              caption="Informasi yang tampil pada akun Anda."
+              action={(
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A] transition active:scale-95"
+                  onClick={() => {
+                    setProfileMessage(null);
+                    setAvatarUrl(session.user.avatarUrl ?? "");
+                    setIsEditingProfile(true);
+                  }}
+                >
+                  <Settings size={14} /> Edit profil
+                </button>
+              )}
+            />
+            <dl className="divide-y divide-slate-100">
+              {[
+                ["Nama lengkap", session.user.fullName],
+                ["Username", session.user.username ? `@${session.user.username}` : "-"],
+                ["Nomor telepon", session.user.phone || "-"],
+                ["Nama panggilan", session.user.nickname || "-"],
+                ["Title", session.user.title || "-"]
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-4 py-3">
+                  <dt className="text-xs text-slate-500">{label}</dt>
+                  <dd className="min-w-0 truncate text-right text-xs font-semibold text-slate-900">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {profileMessage && <p className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-sm text-[#16A34A] lg:rounded-md">{profileMessage}</p>}
+          </section>
+        ) : (
+          <form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={saveProfile}>
+            <SectionHeader title="Edit profil" caption="Atur identitas yang tampil di aplikasi." />
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 lg:rounded-md">
+                {avatarUrl ? <img className="h-12 w-12 rounded-xl object-cover" src={avatarUrl} alt="" /> : <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-slate-400"><UserRound size={20} /></span>}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-slate-700">Foto profil</p>
+                  <p className="text-[11px] text-slate-500">Gambar akan dirapikan otomatis.</p>
+                </div>
+                <label className="cursor-pointer rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm">
+                  Pilih
+                  <input className="sr-only" type="file" accept="image/*,.heic,.heif" onChange={chooseAvatar} />
+                </label>
               </div>
-              <label className="cursor-pointer rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#00b817] shadow-sm">
-                Pilih
-                <input className="sr-only" type="file" accept="image/*,.heic,.heif" onChange={chooseAvatar} />
-              </label>
+              <Field label="Nama lengkap"><input className="input" name="fullName" defaultValue={session.user.fullName} required minLength={2} /></Field>
+              <Field label="Username">
+                <input className="input" name="username" defaultValue={session.user.username ?? ""} placeholder="contoh: reyandika" pattern="[a-zA-Z0-9_.]{3,40}" required />
+              </Field>
+              <Field label="Nomor telepon">
+                <input className="input" name="phone" type="tel" defaultValue={session.user.phone ?? ""} placeholder="Contoh: 081234567890" />
+              </Field>
+              <Field label="Nickname"><input className="input" name="nickname" defaultValue={session.user.nickname ?? ""} placeholder="Nama panggilan" /></Field>
+              <Field label="Title"><input className="input" name="title" defaultValue={session.user.title ?? ""} placeholder="Contoh: Student, Freelancer" /></Field>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary w-full"
+                  onClick={() => {
+                    setAvatarUrl(session.user.avatarUrl ?? "");
+                    setProfileMessage(null);
+                    setIsEditingProfile(false);
+                  }}
+                >
+                  Batal
+                </button>
+                <button className="btn-primary w-full"><CheckCircle2 size={16} /> Simpan profil</button>
+              </div>
+              {profileMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-md">{profileMessage}</p>}
             </div>
-            <Field label="Nama lengkap"><input className="input" name="fullName" defaultValue={session.user.fullName} required minLength={2} /></Field>
-            <Field label="Nickname"><input className="input" name="nickname" defaultValue={session.user.nickname ?? ""} placeholder="Nama panggilan" /></Field>
-            <Field label="Title"><input className="input" name="title" defaultValue={session.user.title ?? ""} placeholder="Contoh: Student, Freelancer" /></Field>
-            <button className="btn-primary w-full"><CheckCircle2 size={16} /> Simpan profil</button>
-            {profileMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-md">{profileMessage}</p>}
-          </div>
-        </form>
+          </form>
+        )}
 
         <form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submitPassword}>
           <SectionHeader title="Keamanan akun" caption="Ubah password secara berkala agar akun tetap aman." />
@@ -4358,37 +7927,80 @@ function ProfileView({
   );
 }
 
-function Field({ label, children }: { label: string; children: JSX.Element }) {
+function AiFieldBadge({ status, language }: { status: "ai" | "changed" | "review" | null; language: AppLanguage }) {
+  if (!status) return null;
+
+  const config = {
+    ai: {
+      label: language === "en" ? "Filled by AI" : "Diisi AI",
+      className: "bg-emerald-50 text-[#15803D]",
+      icon: <CheckCircle2 size={11} />
+    },
+    changed: {
+      label: language === "en" ? "Edited" : "Diubah",
+      className: "bg-sky-50 text-sky-700",
+      icon: <CheckCircle2 size={11} />
+    },
+    review: {
+      label: language === "en" ? "Needs Confirmation" : "Perlu Konfirmasi",
+      className: "bg-amber-50 text-amber-700",
+      icon: <TriangleAlert size={11} />
+    }
+  }[status];
+
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${config.className}`}>
+      {config.icon}
+      {config.label}
+    </span>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: JSX.Element; children: JSX.Element }) {
   return (
     <label className="block text-xs font-semibold text-slate-600">
-      {label}
+      <span className="flex min-h-5 items-center justify-between gap-2">
+        <span>{label}</span>
+        {hint}
+      </span>
       <div className="mt-1">{children}</div>
     </label>
   );
 }
 
+function storedStringSet(key: string) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return new Set<string>(Array.isArray(value) ? value.map(String) : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = "=".repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const bytes = new Uint8Array(raw.length);
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+  return bytes.buffer;
+}
+
 function transactionDateKey(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "unknown";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return jakartaDateParts(date).value;
 }
 
 function transactionDateLabel(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Tanggal tidak valid";
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const current = new Date(date);
-  current.setHours(0, 0, 0, 0);
-
-  if (current.getTime() === today.getTime()) return "Hari ini";
-  if (current.getTime() === yesterday.getTime()) return "Kemarin";
+  const today = jakartaDateParts();
+  const yesterdayDate = new Date(Date.UTC(today.year, today.month - 1, today.day - 1, 12));
+  const currentKey = jakartaDateParts(date).value;
+  if (currentKey === today.value) return "Hari ini";
+  if (currentKey === jakartaDateParts(yesterdayDate).value) return "Kemarin";
   return localDate(value);
 }
 
@@ -4438,10 +8050,10 @@ function transactionCategoryIcon(row: Transaction) {
 }
 
 function transactionIconClass(row: Transaction) {
-  if (row.transactionType === "income") return "bg-emerald-50 text-[#00b817]";
+  if (row.transactionType === "income") return "bg-emerald-50 text-[#16A34A]";
   const category = row.categoryName?.toLowerCase() ?? "";
   if (category.includes("makan")) return "bg-orange-50 text-orange-600";
-  if (category.includes("transport")) return "bg-[#00b817]/10 text-[#00b817]";
+  if (category.includes("transport")) return "bg-[#16A34A]/10 text-[#16A34A]";
   if (category.includes("belanja")) return "bg-violet-50 text-violet-600";
   return "bg-slate-100 text-slate-700";
 }
@@ -4565,7 +8177,7 @@ function TransactionHistoryItem({
         <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <span className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition ${
-            selected ? "bg-[#00b817] text-white shadow-[0_10px_20px_rgba(0,184,23,0.18)]" : transactionIconClass(row)
+            selected ? "bg-[#16A34A] text-white shadow-[0_10px_20px_rgba(22,163,74,0.18)]" : transactionIconClass(row)
           }`}>
             {selected ? <CheckCircle2 size={18} /> : transactionCategoryIcon(row)}
           </span>
@@ -4580,7 +8192,7 @@ function TransactionHistoryItem({
         </div>
         <div className="shrink-0 text-right">
           <div className="flex items-center justify-end gap-1">
-            <p className={`text-sm font-semibold ${isIncome ? "text-[#00b817]" : "text-slate-950"}`}>
+            <p className={`text-sm font-semibold ${isIncome ? "text-[#16A34A]" : "text-slate-950"}`}>
               {isIncome ? "+" : "-"}{rupiah(row.amount)}
             </p>
             {!compact && <ChevronRight size={14} className="text-slate-300" />}
@@ -4612,7 +8224,7 @@ function LegacyTransactionList({ rows }: { rows: Transaction[] }) {
         <div key={row.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-3 lg:rounded-md">
           <div className="flex min-w-0 items-center gap-3">
             <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
-              row.transactionType === "income" ? "bg-emerald-50 text-[#00b817]" : "bg-rose-50 text-rose-600"
+              row.transactionType === "income" ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600"
             }`}>
               {row.transactionType === "income" ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}
             </span>
@@ -4622,7 +8234,7 @@ function LegacyTransactionList({ rows }: { rows: Transaction[] }) {
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <p className={`font-semibold ${row.transactionType === "income" ? "text-[#00b817]" : "text-slate-950"}`}>
+            <p className={`font-semibold ${row.transactionType === "income" ? "text-[#16A34A]" : "text-slate-950"}`}>
               {row.transactionType === "income" ? "+" : "-"}{rupiah(row.amount)}
             </p>
             <p className="text-xs text-slate-400">{localDate(row.transactionDate)}</p>

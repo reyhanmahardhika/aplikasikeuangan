@@ -91,6 +91,28 @@ Password: password123
 - `GET /api/reports/category-summary`
 - `GET /api/reports/monthly-comparison`
 - `POST /api/assistant/chat`
+- `GET /api/notifications/push/config`
+- `POST|DELETE /api/notifications/push/subscribe`
+
+## Push Notification PWA
+
+Jalankan migration terbaru, lalu buat VAPID key:
+
+```bash
+npm run db:migrate
+npm run push:keys
+```
+
+Simpan hasilnya pada environment server:
+
+```text
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:email-anda@example.com
+```
+
+Push notification memerlukan HTTPS pada deployment. Pengguna tetap harus menekan
+`Aktifkan` pada panel notifikasi agar browser meminta izin dan mendaftarkan perangkat.
 
 ## Aturan Bisnis yang Diimplementasikan
 

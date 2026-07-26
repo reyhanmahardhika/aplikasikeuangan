@@ -532,6 +532,10 @@ async function getOptions(userId: string) {
       `SELECT id, name, account_type AS "accountType"
        FROM accounts
        WHERE user_id = $1 AND is_active = true
+         AND NOT EXISTS (
+           SELECT 1 FROM shared_wallets w
+           WHERE w.storage_account_id = accounts.id AND w.is_active = true
+         )
        ORDER BY name`,
       [userId]
     ),

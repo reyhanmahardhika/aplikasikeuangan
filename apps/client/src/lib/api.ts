@@ -18,6 +18,8 @@ export type Session = {
     id: string;
     fullName: string;
     email: string;
+    username?: string | null;
+    phone?: string | null;
     currency?: string;
     nickname?: string | null;
     title?: string | null;
@@ -38,14 +40,31 @@ export async function apiFetch<T>(path: string, token?: string, options: Request
     ...options,
     headers
   });
+  const responseText = await response.text();
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Koneksi gagal" }));
+    let error: { message?: string; details?: unknown } = {};
+    if (responseText) {
+      try {
+        error = JSON.parse(responseText);
+      } catch {
+        error = {};
+      }
+    }
+    if (!error.message) {
+      error.message = response.status >= 500
+        ? "Server sedang bermasalah. Silakan coba lagi."
+        : "Permintaan tidak dapat diproses.";
+    }
     throw new ApiError(response.status, error.message ?? "Request gagal", error.details);
   }
 
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  if (response.status === 204 || !responseText) return undefined as T;
+  try {
+    return JSON.parse(responseText) as T;
+  } catch {
+    throw new ApiError(502, "Data dari server belum lengkap. Silakan coba lagi.");
+  }
 }
 
 export function downloadUrl(path: string) {

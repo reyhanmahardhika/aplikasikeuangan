@@ -31,6 +31,11 @@ export async function listAccounts(userId: string) {
   const result = await pool.query(
     `SELECT id, name, account_type AS "accountType", initial_balance AS "initialBalance",
             current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
+            provider_name AS "providerName", account_number AS "accountNumber",
+            EXISTS (
+              SELECT 1 FROM shared_wallets w
+              WHERE w.storage_account_id = accounts.id AND w.is_active = true
+            ) AS "isSharedWalletAccount",
             is_active AS "isActive", created_at AS "createdAt", updated_at AS "updatedAt"
      FROM accounts
      WHERE user_id = $1
@@ -45,15 +50,19 @@ export async function createAccount(userId: string, payload: {
   accountType: string;
   initialBalance: unknown;
   currency?: string;
+  providerName?: string | null;
+  accountNumber?: string | null;
   allowNegative?: boolean;
   isActive?: boolean;
 }) {
   const initialBalance = normalizeNonNegativeMoney(payload.initialBalance);
   const result = await pool.query(
-    `INSERT INTO accounts (user_id, name, account_type, initial_balance, current_balance, currency, allow_negative, is_active)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7)
+    `INSERT INTO accounts (user_id, name, account_type, initial_balance, current_balance, currency,
+                           provider_name, account_number, allow_negative, is_active)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9)
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
+               provider_name AS "providerName", account_number AS "accountNumber",
                is_active AS "isActive"`,
     [
       userId,
@@ -61,6 +70,8 @@ export async function createAccount(userId: string, payload: {
       payload.accountType,
       initialBalance,
       payload.currency ?? "IDR",
+      payload.providerName || null,
+      payload.accountNumber || null,
       payload.allowNegative ?? false,
       payload.isActive ?? true
     ]
@@ -83,6 +94,8 @@ export async function updateAccount(userId: string, accountId: string, payload: 
       ? account.initial_balance
       : normalizeNonNegativeMoney(payload.initialBalance),
     currency: payload.currency ?? account.currency,
+    providerName: payload.providerName === undefined ? account.provider_name : payload.providerName,
+    accountNumber: payload.accountNumber === undefined ? account.account_number : payload.accountNumber,
     allowNegative: payload.allowNegative ?? account.allow_negative,
     isActive: payload.isActive ?? account.is_active
   };
@@ -100,14 +113,17 @@ export async function updateAccount(userId: string, accountId: string, payload: 
              END
            )
            FROM transactions t
-           WHERE t.account_id = $7
+           WHERE t.account_id = $9
          ), 0),
-         currency = $4, allow_negative = $5, is_active = $6, updated_at = now()
-     WHERE id = $7 AND user_id = $8
+         currency = $4, provider_name = $5, account_number = $6,
+         allow_negative = $7, is_active = $8, updated_at = now()
+     WHERE id = $9 AND user_id = $10
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
+               provider_name AS "providerName", account_number AS "accountNumber",
                is_active AS "isActive"`,
-    [next.name, next.accountType, next.initialBalance, next.currency, next.allowNegative, next.isActive, accountId, userId]
+    [next.name, next.accountType, next.initialBalance, next.currency, next.providerName || null,
+      next.accountNumber || null, next.allowNegative, next.isActive, accountId, userId]
   );
 
   await writeAuditLog(pool, { userId, action: "UPDATE", entityName: "Account", entityId: accountId, previousValue: account, newValue: result.rows[0] });
@@ -234,6 +250,14 @@ export async function lockAccount(client: PoolClient, userId: string, accountId:
   const account = result.rows[0];
   if (!account) throw notFound("Akun tidak ditemukan");
   if (!account.is_active) throw badRequest("Akun tidak aktif");
+  const sharedWallet = await client.query(
+    `SELECT name FROM shared_wallets
+     WHERE storage_account_id = $1 AND is_active = true LIMIT 1`,
+    [accountId]
+  );
+  if (sharedWallet.rowCount) {
+    throw badRequest(`Akun ini dipakai pada dompet bersama ${sharedWallet.rows[0].name} dan tidak dapat digunakan untuk transaksi pribadi`);
+  }
   return account;
 }
 

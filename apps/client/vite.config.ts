@@ -7,13 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icons/apple-touch-icon.png"],
+      includeAssets: ["icons/apple-touch-icon.png", "push-sw.js"],
       manifest: {
         name: "Keuangan AI",
         short_name: "Keuangan AI",
         description: "Pencatatan dan pengelolaan keuangan pribadi berbasis AI.",
-        theme_color: "#00b817",
-        background_color: "#f4f8ff",
+        theme_color: "#16A34A",
+        background_color: "#F8FAFC",
         display: "standalone",
         orientation: "portrait-primary",
         start_url: "/",
@@ -29,7 +29,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
         navigateFallbackDenylist: [/^\/api\//],
-        cleanupOutdatedCaches: true
+        cleanupOutdatedCaches: true,
+        importScripts: ["/push-sw.js"]
       }
     })
   ],

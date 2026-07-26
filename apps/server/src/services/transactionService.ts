@@ -20,6 +20,8 @@ export type TransactionInput = {
   receiptId?: string | null;
   attachmentUrl?: string | null;
   status?: string;
+  visibility?: "private" | "selected_friends" | "group_members" | "everyone_involved";
+  viewerIds?: string[];
   items?: Array<{
     itemName: string;
     quantity?: string | number;
@@ -97,6 +99,48 @@ async function insertItems(client: PoolClient, transactionId: string, items: Ret
   }
 }
 
+async function replaceTransactionViewers(
+  client: PoolClient,
+  userId: string,
+  transactionId: string,
+  visibility: TransactionInput["visibility"],
+  viewerIds: string[] = [],
+  eventType: "transaction_shared" | "transaction_edited" = "transaction_shared"
+) {
+  await client.query("DELETE FROM transaction_viewers WHERE transaction_id = $1", [transactionId]);
+  if (visibility !== "selected_friends") return;
+  const ids = [...new Set(viewerIds)].filter((id) => id !== userId);
+  if (!ids.length) throw badRequest("Pilih minimal satu teman untuk transaksi ini");
+  const accepted = await client.query(
+    `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS friend_id
+     FROM friendships
+     WHERE status = 'accepted'
+       AND (requester_id = $1 OR addressee_id = $1)
+       AND CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END = ANY($2::uuid[])`,
+    [userId, ids]
+  );
+  if (accepted.rowCount !== ids.length) throw badRequest("Penerima transaksi harus merupakan teman aktif");
+  for (const viewerId of ids) {
+    await client.query(
+      "INSERT INTO transaction_viewers (transaction_id, user_id) VALUES ($1, $2)",
+      [transactionId, viewerId]
+    );
+    await client.query(
+      `INSERT INTO social_events
+        (recipient_id, actor_id, event_type, title, body, entity_type, entity_id)
+       VALUES ($1, $2, $3, $4, $5, 'transaction', $6)`,
+      [
+        viewerId,
+        userId,
+        eventType,
+        eventType === "transaction_edited" ? "Transaksi bersama diedit" : "Anda dilibatkan dalam transaksi",
+        eventType === "transaction_edited" ? "Periksa kembali nominal dan detail transaksi." : "Transaksi dibagikan hanya kepada pihak yang dipilih.",
+        transactionId
+      ]
+    );
+  }
+}
+
 async function fetchTransactionForUpdate(client: PoolClient, userId: string, transactionId: string) {
   const result = await client.query(
     `SELECT t.*, a.account_type, a.allow_negative
@@ -150,7 +194,7 @@ export async function getTransaction(userId: string, transactionId: string, db: 
             t.transaction_date AS "transactionDate", t.amount::text, t.category_id AS "categoryId",
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
             t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
-            t.status, a.name AS "accountName", c.name AS "categoryName"
+            t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName"
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
      LEFT JOIN categories c ON c.id = t.category_id
@@ -164,8 +208,12 @@ export async function getTransaction(userId: string, transactionId: string, db: 
      FROM transaction_items WHERE transaction_id = $1 ORDER BY item_name`,
     [transactionId]
   );
+  const viewers = await db.query(
+    "SELECT user_id AS \"userId\" FROM transaction_viewers WHERE transaction_id = $1",
+    [transactionId]
+  );
 
-  return { ...transaction.rows[0], items: items.rows };
+  return { ...transaction.rows[0], items: items.rows, viewerIds: viewers.rows.map((row) => row.userId) };
 }
 
 export async function createTransaction(userId: string, input: TransactionInput, externalClient?: PoolClient) {
@@ -179,8 +227,8 @@ export async function createTransaction(userId: string, input: TransactionInput,
     const result = await client.query(
       `INSERT INTO transactions
        (user_id, account_id, transaction_type, transaction_date, amount, category_id, merchant_name,
-        payment_method, notes, source_type, receipt_id, attachment_url, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        payment_method, notes, source_type, receipt_id, attachment_url, status, visibility)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id, transaction_type AS "transactionType", transaction_date AS "transactionDate", amount::text`,
       [
         userId,
@@ -195,11 +243,13 @@ export async function createTransaction(userId: string, input: TransactionInput,
         input.sourceType ?? "manual",
         input.receiptId ?? null,
         input.attachmentUrl ?? null,
-        input.status ?? "posted"
+        input.status ?? "posted",
+        input.visibility ?? "private"
       ]
     );
 
     const transactionId = result.rows[0].id;
+    await replaceTransactionViewers(client, userId, transactionId, input.visibility ?? "private", input.viewerIds);
     await insertItems(client, transactionId, normalizeItems(input.items));
     await writeAuditLog(client, { userId, action: "CREATE", entityName: "Transaction", entityId: transactionId, newValue: input });
     return getTransaction(userId, transactionId, client);
@@ -231,8 +281,9 @@ export async function updateTransaction(userId: string, transactionId: string, i
       `UPDATE transactions
        SET account_id = $1, transaction_type = $2, transaction_date = $3, amount = $4,
            category_id = $5, merchant_name = $6, payment_method = $7, notes = $8,
-           source_type = $9, receipt_id = $10, attachment_url = $11, status = $12, updated_at = now()
-       WHERE id = $13 AND user_id = $14`,
+           source_type = $9, receipt_id = $10, attachment_url = $11, status = $12,
+           visibility = $13, updated_at = now()
+       WHERE id = $14 AND user_id = $15`,
       [
         input.accountId,
         input.transactionType,
@@ -246,11 +297,13 @@ export async function updateTransaction(userId: string, transactionId: string, i
         input.receiptId ?? null,
         input.attachmentUrl ?? null,
         input.status ?? "posted",
+        input.visibility ?? "private",
         transactionId,
         userId
       ]
     );
 
+    await replaceTransactionViewers(client, userId, transactionId, input.visibility ?? "private", input.viewerIds, "transaction_edited");
     await client.query("DELETE FROM transaction_items WHERE transaction_id = $1", [transactionId]);
     await insertItems(client, transactionId, normalizeItems(input.items));
     await writeAuditLog(client, { userId, action: "UPDATE", entityName: "Transaction", entityId: transactionId, previousValue: previous, newValue: input });

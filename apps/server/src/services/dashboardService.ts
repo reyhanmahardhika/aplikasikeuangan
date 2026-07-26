@@ -8,7 +8,7 @@ function monthBounds(date = new Date()) {
 
 export async function dashboardSummary(userId: string) {
   const { start, end, month, year } = monthBounds();
-  const [balances, monthly, daily, categories, lastTransactions, budgetAlerts] = await Promise.all([
+  const [balances, monthly, daily, categories, lastTransactions, budgetAlerts, weeklyInsight, scheduledCommitments] = await Promise.all([
     pool.query(
       `SELECT COALESCE(sum(CASE WHEN account_type = 'credit_card' THEN -current_balance ELSE current_balance END), 0)::text AS balance
        FROM accounts WHERE user_id = $1 AND is_active = true`,
@@ -68,10 +68,43 @@ export async function dashboardSummary(userId: string) {
               round((used / nullif(budget_amount, 0)) * 100, 2)::text AS "usagePercent"
        FROM usage
        WHERE used >= budget_amount * 0.7
-       ORDER BY used / budget_amount DESC`,
+      ORDER BY used / budget_amount DESC`,
       [userId, month, year]
+    ),
+    pool.query(
+      `SELECT
+         COALESCE(sum(amount) FILTER (
+           WHERE transaction_date >= date_trunc('week', now())
+             AND transaction_date < date_trunc('week', now()) + INTERVAL '7 days'
+         ), 0)::text AS "currentWeekExpense",
+         COALESCE(sum(amount) FILTER (
+           WHERE transaction_date >= date_trunc('week', now()) - INTERVAL '7 days'
+             AND transaction_date < date_trunc('week', now())
+         ), 0)::text AS "previousWeekExpense"
+       FROM transactions
+       WHERE user_id = $1
+         AND transaction_type = 'expense'
+         AND transaction_date >= date_trunc('week', now()) - INTERVAL '7 days'`,
+      [userId]
+    ),
+    pool.query(
+      `SELECT COALESCE(sum(amount), 0)::text AS total
+       FROM schedules
+       WHERE user_id = $1
+         AND is_active = true
+         AND next_due_date >= CURRENT_DATE
+         AND next_due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date`,
+      [userId]
     )
   ]);
+
+  const currentWeekExpense = Number(weeklyInsight.rows[0].currentWeekExpense);
+  const previousWeekExpense = Number(weeklyInsight.rows[0].previousWeekExpense);
+  const weekChangePercent = previousWeekExpense > 0
+    ? Math.round(((currentWeekExpense - previousWeekExpense) / previousWeekExpense) * 100)
+    : null;
+  const scheduledUntilMonthEnd = Number(scheduledCommitments.rows[0].total);
+  const availableUntilMonthEnd = Number(balances.rows[0].balance) - scheduledUntilMonthEnd;
 
   return {
     balance: balances.rows[0].balance,
@@ -80,6 +113,13 @@ export async function dashboardSummary(userId: string) {
     daily: daily.rows,
     expenseByCategory: categories.rows,
     lastTransactions: lastTransactions.rows,
-    budgetAlerts: budgetAlerts.rows
+    budgetAlerts: budgetAlerts.rows,
+    insight: {
+      currentWeekExpense: currentWeekExpense.toFixed(2),
+      previousWeekExpense: previousWeekExpense.toFixed(2),
+      weekChangePercent,
+      scheduledUntilMonthEnd: scheduledUntilMonthEnd.toFixed(2),
+      availableUntilMonthEnd: availableUntilMonthEnd.toFixed(2)
+    }
   };
 }

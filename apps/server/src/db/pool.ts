@@ -3,7 +3,8 @@ import { config } from "../config.js";
 
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
-  max: 12
+  max: 12,
+  options: `-c timezone=${config.timeZone}`
 });
 
 export type DbClient = pg.Pool | pg.PoolClient;

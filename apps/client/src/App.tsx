@@ -6019,6 +6019,7 @@ function SocialHubView({
   const [showWalletEntryForm, setShowWalletEntryForm] = useState(false);
   const [walletEntryReceiptId, setWalletEntryReceiptId] = useState<string | null>(null);
   const [walletEntryAttachmentName, setWalletEntryAttachmentName] = useState("");
+  const [walletEntryAttachmentMessage, setWalletEntryAttachmentMessage] = useState<string | null>(null);
   const [walletEntryDate, setWalletEntryDate] = useState(isoDateInput());
   const [walletEntryAttachmentLoading, setWalletEntryAttachmentLoading] = useState(false);
   const [walletStorageMode, setWalletStorageMode] = useState<"account" | "manual">("account");
@@ -6226,6 +6227,7 @@ function SocialHubView({
     if (!file) return;
     setWalletEntryAttachmentLoading(true);
     setWalletEntryAttachmentName(file.name);
+    setWalletEntryAttachmentMessage("Mengunggah file...");
     try {
       const uploadForm = new FormData();
       uploadForm.set("receipt", file);
@@ -6243,9 +6245,11 @@ function SocialHubView({
         setWalletEntryReceiptId(duplicateId);
       }
       setMessage("Attachment berhasil diunggah");
+      setWalletEntryAttachmentMessage("File siap disimpan bersama transaksi dompet.");
     } catch (error) {
-      setWalletEntryAttachmentName("");
-      setMessage(error instanceof Error ? error.message : "Attachment gagal diunggah");
+      const errorMessage = error instanceof Error ? error.message : "Attachment gagal diunggah";
+      setWalletEntryAttachmentMessage(errorMessage);
+      setMessage(errorMessage);
     } finally {
       setWalletEntryAttachmentLoading(false);
       event.target.value = "";
@@ -6287,6 +6291,11 @@ function SocialHubView({
     setSelectedWallet(wallet);
     setWalletMemberIds(new Set());
     setWalletReminders(reminders);
+    setShowWalletEntryForm(false);
+    setWalletEntryReceiptId(null);
+    setWalletEntryAttachmentName("");
+    setWalletEntryAttachmentMessage(null);
+    setWalletEntryDate(isoDateInput());
   };
 
   useEffect(() => {
@@ -7461,6 +7470,10 @@ function SocialHubView({
               className="btn-primary w-full"
               onClick={() => {
                 setShowWalletEntryForm(true);
+                setWalletEntryReceiptId(null);
+                setWalletEntryAttachmentName("");
+                setWalletEntryAttachmentMessage(null);
+                setWalletEntryDate(isoDateInput());
                 window.setTimeout(() => walletEntryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
               }}
             >
@@ -7486,26 +7499,29 @@ function SocialHubView({
               setShowWalletEntryForm(false);
               setWalletEntryReceiptId(null);
               setWalletEntryAttachmentName("");
+              setWalletEntryAttachmentMessage(null);
               openWallet(selectedWallet.id);
             });
           }}>
             <SectionHeader
               title="Catat transaksi dompet"
               caption="Pengeluaran mengikuti aturan approval."
-              action={<button type="button" onClick={() => { setShowWalletEntryForm(false); setWalletEntryReceiptId(null); setWalletEntryAttachmentName(""); }}><X size={15} /></button>}
+              action={<button type="button" onClick={() => { setShowWalletEntryForm(false); setWalletEntryReceiptId(null); setWalletEntryAttachmentName(""); setWalletEntryAttachmentMessage(null); }}><X size={15} /></button>}
             />
             <div className="space-y-3">
               <select className="input" name="entryType" defaultValue={new URLSearchParams(window.location.search).get("entryType") === "expense" ? "expense" : "deposit"}><option value="deposit">Setoran</option><option value="expense">Pengeluaran</option></select>
               <Field label="Tanggal transaksi">
-                <input type="hidden" name="transactionDate" value={walletEntryDate} />
-                <DateFilterPicker
-                  label="Tanggal transaksi"
-                  value={walletEntryDate}
-                  onChange={setWalletEntryDate}
-                  language={language}
-                  showLabel={false}
-                  allowClear={false}
-                />
+                <div>
+                  <input type="hidden" name="transactionDate" value={walletEntryDate} />
+                  <DateFilterPicker
+                    label="Tanggal transaksi"
+                    value={walletEntryDate}
+                    onChange={setWalletEntryDate}
+                    language={language}
+                    showLabel={false}
+                    allowClear={false}
+                  />
+                </div>
               </Field>
               <input className="input" name="amount" inputMode="numeric" placeholder="Nominal" onInput={handleMoneyInput} required />
               <input className="input" name="description" placeholder="Keterangan" required />
@@ -7514,10 +7530,32 @@ function SocialHubView({
                   {walletEntryAttachmentLoading ? <Loader2 className="animate-spin" size={15} /> : <Upload size={15} />}
                   {walletEntryAttachmentName || (walletEntryReceiptId ? "Attachment tersimpan" : "Tambah attachment")}
                 </span>
-                <span className="text-[10px] font-semibold text-[#16A34A]">{walletEntryReceiptId ? "Ganti" : "Pilih file"}</span>
-                <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadWalletEntryAttachment} />
+                <span className="text-[10px] font-semibold text-[#16A34A]">{walletEntryReceiptId ? "Ganti file" : "Pilih file"}</span>
+                <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadWalletEntryAttachment} disabled={walletEntryAttachmentLoading} />
               </label>
-              <button className="btn-primary w-full">Simpan transaksi</button>
+              {(walletEntryAttachmentName || walletEntryReceiptId) && (
+                <div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs lg:rounded-md ${
+                  walletEntryAttachmentLoading
+                    ? "border-sky-100 bg-sky-50 text-sky-700"
+                    : walletEntryAttachmentMessage && !walletEntryReceiptId
+                    ? "border-rose-100 bg-rose-50 text-rose-700"
+                    : "border-emerald-100 bg-emerald-50 text-emerald-800"
+                }`}>
+                  {walletEntryAttachmentName?.match(/\.(mp4|mov|webm|m4v)$/i)
+                    ? <Film className="shrink-0" size={15} />
+                    : <ReceiptText className="shrink-0" size={15} />}
+                  <span className="min-w-0 flex-1 truncate">{walletEntryAttachmentName || "Attachment transaksi tersimpan"}</span>
+                  {walletEntryAttachmentLoading
+                    ? <Loader2 className="shrink-0 animate-spin" size={14} />
+                    : walletEntryReceiptId ? <CheckCircle2 className="shrink-0" size={14} /> : null}
+                </div>
+              )}
+              {walletEntryAttachmentMessage && (
+                <p className={`text-[11px] leading-4 ${walletEntryReceiptId ? "text-[#15803D]" : "text-rose-700"}`}>
+                  {walletEntryAttachmentMessage}
+                </p>
+              )}
+              <button className="btn-primary w-full" disabled={walletEntryAttachmentLoading}>Simpan transaksi</button>
             </div>
           </form>}
           <section className="rounded-[22px] bg-white p-4 shadow-soft">

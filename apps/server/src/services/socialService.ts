@@ -787,29 +787,75 @@ export async function createWallet(
     const limit = input.spendingLimit === undefined || input.spendingLimit === ""
       ? null
       : normalizeMoney(input.spendingLimit);
-    let storageAccount: { account_type: string; provider_name: string | null; account_number: string | null } | null = null;
-    if (input.storageAccountId) {
-      const account = await client.query(
-        `SELECT account_type, provider_name, account_number
-         FROM accounts WHERE id = $1 AND user_id = $2 AND is_active = true`,
-        [input.storageAccountId, userId]
-      );
-      if (!account.rowCount) throw badRequest("Akun sumber dana tidak ditemukan");
-      storageAccount = account.rows[0];
-      const provider = storageAccount.provider_name || input.storageProvider?.trim();
-      const accountNumber = storageAccount.account_number || input.storageAccountNumber?.trim();
-      if (storageAccount.account_type !== "cash" && (!provider || !accountNumber)) {
-        throw badRequest("Bank/penyedia dan nomor rekening/e-money wajib diisi untuk akun ini");
-      }
-      if (provider !== storageAccount.provider_name || accountNumber !== storageAccount.account_number) {
-        await client.query(
-          `UPDATE accounts SET provider_name = $1, account_number = $2, updated_at = now()
-           WHERE id = $3 AND user_id = $4`,
-          [provider || null, accountNumber || null, input.storageAccountId, userId]
-        );
-        storageAccount = { ...storageAccount, provider_name: provider || null, account_number: accountNumber || null };
-      }
-    }
+    type StorageAccount = {
+  account_type: string;
+  provider_name: string | null;
+  account_number: string | null;
+};
+
+let storageAccount: StorageAccount | null = null;
+
+if (input.storageAccountId) {
+  const accountResult = await client.query<StorageAccount>(
+    `SELECT account_type, provider_name, account_number
+     FROM accounts
+     WHERE id = $1
+       AND user_id = $2
+       AND is_active = true`,
+    [input.storageAccountId, userId]
+  );
+
+  const account = accountResult.rows[0];
+
+  if (!account) {
+    throw badRequest("Akun sumber dana tidak ditemukan");
+  }
+
+  const provider =
+    account.provider_name ||
+    input.storageProvider?.trim() ||
+    null;
+
+  const accountNumber =
+    account.account_number ||
+    input.storageAccountNumber?.trim() ||
+    null;
+
+  if (
+    account.account_type !== "cash" &&
+    (!provider || !accountNumber)
+  ) {
+    throw badRequest(
+      "Bank/penyedia dan nomor rekening/e-money wajib diisi untuk akun ini"
+    );
+  }
+
+  if (
+    provider !== account.provider_name ||
+    accountNumber !== account.account_number
+  ) {
+    await client.query(
+      `UPDATE accounts
+       SET provider_name = $1,
+           account_number = $2,
+           updated_at = now()
+       WHERE id = $3
+         AND user_id = $4`,
+      [
+        provider,
+        accountNumber,
+        input.storageAccountId,
+        userId
+      ]
+    );
+  }
+
+  storageAccount = {
+    ...account,
+    provider_name: provider,
+    account_number: accountNumber
+  };
+}
     const wallet = await client.query(
       `INSERT INTO shared_wallets
        (owner_id, name, description, spending_limit, require_approval, storage_account_id,

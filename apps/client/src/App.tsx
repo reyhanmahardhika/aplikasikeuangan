@@ -1775,7 +1775,10 @@ function AuthView({
   const [socialLoading, setSocialLoading] = useState<"google" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const googleButtonRef = useRef<HTMLDivElement>(null);
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  const [googleClientId, setGoogleClientId] = useState<string | null>(
+    (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || null
+  );
+  const [googleButtonReady, setGoogleButtonReady] = useState(false);
 
   const completeSocialLogin = async (provider: "google", idToken: string, fullName?: string) => {
     setSocialLoading(provider);
@@ -1812,8 +1815,21 @@ function AuthView({
   };
 
   useEffect(() => {
+    if (googleClientId) return;
+    let active = true;
+    apiFetch<{ googleClientId: string | null }>("/auth/providers")
+      .then((result) => {
+        if (!active) return;
+        setGoogleClientId(result.googleClientId?.trim() || null);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [googleClientId]);
+
+  useEffect(() => {
     if (!googleClientId || !googleButtonRef.current) return;
     let active = true;
+    setGoogleButtonReady(false);
     loadAuthScript("google-identity-script", "https://accounts.google.com/gsi/client")
       .then(() => {
         if (!active || !window.google || !googleButtonRef.current) return;
@@ -1828,8 +1844,9 @@ function AuthView({
           size: "large",
           text: mode === "login" ? "signin_with" : "signup_with",
           shape: "rectangular",
-          width: 360
+          width: 260
         });
+        setGoogleButtonReady(true);
       })
       .catch((err) => active && setError(err.message));
     return () => { active = false; };
@@ -1951,15 +1968,23 @@ function AuthView({
 
           <div className="space-y-2">
             {googleClientId ? (
-              <div className="flex min-h-10 w-full items-center justify-center overflow-hidden" ref={googleButtonRef} />
+              <div className="relative mx-auto h-10 w-[260px] max-w-full overflow-hidden">
+                {!googleButtonReady && (
+                  <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700">
+                    <GoogleLogo className="h-4 w-4" />
+                    {mode === "login" ? "Login dengan Google" : "Daftar dengan Google"}
+                  </div>
+                )}
+                <div className={`absolute inset-0 flex items-center justify-center transition-opacity ${googleButtonReady ? "opacity-100" : "opacity-0"}`} ref={googleButtonRef} />
+              </div>
             ) : (
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
-                onClick={() => setError("Login Google belum dikonfigurasi. Isi VITE_GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_ID.")}
+                className="mx-auto flex h-10 w-[260px] max-w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+                onClick={() => setError("Login Google belum tersedia. Pastikan GOOGLE_CLIENT_ID di server atau VITE_GOOGLE_CLIENT_ID di client sudah terpasang lalu deploy ulang.")}
               >
                 <GoogleLogo className="h-4 w-4" />
-                Continue with Google
+                {mode === "login" ? "Login dengan Google" : "Daftar dengan Google"}
               </button>
             )}
           </div>

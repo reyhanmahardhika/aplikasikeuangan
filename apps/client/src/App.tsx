@@ -349,6 +349,8 @@ function App() {
   const [isScrolling, setIsScrolling] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [backSwipeOffset, setBackSwipeOffset] = useState(0);
+  const [backSwipeSettling, setBackSwipeSettling] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [installedAsApp, setInstalledAsApp] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const notifiedScheduleIds = useRef(new Set<string>());
@@ -362,10 +364,12 @@ function App() {
   const childFrameRefreshRef = useRef<(() => Promise<void> | void) | null>(null);
   const pullDistanceRef = useRef(0);
   const pullRefreshingRef = useRef(false);
+  const backSwipeOffsetRef = useRef(0);
   const gestureStateRef = useRef({
     mode: null as null | "back" | "pull" | "ignore",
     startX: 0,
     startY: 0,
+    startTime: 0,
     deltaX: 0,
     deltaY: 0
   });
@@ -379,6 +383,9 @@ function App() {
   useEffect(() => {
     pullRefreshingRef.current = pullRefreshing;
   }, [pullRefreshing]);
+  useEffect(() => {
+    backSwipeOffsetRef.current = backSwipeOffset;
+  }, [backSwipeOffset]);
   const [dismissedScheduleIds, setDismissedScheduleIds] = useState<Set<string>>(
     () => storedStringSet("dismissed-schedule-notifications")
   );
@@ -414,6 +421,18 @@ function App() {
     childFrameActiveRef.current = active;
     childFrameBackRef.current = active ? onBack ?? null : null;
     childFrameRefreshRef.current = onRefresh ?? null;
+  };
+
+  const applyUserToSession = (user: Session["user"]) => {
+    const currentSession = sessionRef.current;
+    if (!currentSession) return;
+    const nextSession: StoredSession = {
+      ...currentSession,
+      user
+    };
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+    localStorage.setItem("finance-session", JSON.stringify(nextSession));
   };
 
   //#region debug-point login-error-accept-session
@@ -693,6 +712,7 @@ function App() {
       const updatedSession = updateSessionActivity(localStorage);
       if (updatedSession) {
         sessionRef.current = updatedSession;
+        setSession(updatedSession);
       }
     };
 
@@ -954,6 +974,7 @@ function App() {
     appNavigationLabel(view, navigation.find((item) => item.id === view)?.label, language) ??
     appNavigationLabel(view, mobileNavigation.find((item) => item.id === view)?.label, language) ??
     "Detail transaksi";
+  const backSwipeProgress = Math.min(1, backSwipeOffset / Math.max(window.innerWidth, 320));
 
   const goBackFromChildFrame = () => {
     if (notificationsOpen) return false;
@@ -999,6 +1020,26 @@ function App() {
     }
   };
 
+  const settleBackSwipe = (shouldGoBack: boolean) => {
+    setBackSwipeSettling(true);
+    if (shouldGoBack) {
+      const width = Math.max(window.innerWidth, 320);
+      backSwipeOffsetRef.current = width;
+      setBackSwipeOffset(width);
+      window.setTimeout(() => {
+        goBackFromChildFrame();
+        backSwipeOffsetRef.current = 0;
+        setBackSwipeOffset(0);
+        setBackSwipeSettling(false);
+      }, 170);
+      return;
+    }
+
+    backSwipeOffsetRef.current = 0;
+    setBackSwipeOffset(0);
+    window.setTimeout(() => setBackSwipeSettling(false), 220);
+  };
+
   useEffect(() => {
     if (view !== "social" && view !== "manage" && view !== "history") {
       applyChildFrameState({ active: false, onBack: null, onRefresh: null });
@@ -1010,6 +1051,7 @@ function App() {
       gestureStateRef.current.mode = null;
       gestureStateRef.current.deltaX = 0;
       gestureStateRef.current.deltaY = 0;
+      gestureStateRef.current.startTime = 0;
       if (pullDistanceRef.current > 0 && !pullRefreshingRef.current) {
         pullDistanceRef.current = 0;
         setPullDistance(0);
@@ -1017,7 +1059,7 @@ function App() {
     };
 
     const handleTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1 || notificationsOpen || pullRefreshingRef.current || view === "assistant" || window.innerWidth >= 1024) return;
+      if (event.touches.length !== 1 || notificationsOpen || pullRefreshingRef.current || backSwipeSettling || view === "assistant" || window.innerWidth >= 1024) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true'], [data-gesture-ignore='true']")) {
         gestureStateRef.current.mode = "ignore";
@@ -1028,6 +1070,7 @@ function App() {
         mode: null,
         startX: touch.clientX,
         startY: touch.clientY,
+        startTime: performance.now(),
         deltaX: 0,
         deltaY: 0
       };
@@ -1048,6 +1091,7 @@ function App() {
 
         if (gesture.startX <= 28 && gesture.deltaX > 14 && horizontalLead && canHandleChildBack()) {
           gesture.mode = "back";
+          setBackSwipeSettling(false);
         } else if (window.scrollY <= 0 && gesture.deltaY > 12 && verticalLead) {
           gesture.mode = "pull";
         } else if (Math.abs(gesture.deltaX) > 16 || Math.abs(gesture.deltaY) > 16) {
@@ -1057,6 +1101,12 @@ function App() {
 
       if (gesture.mode === "back" && gesture.deltaX > 0) {
         event.preventDefault();
+        const width = Math.max(window.innerWidth, 320);
+        const resistedOffset = Math.min(width * 0.92, Math.pow(gesture.deltaX, 0.92) * 1.18);
+        if (Math.abs(resistedOffset - backSwipeOffsetRef.current) >= 1) {
+          backSwipeOffsetRef.current = resistedOffset;
+          setBackSwipeOffset(resistedOffset);
+        }
       }
 
       if (gesture.mode === "pull" && gesture.deltaY > 0 && window.scrollY <= 0) {
@@ -1071,8 +1121,12 @@ function App() {
 
     const handleTouchEnd = () => {
       const gesture = gestureStateRef.current;
-      if (gesture.mode === "back" && gesture.deltaX >= 76) {
-        goBackFromChildFrame();
+      if (gesture.mode === "back") {
+        const width = Math.max(window.innerWidth, 320);
+        const elapsed = Math.max(1, performance.now() - gesture.startTime);
+        const velocity = gesture.deltaX / elapsed;
+        const shouldGoBack = gesture.deltaX >= Math.min(150, width * 0.34) || (gesture.deltaX >= 62 && velocity > 0.62);
+        settleBackSwipe(shouldGoBack);
       } else if (gesture.mode === "pull") {
         if (pullDistanceRef.current >= 68) {
           void refreshCurrentView();
@@ -1083,6 +1137,15 @@ function App() {
       } else if (!pullRefreshingRef.current && pullDistanceRef.current > 0) {
         setPullDistance(0);
         pullDistanceRef.current = 0;
+      } else if (!backSwipeSettling && backSwipeOffsetRef.current > 0) {
+        settleBackSwipe(false);
+      }
+      resetGesture();
+    };
+
+    const handleTouchCancel = () => {
+      if (gestureStateRef.current.mode === "back" || backSwipeOffsetRef.current > 0) {
+        settleBackSwipe(false);
       }
       resetGesture();
     };
@@ -1090,15 +1153,15 @@ function App() {
     window.addEventListener("touchstart", handleTouchStart, { passive: true });
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
     window.addEventListener("touchend", handleTouchEnd, { passive: true });
-    window.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
     return () => {
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", handleTouchEnd);
-      window.removeEventListener("touchcancel", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchCancel);
     };
-  }, [editing, notificationsOpen, selectedTransaction, view]);
+  }, [backSwipeSettling, editing, notificationsOpen, selectedTransaction, view]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-950 lg:bg-[#F8FAFC] lg:text-slate-900">
@@ -1201,12 +1264,38 @@ function App() {
           </div>
         )}
 
+        {(backSwipeOffset > 0 || backSwipeSettling) && (
+          <div
+            className="pointer-events-none fixed inset-0 z-[9] bg-[#F8FAFC] lg:hidden"
+            style={{ opacity: Math.min(0.92, 0.28 + backSwipeProgress * 0.64) }}
+          >
+            <div
+              className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white text-[#16A34A] shadow-[0_10px_26px_rgba(15,23,42,0.14)]"
+              style={{
+                opacity: Math.min(1, backSwipeProgress * 2.4),
+                transform: `translateY(-50%) scale(${0.86 + Math.min(0.14, backSwipeProgress * 0.14)})`
+              }}
+            >
+              <ArrowLeft size={18} />
+            </div>
+          </div>
+        )}
+
         <main
           className={
             view === "assistant"
               ? "fixed inset-x-0 bottom-24 top-[4.25rem] overflow-hidden px-4 py-2 lg:static lg:inset-auto lg:overflow-visible lg:px-8 lg:py-6"
               : "px-4 pb-28 pt-3 lg:px-8 lg:py-6"
           }
+          style={backSwipeOffset > 0 || backSwipeSettling ? {
+            transform: `translate3d(${backSwipeOffset}px, 0, 0)`,
+            transition: backSwipeSettling ? "transform 190ms cubic-bezier(0.32, 0.72, 0, 1)" : "none",
+            boxShadow: "-18px 0 42px rgba(15, 23, 42, 0.14)",
+            borderTopLeftRadius: 22,
+            borderBottomLeftRadius: 22,
+            background: "#F8FAFC",
+            willChange: "transform"
+          } : undefined}
         >
           {view === "dashboard" && (
             <DashboardView
@@ -1325,12 +1414,7 @@ function App() {
             <ProfileView
               session={session}
               request={request}
-              onProfileUpdated={(user) => setSession((current) => {
-                if (!current) return current;
-                const nextSession = { ...current, user };
-                localStorage.setItem("finance-session", JSON.stringify(nextSession));
-                return nextSession;
-              })}
+              onProfileUpdated={applyUserToSession}
               onInstall={installApp}
               showInstall={!installedAsApp}
               onLogout={logout}

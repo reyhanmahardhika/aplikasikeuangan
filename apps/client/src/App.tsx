@@ -89,12 +89,6 @@ declare global {
         };
       };
     };
-    AppleID?: {
-      auth: {
-        init: (options: Record<string, unknown>) => void;
-        signIn: () => Promise<{ authorization: { id_token: string }; user?: { name?: { firstName?: string; lastName?: string } } }>;
-      };
-    };
   }
 }
 
@@ -703,7 +697,7 @@ function App() {
   return () => {
     controller.abort();
   };
-}, [session?.user.id]);
+}, [session?.user?.id]);
 
   useEffect(() => {
     if (!session?.refreshToken) return;
@@ -921,10 +915,6 @@ function App() {
     if (view === "accounts" || view === "categories" || view === "budgets") return true;
     return false;
   };
-
-  if (!isValidSession(session)) {
-    return <AuthView onSignedIn={acceptSession} onInstall={installApp} showInstall={!installedAsApp} />;
-  }
 
   const navigate = (nextView: View, preserveHistoryAccount = false) => {
     if (nextView === "history" && !preserveHistoryAccount) {
@@ -1163,6 +1153,11 @@ function App() {
     };
   }, [backSwipeSettling, editing, notificationsOpen, selectedTransaction, view]);
 
+  const activeSession = isValidSession(session) ? session : null;
+  if (!activeSession) {
+    return <AuthView onSignedIn={acceptSession} onInstall={installApp} showInstall={!installedAsApp} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-950 lg:bg-[#F8FAFC] lg:text-slate-900">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-slate-200 bg-white lg:block">
@@ -1200,7 +1195,7 @@ function App() {
           <div className="flex min-h-16 items-center justify-between px-8 py-3">
             <div>
               <h1 className="text-xl font-bold">{pageTitle}</h1>
-              <p className="text-sm text-slate-500">{session.user.fullName} Â· {session.user.email}</p>
+              <p className="text-sm text-slate-500">{activeSession.user.fullName} Â· {activeSession.user.email}</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -1223,7 +1218,7 @@ function App() {
         </header>
 
         <MobileTopBar
-          user={session.user}
+          user={activeSession.user}
           language={language}
           unreadCount={unreadNotificationCount}
           onLanguageChange={setLanguage}
@@ -1402,8 +1397,8 @@ function App() {
             <SocialHubView
               request={request}
               accounts={accounts}
-              token={session.accessToken}
-              currentUser={session.user}
+              token={activeSession.accessToken}
+              currentUser={activeSession.user}
               summary={socialSummaryData}
               language={language}
               onChanged={refreshCore}
@@ -1412,7 +1407,7 @@ function App() {
           )}
           {view === "profile" && (
             <ProfileView
-              session={session}
+              session={activeSession}
               request={request}
               onProfileUpdated={applyUserToSession}
               onInstall={installApp}
@@ -1772,14 +1767,17 @@ function AuthView({
   showInstall: boolean;
 }) {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpEmail, setOtpEmail] = useState("");
+  const [resetStep, setResetStep] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(null);
+  const [socialLoading, setSocialLoading] = useState<"google" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-  const appleClientId = import.meta.env.VITE_APPLE_CLIENT_ID as string | undefined;
 
-  const completeSocialLogin = async (provider: "google" | "apple", idToken: string, fullName?: string) => {
+  const completeSocialLogin = async (provider: "google", idToken: string, fullName?: string) => {
     setSocialLoading(provider);
     setError(null);
     try {
@@ -1837,41 +1835,69 @@ function AuthView({
     return () => { active = false; };
   }, [googleClientId, mode]);
 
-  const signInWithApple = async () => {
-    if (!appleClientId) {
-      setError("Login Apple belum dikonfigurasi. Isi VITE_APPLE_CLIENT_ID dan APPLE_CLIENT_ID.");
-      return;
-    }
-    setSocialLoading("apple");
-    setError(null);
-    try {
-      await loadAuthScript("apple-identity-script", "https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js");
-      window.AppleID!.auth.init({
-        clientId: appleClientId,
-        scope: "name email",
-        redirectURI: import.meta.env.VITE_APPLE_REDIRECT_URI || window.location.origin,
-        usePopup: true
-      });
-      const response = await window.AppleID!.auth.signIn();
-      const name = response.user?.name;
-      const fullName = [name?.firstName, name?.lastName].filter(Boolean).join(" ");
-      await completeSocialLogin("apple", response.authorization.id_token, fullName);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login Apple dibatalkan");
-      setSocialLoading(null);
-    }
-  };
-
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
-      const payload = mode === "register"
-        ? { fullName: String(form.get("fullName")), email: String(form.get("email")), password: String(form.get("password")), currency: "IDR" }
-        : { email: String(form.get("email")), password: String(form.get("password")) };
-      const session = await apiFetch<Session>(`/auth/${mode === "register" ? "register" : "login"}`, undefined, {
+      if (mode === "login" && resetStep) {
+        const payload = {
+          email: String(form.get("email")),
+          otp: String(form.get("resetOtp")),
+          newPassword: String(form.get("newPassword"))
+        };
+        const result = await apiFetch<{ reset: boolean }>("/auth/forgot-password/verify", undefined, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        if (result.reset) {
+          setResetStep(false);
+          setMode("login");
+          setError("Password berhasil diubah. Silakan login kembali.");
+        }
+        return;
+      }
+
+      if (mode === "register" && !otpStep) {
+        const payload = {
+          fullName: String(form.get("fullName")),
+          email: String(form.get("email")),
+          password: String(form.get("password")),
+          currency: "IDR"
+        };
+        const result = await apiFetch<{ requiresOtp?: boolean; email?: string; message?: string }>("/auth/register", undefined, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        if (result.requiresOtp) {
+          setOtpEmail(result.email ?? payload.email);
+          setOtpStep(true);
+          setError(result.message ?? "Kode OTP telah dikirim ke email Anda.");
+          return;
+        }
+        if ((result as Session)?.accessToken && (result as Session)?.user) {
+          onSignedIn(result as Session);
+          return;
+        }
+        throw new Error("Registrasi gagal");
+      }
+
+      if (mode === "register" && otpStep) {
+        const payload = {
+          email: String(form.get("email")) || otpEmail,
+          otp: String(form.get("otp"))
+        };
+        const session = await apiFetch<Session>("/auth/register/verify", undefined, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+        onSignedIn(session);
+        return;
+      }
+
+      const payload = { email: String(form.get("email")), password: String(form.get("password")) };
+      const session = await apiFetch<Session>("/auth/login", undefined, {
         method: "POST",
         body: JSON.stringify(payload)
       });
@@ -1919,37 +1945,111 @@ function AuthView({
 
         <section className="p-5 sm:p-6">
           <div className="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-            <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("login"); setError(null); }}>Masuk</button>
-            <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "register" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("register"); setError(null); }}>Daftar</button>
+            <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("login"); setOtpStep(false); setResetStep(false); setError(null); }}>Masuk</button>
+            <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "register" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("register"); setOtpStep(false); setResetStep(false); setError(null); }}>Daftar</button>
           </div>
 
           <div className="space-y-2">
             {googleClientId ? (
               <div className="flex min-h-10 w-full items-center justify-center overflow-hidden" ref={googleButtonRef} />
             ) : (
-              <button type="button" className="btn-secondary w-full" onClick={() => setError("Login Google belum dikonfigurasi. Isi VITE_GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_ID.")}>Lanjutkan dengan Google</button>
+              <button
+                type="button"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
+                onClick={() => setError("Login Google belum dikonfigurasi. Isi VITE_GOOGLE_CLIENT_ID dan GOOGLE_CLIENT_ID.")}
+              >
+                <GoogleLogo className="h-4 w-4" />
+                Continue with Google
+              </button>
             )}
-            <button type="button" className="flex w-full items-center justify-center rounded-xl bg-black px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800" onClick={signInWithApple} disabled={socialLoading === "apple"}>
-              {socialLoading === "apple" ? <Loader2 className="animate-spin" size={16} /> : null}
-              Lanjutkan dengan Apple
-            </button>
           </div>
 
           <div className="my-5 flex items-center gap-3 text-xs text-slate-400"><span className="h-px flex-1 bg-slate-200" /><span>atau gunakan email</span><span className="h-px flex-1 bg-slate-200" /></div>
 
           <form className="space-y-3" onSubmit={submit}>
-            {mode === "register" && <Field label="Nama lengkap"><input className="input" name="fullName" autoComplete="name" required minLength={2} /></Field>}
+            {mode === "register" && !otpStep && <Field label="Nama lengkap"><input className="input" name="fullName" autoComplete="name" required minLength={2} /></Field>}
             <Field label="Email"><input className="input" name="email" type="email" autoComplete="email" required /></Field>
-            <Field label="Password"><input className="input" name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} /></Field>
-            {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+            {mode === "login" && !resetStep && <Field label="Password"><input className="input" name="password" type="password" autoComplete="current-password" required minLength={8} /></Field>}
+            {mode === "register" && !otpStep && <Field label="Password"><input className="input" name="password" type="password" autoComplete="new-password" required minLength={8} /></Field>}
+            {mode === "login" && !resetStep && (
+              <button
+                type="button"
+                className="text-left text-sm font-semibold text-[#16A34A]"
+                onClick={() => {
+                  setResetStep(true);
+                  setResetEmail(String((document.querySelector('input[name="email"]') as HTMLInputElement | null)?.value ?? ""));
+                  setError(null);
+                }}
+              >
+                Lupa password?
+              </button>
+            )}
+            {mode === "login" && resetStep && (
+              <>
+                <Field label="Kode OTP">
+                  <input className="input tracking-[0.4em]" name="resetOtp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} minLength={6} required placeholder="000000" />
+                </Field>
+                <Field label="Password baru">
+                  <input className="input" name="newPassword" type="password" autoComplete="new-password" required minLength={8} />
+                </Field>
+                <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  Kode reset dikirim ke {resetEmail || "email Anda"}.
+                </p>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  onClick={() => { setResetStep(false); setError(null); }}
+                >
+                  Kembali ke login
+                </button>
+              </>
+            )}
+            {mode === "register" && otpStep && (
+              <>
+                <Field label="Kode OTP">
+                  <input
+                    className="input tracking-[0.4em]"
+                    name="otp"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    minLength={6}
+                    required
+                    placeholder="000000"
+                  />
+                </Field>
+                <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  Kode OTP dikirim ke {otpEmail || "email Anda"}.
+                </p>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  onClick={() => { setOtpStep(false); setError(null); }}
+                >
+                  Ubah data registrasi
+                </button>
+              </>
+            )}
+            {error && <p className={`rounded-xl px-3 py-2 text-sm ${(otpStep && mode === "register") || resetStep ? "border border-emerald-100 bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{error}</p>}
             <button className="btn-primary w-full" disabled={loading || Boolean(socialLoading)}>
               {loading ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-              {mode === "login" ? "Masuk" : "Buat akun"}
+              {mode === "login" ? (resetStep ? "Verifikasi Reset" : "Masuk") : otpStep ? "Verifikasi OTP" : "Kirim OTP"}
             </button>
           </form>
         </section>
       </main>
     </div>
+  );
+}
+
+function GoogleLogo(props: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" className={props.className}>
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.6 32.7 29.2 36 24 36c-6.1 0-11.3-5-11.3-11s5.2-11 11.3-11c2.8 0 5.3 1 7.3 2.8l5.7-5.6C33.6 8.2 29 6 24 6 13.5 6 5 14.2 5 25s8.5 19 19 19 19-8.1 19-19c0-1.3-.1-2.3-.4-3.5z"/>
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.8 16 19 13 24 13c2.8 0 5.3 1 7.3 2.8l5.7-5.6C33.6 8.2 29 6 24 6c-7.2 0-13.4 4.1-17.7 10.7z"/>
+      <path fill="#4CAF50" d="M24 44c5 0 9.5-1.8 13-4.9l-6.1-5.1C29 35.2 26.7 36 24 36c-5.1 0-9.5-3.3-11.1-8.1l-6.5 5C10.6 39.8 16.9 44 24 44z"/>
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1.2 3.5-3.6 6.3-6.4 7.9l.1-.1 6.1 5.1C35.7 39.7 43 35 43 25c0-1.4-.1-2.3-.4-3.5z"/>
+    </svg>
   );
 }
 
@@ -8818,13 +8918,8 @@ function ProfileView({
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   useEffect(() => {
-    request<Session["user"]>("/auth/profile")
-      .then((user) => {
-        onProfileUpdated(user);
-        setAvatarUrl(user.avatarUrl ?? "");
-      })
-      .catch(() => undefined);
-  }, []);
+    setAvatarUrl(session.user.avatarUrl ?? "");
+  }, [session.user.avatarUrl]);
 
   const chooseAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];

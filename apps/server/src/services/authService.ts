@@ -8,6 +8,7 @@ import { signAccessToken } from "../middleware/auth.js";
 import { badRequest, conflict, unauthorized } from "../utils/errors.js";
 import { insertDefaultCategories } from "./categoryService.js";
 import { writeAuditLog } from "./auditService.js";
+import { sendEmailOtp, sendPasswordResetOtp } from "./emailService.js";
 
 function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -17,6 +18,22 @@ function refreshExpiry() {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + config.jwtRefreshDays);
   return expiresAt;
+}
+
+function otpExpiry() {
+  return new Date(Date.now() + 10 * 60 * 1000);
+}
+
+function hashOtp(otp: string) {
+  return crypto.createHash("sha256").update(otp).digest("hex");
+}
+
+function generateOtp() {
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function resetOtpExpiry() {
+  return new Date(Date.now() + 10 * 60 * 1000);
 }
 
 const googleClient = new OAuth2Client();
@@ -61,28 +78,71 @@ export async function register(input: { fullName: string; email: string; passwor
     throw conflict("Email sudah terdaftar");
   }
 
+  const normalizedEmail = input.email.toLowerCase();
+  const otp = generateOtp();
   const passwordHash = await bcrypt.hash(input.password, 12);
-  const user = await withDbTransaction(async (client) => {
-    const result = await client.query(
+
+  await pool.query(
+    `INSERT INTO email_registration_otps (full_name, email, password_hash, currency, otp_hash, expires_at, attempts, verified_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, 0, NULL, now())
+     ON CONFLICT (email) DO UPDATE
+       SET full_name = EXCLUDED.full_name,
+           password_hash = EXCLUDED.password_hash,
+           currency = EXCLUDED.currency,
+           otp_hash = EXCLUDED.otp_hash,
+           expires_at = EXCLUDED.expires_at,
+           verified_at = NULL,
+           attempts = 0,
+           updated_at = now()`,
+    [input.fullName, normalizedEmail, passwordHash, input.currency ?? "IDR", hashOtp(otp), otpExpiry()]
+  );
+
+  await sendEmailOtp({ to: normalizedEmail, otp, name: input.fullName });
+  return { requiresOtp: true, email: normalizedEmail };
+}
+
+export async function verifyRegisterOtp(input: { email: string; otp: string }) {
+  const normalizedEmail = input.email.toLowerCase();
+  return withDbTransaction(async (client) => {
+    const pending = await client.query(
+      `SELECT id, full_name, email, password_hash, currency, otp_hash, expires_at, verified_at, attempts
+       FROM email_registration_otps
+       WHERE lower(email) = lower($1)
+       FOR UPDATE`,
+      [normalizedEmail]
+    );
+    const row = pending.rows[0];
+    if (!row) throw badRequest("Kode OTP tidak ditemukan. Silakan daftar ulang.");
+    if (row.verified_at) throw badRequest("Kode OTP sudah digunakan.");
+    if (row.expires_at <= new Date()) throw badRequest("Kode OTP sudah kedaluwarsa. Silakan kirim ulang.");
+    if (row.attempts >= 5) throw badRequest("Terlalu banyak percobaan OTP. Silakan kirim ulang.");
+    if (hashOtp(input.otp) !== row.otp_hash) {
+      await client.query("UPDATE email_registration_otps SET attempts = attempts + 1, updated_at = now() WHERE id = $1", [row.id]);
+      throw badRequest("Kode OTP salah");
+    }
+
+    const duplicate = await client.query("SELECT id FROM users WHERE lower(email) = lower($1)", [normalizedEmail]);
+    if (duplicate.rowCount) throw conflict("Email sudah terdaftar");
+
+    const created = await client.query(
       `INSERT INTO users (full_name, email, password_hash, currency)
-       VALUES ($1, lower($2), $3, $4)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, full_name AS "fullName", email, username, phone, currency, nickname,
                  profile_title AS title, avatar_url AS "avatarUrl"`,
-      [input.fullName, input.email, passwordHash, input.currency ?? "IDR"]
+      [row.full_name, row.email, row.password_hash, row.currency]
     );
-    const created = result.rows[0];
-    await insertDefaultCategories(client, created.id);
-    await client.query("INSERT INTO user_privacy_settings (user_id) VALUES ($1)", [created.id]);
+    const user = created.rows[0];
+    await insertDefaultCategories(client, user.id);
+    await client.query("INSERT INTO user_privacy_settings (user_id) VALUES ($1)", [user.id]);
     await client.query(
       `INSERT INTO accounts (user_id, name, account_type, initial_balance, current_balance, currency)
        VALUES ($1, 'Tunai', 'cash', 0, 0, $2)`,
-      [created.id, created.currency]
+      [user.id, user.currency]
     );
-    await writeAuditLog(client, { userId: created.id, action: "REGISTER", entityName: "User", entityId: created.id });
-    return created;
+    await client.query("UPDATE email_registration_otps SET verified_at = now(), updated_at = now() WHERE id = $1", [row.id]);
+    await writeAuditLog(client, { userId: user.id, action: "REGISTER", entityName: "User", entityId: user.id });
+    return createSession(user);
   });
-
-  return createSession(user);
 }
 
 export async function login(input: { email: string; password: string }) {
@@ -237,4 +297,60 @@ export async function changePassword(userId: string, currentPassword: string, ne
   await pool.query("UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2", [passwordHash, userId]);
   await writeAuditLog(pool, { userId, action: "CHANGE_PASSWORD", entityName: "User", entityId: userId });
   return { changed: true };
+}
+
+export async function requestPasswordReset(input: { email: string }) {
+  const email = input.email.toLowerCase();
+  const userResult = await pool.query("SELECT id, full_name FROM users WHERE lower(email) = lower($1)", [email]);
+  if (!userResult.rowCount) {
+    return { message: "Jika email terdaftar, kode reset akan dikirim." };
+  }
+
+  const otp = generateOtp();
+  const tempPassword = crypto.randomBytes(24).toString("base64url");
+  await pool.query(
+    `INSERT INTO password_reset_otps (email, otp_hash, new_password_hash, expires_at, attempts, verified_at, updated_at)
+     VALUES ($1, $2, $3, $4, 0, NULL, now())
+     ON CONFLICT (email) DO UPDATE
+       SET otp_hash = EXCLUDED.otp_hash,
+           new_password_hash = EXCLUDED.new_password_hash,
+           expires_at = EXCLUDED.expires_at,
+           verified_at = NULL,
+           attempts = 0,
+           updated_at = now()`,
+    [email, hashOtp(otp), await bcrypt.hash(tempPassword, 12), resetOtpExpiry()]
+  );
+
+  await sendPasswordResetOtp({ to: email, otp, name: userResult.rows[0].full_name });
+  return { message: "Jika email terdaftar, kode reset akan dikirim." };
+}
+
+export async function verifyPasswordResetOtp(input: { email: string; otp: string; newPassword: string }) {
+  const email = input.email.toLowerCase();
+  return withDbTransaction(async (client) => {
+    const pending = await client.query(
+      `SELECT id, email, otp_hash, new_password_hash, expires_at, verified_at, attempts
+       FROM password_reset_otps
+       WHERE lower(email) = lower($1)
+       FOR UPDATE`,
+      [email]
+    );
+    const row = pending.rows[0];
+    if (!row) throw badRequest("Kode reset tidak ditemukan. Silakan kirim ulang.");
+    if (row.verified_at) throw badRequest("Kode reset sudah digunakan.");
+    if (row.expires_at <= new Date()) throw badRequest("Kode reset sudah kedaluwarsa. Silakan kirim ulang.");
+    if (row.attempts >= 5) throw badRequest("Terlalu banyak percobaan OTP. Silakan kirim ulang.");
+    if (hashOtp(input.otp) !== row.otp_hash) {
+      await client.query("UPDATE password_reset_otps SET attempts = attempts + 1, updated_at = now() WHERE id = $1", [row.id]);
+      throw badRequest("Kode OTP salah");
+    }
+
+    const user = await client.query("SELECT id FROM users WHERE lower(email) = lower($1)", [email]);
+    if (!user.rowCount) throw badRequest("Akun tidak ditemukan");
+    const passwordHash = await bcrypt.hash(input.newPassword, 12);
+    await client.query("UPDATE users SET password_hash = $1, updated_at = now() WHERE lower(email) = lower($2)", [passwordHash, email]);
+    await client.query("UPDATE password_reset_otps SET verified_at = now(), updated_at = now() WHERE id = $1", [row.id]);
+    await writeAuditLog(client, { userId: user.rows[0].id, action: "RESET_PASSWORD", entityName: "User", entityId: user.rows[0].id });
+    return { reset: true };
+  });
 }

@@ -23,6 +23,21 @@ export const registerSchema = z.object({
   currency: z.string().length(3).default("IDR")
 });
 
+export const registerOtpVerifySchema = z.object({
+  email: z.string().email().max(255),
+  otp: z.string().regex(/^\d{6}$/, "OTP harus 6 digit")
+});
+
+export const forgotPasswordRequestSchema = z.object({
+  email: z.string().email().max(255)
+});
+
+export const forgotPasswordVerifySchema = z.object({
+  email: z.string().email().max(255),
+  otp: z.string().regex(/^\d{6}$/, "OTP harus 6 digit"),
+  newPassword: z.string().min(8).max(120)
+});
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)

@@ -693,7 +693,6 @@ function translateTree(root: Node, language: UiLanguage) {
 }
 
 export function installUiTranslation(language: UiLanguage) {
-  translateTree(document.body, language);
   const nativeConfirm = window.confirm.bind(window);
   const nativeAlert = window.alert.bind(window);
   const nativePrompt = window.prompt.bind(window);
@@ -703,22 +702,7 @@ export function installUiTranslation(language: UiLanguage) {
     translateValue(String(message ?? ""), language),
     defaultValue
   );
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "characterData") translateTextNode(mutation.target as Text, language);
-      mutation.addedNodes.forEach((node) => translateTree(node, language));
-      if (mutation.type === "attributes" && mutation.target instanceof Element) translateElement(mutation.target, language);
-    }
-  });
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    attributes: true,
-    attributeFilter: translatedAttributes
-  });
   return () => {
-    observer.disconnect();
     window.confirm = nativeConfirm;
     window.alert = nativeAlert;
     window.prompt = nativePrompt;

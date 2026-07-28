@@ -33,9 +33,14 @@ export const config = {
   openAiModel: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   appleClientId: process.env.APPLE_CLIENT_ID,
+  smtpHost: process.env.SMTP_HOST,
+  smtpPort: Number(process.env.SMTP_PORT ?? 587),
+  smtpSecure: (process.env.SMTP_SECURE ?? "false").toLowerCase() === "true",
+  smtpUser: process.env.SMTP_USER,
+  smtpPassword: process.env.SMTP_PASSWORD,
+  emailFrom: process.env.EMAIL_FROM ?? process.env.SMTP_USER ?? "no-reply@example.com",
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY,
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:admin@example.com"
 };
-
 

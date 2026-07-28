@@ -538,13 +538,24 @@ function App() {
             return result;
           } catch {
             expireSession();
-            throw new Error("Sesi sudah selesai");
+            throw new ApiError(401, "Sesi sudah selesai");
           }
         }
         expireSession();
-        throw new Error("Sesi sudah selesai");
+        throw new ApiError(401, "Sesi sudah selesai");
       }
       throw error;
+    }
+  };
+
+  const optionalRequest = async <T,>(path: string, fallback: T, options: RequestInit = {}) => {
+    try {
+      return await request<T>(path, options);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        throw error;
+      }
+      return fallback;
     }
   };
 
@@ -614,12 +625,12 @@ function App() {
       nextSocialSummary,
       nextNotifications
     ] = await Promise.all([
-      request<Account[]>("/accounts").catch(() => []),
-      request<Category[]>("/categories").catch(() => []),
+      optionalRequest<Account[]>("/accounts", []),
+      optionalRequest<Category[]>("/categories", []),
       request<DashboardSummary>("/dashboard/summary"),
-      request<Schedule[]>("/schedules").catch(() => []),
-      request<SocialSummary>("/social/summary").catch(() => null),
-      request<HeaderNotification[]>("/social/activity").catch(() => [])
+      optionalRequest<Schedule[]>("/schedules", []),
+      optionalRequest<SocialSummary | null>("/social/summary", null),
+      optionalRequest<HeaderNotification[]>("/social/activity", [])
     ]);
 
     setAccounts(nextAccounts);
@@ -667,7 +678,7 @@ function App() {
 
   const initializeSession = async () => {
     try {
-      await refreshAccessToken();
+      await ensureFreshAccessToken();
 
       if (controller.signal.aborted) {
         return;
@@ -689,6 +700,7 @@ function App() {
           ? error.message
           : "Gagal memuat data"
       );
+      setCoreLoading(false);
     }
   };
 

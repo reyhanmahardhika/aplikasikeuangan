@@ -1,0 +1,362 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\database\\migrations\\014_wallet_gold_support.sql||{CC5D8DF0-88F4-4BB2-9DBB-B48CEE65C30A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:database\\migrations\\014_wallet_gold_support.sql||{CC5D8DF0-88F4-4BB2-9DBB-B48CEE65C30A}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\database\\migrations\\014_wallet_gold_support.sql||{CC5D8DF0-88F4-4BB2-9DBB-B48CEE65C30A}|CodeFrame",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:database\\migrations\\014_wallet_gold_support.sql||{CC5D8DF0-88F4-4BB2-9DBB-B48CEE65C30A}|CodeFrame"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\goldPriceService.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\server\\src\\services\\goldPriceService.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\socialService.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\server\\src\\services\\socialService.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\walletManagementService.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\server\\src\\services\\walletManagementService.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\socialRoutes.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\server\\src\\routes\\socialRoutes.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\walletManagementRoutes.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\server\\src\\routes\\walletManagementRoutes.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\lib\\uiTranslation.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\client\\src\\lib\\uiTranslation.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\lib\\walletManagementTranslations.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\client\\src\\lib\\walletManagementTranslations.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\docs\\WALLET_MANAGEMENT_API.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:docs\\WALLET_MANAGEMENT_API.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\hooks\\useWalletManagement.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\client\\src\\hooks\\useWalletManagement.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\components\\WalletManagement.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\client\\src\\components\\WalletManagement.tsx||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\IMPLEMENTATION_SUMMARY.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:IMPLEMENTATION_SUMMARY.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\__tests__\\walletManagement.test.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:apps\\server\\src\\routes\\__tests__\\walletManagement.test.ts||{0F2454B1-A556-402D-A7D0-1FDE7F99DEE0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\INTEGRATION_CHECKLIST.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:INTEGRATION_CHECKLIST.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\QUICK_START_GUIDE.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:QUICK_START_GUIDE.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\INTEGRATION_CODE_TEMPLATES.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:INTEGRATION_CODE_TEMPLATES.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\DELIVERY_SUMMARY.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:DELIVERY_SUMMARY.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\verify-files.sh||{3B902123-F8A7-4915-9F01-361F908088D0}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:verify-files.sh||{3B902123-F8A7-4915-9F01-361F908088D0}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\README_IMPLEMENTATION.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:README_IMPLEMENTATION.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\1413\\Documents\\Aplikasi keuangan\\QUICK_REFERENCE.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:QUICK_REFERENCE.md||{EFC0BB08-EA7D-40C6-A696-C870411A895B}|"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 3,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "walletManagementService.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\walletManagementService.ts",
+              "RelativeDocumentMoniker": "apps\\server\\src\\services\\walletManagementService.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\walletManagementService.ts",
+              "RelativeToolTip": "apps\\server\\src\\services\\walletManagementService.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAADIBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:50:55.066Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "socialService.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\socialService.ts",
+              "RelativeDocumentMoniker": "apps\\server\\src\\services\\socialService.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\socialService.ts",
+              "RelativeToolTip": "apps\\server\\src\\services\\socialService.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAxwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:50:34.416Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "goldPriceService.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\goldPriceService.ts",
+              "RelativeDocumentMoniker": "apps\\server\\src\\services\\goldPriceService.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\services\\goldPriceService.ts",
+              "RelativeToolTip": "apps\\server\\src\\services\\goldPriceService.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEgAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:50:04.796Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "014_wallet_gold_support.sql ",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\database\\migrations\\014_wallet_gold_support.sql",
+              "RelativeDocumentMoniker": "database\\migrations\\014_wallet_gold_support.sql",
+              "ToolTip": "014_wallet_gold_support.sql ",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000826|",
+              "WhenOpened": "2026-07-27T04:49:54.799Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 20,
+              "Title": "QUICK_REFERENCE.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\QUICK_REFERENCE.md",
+              "RelativeDocumentMoniker": "QUICK_REFERENCE.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\QUICK_REFERENCE.md",
+              "RelativeToolTip": "QUICK_REFERENCE.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAALAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:56:05.86Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 19,
+              "Title": "README_IMPLEMENTATION.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\README_IMPLEMENTATION.md",
+              "RelativeDocumentMoniker": "README_IMPLEMENTATION.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\README_IMPLEMENTATION.md",
+              "RelativeToolTip": "README_IMPLEMENTATION.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAP8AAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:55:50.607Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 18,
+              "Title": "verify-files.sh",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\verify-files.sh",
+              "RelativeDocumentMoniker": "verify-files.sh",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\verify-files.sh",
+              "RelativeToolTip": "verify-files.sh",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAADMAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|",
+              "WhenOpened": "2026-07-27T04:55:22.701Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 17,
+              "Title": "DELIVERY_SUMMARY.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\DELIVERY_SUMMARY.md",
+              "RelativeDocumentMoniker": "DELIVERY_SUMMARY.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\DELIVERY_SUMMARY.md",
+              "RelativeToolTip": "DELIVERY_SUMMARY.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFcBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:54:48.53Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 16,
+              "Title": "INTEGRATION_CODE_TEMPLATES.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\INTEGRATION_CODE_TEMPLATES.md",
+              "RelativeDocumentMoniker": "INTEGRATION_CODE_TEMPLATES.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\INTEGRATION_CODE_TEMPLATES.md",
+              "RelativeToolTip": "INTEGRATION_CODE_TEMPLATES.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAGIBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:54:25.059Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 15,
+              "Title": "QUICK_START_GUIDE.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\QUICK_START_GUIDE.md",
+              "RelativeDocumentMoniker": "QUICK_START_GUIDE.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\QUICK_START_GUIDE.md",
+              "RelativeToolTip": "QUICK_START_GUIDE.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAJQBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:53:58.717Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "INTEGRATION_CHECKLIST.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\INTEGRATION_CHECKLIST.md",
+              "RelativeDocumentMoniker": "INTEGRATION_CHECKLIST.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\INTEGRATION_CHECKLIST.md",
+              "RelativeToolTip": "INTEGRATION_CHECKLIST.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAgBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:53:16.341Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "walletManagement.test.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\__tests__\\walletManagement.test.ts",
+              "RelativeDocumentMoniker": "apps\\server\\src\\routes\\__tests__\\walletManagement.test.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\__tests__\\walletManagement.test.ts",
+              "RelativeToolTip": "apps\\server\\src\\routes\\__tests__\\walletManagement.test.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACwBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:52:56.196Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 12,
+              "Title": "IMPLEMENTATION_SUMMARY.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\IMPLEMENTATION_SUMMARY.md",
+              "RelativeDocumentMoniker": "IMPLEMENTATION_SUMMARY.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\IMPLEMENTATION_SUMMARY.md",
+              "RelativeToolTip": "IMPLEMENTATION_SUMMARY.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACcBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:52:37.9Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "WalletManagement.tsx",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\components\\WalletManagement.tsx",
+              "RelativeDocumentMoniker": "apps\\client\\src\\components\\WalletManagement.tsx",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\components\\WalletManagement.tsx",
+              "RelativeToolTip": "apps\\client\\src\\components\\WalletManagement.tsx",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAFYBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:52:15.808Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 10,
+              "Title": "useWalletManagement.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\hooks\\useWalletManagement.ts",
+              "RelativeDocumentMoniker": "apps\\client\\src\\hooks\\useWalletManagement.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\hooks\\useWalletManagement.ts",
+              "RelativeToolTip": "apps\\client\\src\\hooks\\useWalletManagement.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAKYAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:51:57.841Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
+              "Title": "WALLET_MANAGEMENT_API.md",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\docs\\WALLET_MANAGEMENT_API.md",
+              "RelativeDocumentMoniker": "docs\\WALLET_MANAGEMENT_API.md",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\docs\\WALLET_MANAGEMENT_API.md",
+              "RelativeToolTip": "docs\\WALLET_MANAGEMENT_API.md",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAHkBAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001818|",
+              "WhenOpened": "2026-07-27T04:51:45.222Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 8,
+              "Title": "walletManagementTranslations.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\lib\\walletManagementTranslations.ts",
+              "RelativeDocumentMoniker": "apps\\client\\src\\lib\\walletManagementTranslations.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\lib\\walletManagementTranslations.ts",
+              "RelativeToolTip": "apps\\client\\src\\lib\\walletManagementTranslations.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACsAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:51:26.496Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 7,
+              "Title": "uiTranslation.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\lib\\uiTranslation.ts",
+              "RelativeDocumentMoniker": "apps\\client\\src\\lib\\uiTranslation.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\client\\src\\lib\\uiTranslation.ts",
+              "RelativeToolTip": "apps\\client\\src\\lib\\uiTranslation.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAxwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:51:19.129Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "walletManagementRoutes.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\walletManagementRoutes.ts",
+              "RelativeDocumentMoniker": "apps\\server\\src\\routes\\walletManagementRoutes.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\walletManagementRoutes.ts",
+              "RelativeToolTip": "apps\\server\\src\\routes\\walletManagementRoutes.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAEQAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:51:12.076Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "socialRoutes.ts",
+              "DocumentMoniker": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\socialRoutes.ts",
+              "RelativeDocumentMoniker": "apps\\server\\src\\routes\\socialRoutes.ts",
+              "ToolTip": "C:\\Users\\1413\\Documents\\Aplikasi keuangan\\apps\\server\\src\\routes\\socialRoutes.ts",
+              "RelativeToolTip": "apps\\server\\src\\routes\\socialRoutes.ts",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAxwAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003213|",
+              "WhenOpened": "2026-07-27T04:51:04.001Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

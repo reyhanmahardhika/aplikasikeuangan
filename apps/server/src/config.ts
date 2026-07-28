@@ -16,6 +16,10 @@ export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 4000),
   clientUrl: process.env.CLIENT_URL ?? "http://localhost:5173",
+  goldPriceSyncHours: Number(process.env.GOLD_PRICE_SYNC_HOURS ?? 6),
+  pegadaianGoldPriceApiUrl: process.env.PEGADAIAN_GOLD_PRICE_API_URL,
+  pegadaianGoldPriceApiKey: process.env.PEGADAIAN_GOLD_PRICE_API_KEY,
+  pegadaianGoldPriceApiAuthHeader: process.env.PEGADAIAN_GOLD_PRICE_API_AUTH_HEADER ?? "x-api-key",
   databaseUrl: required("DATABASE_URL", "postgres://finance:finance@localhost:5432/finance_ai"),
   jwtAccessSecret: required("JWT_ACCESS_SECRET", "dev-access-secret-change-me"),
   jwtRefreshSecret: required("JWT_REFRESH_SECRET", "dev-refresh-secret-change-me"),
@@ -33,3 +37,5 @@ export const config = {
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:admin@example.com"
 };
+
+

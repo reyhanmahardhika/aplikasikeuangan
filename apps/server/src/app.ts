@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { config } from "./config.js";
 import { apiRateLimiter } from "./middleware/rateLimit.js";
 import { errorMiddleware } from "./middleware/errorMiddleware.js";
@@ -17,6 +19,7 @@ import { transactionRoutes } from "./routes/transactionRoutes.js";
 import { transferRoutes } from "./routes/transferRoutes.js";
 import { socialRoutes } from "./routes/socialRoutes.js";
 import { notificationRoutes } from "./routes/notificationRoutes.js";
+import { walletManagementRoutes } from "./routes/walletManagementRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -42,6 +45,66 @@ export function createApp() {
     res.json({ ok: true, name: "Aplikasi Keuangan AI" });
   });
 
+  if (config.nodeEnv !== "production") {
+    const sanitizeSessionId = (value: unknown) => {
+      const normalized = (typeof value === "string" ? value : "unknown")
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/-+/g, "-")
+        .slice(0, 64);
+      return normalized || "unknown";
+    };
+
+    const debugDir = path.resolve(process.cwd(), ".dbg");
+
+    app.post("/api/__debug/log", async (req, res, next) => {
+      try {
+        const sessionId = sanitizeSessionId(req.body?.sessionId);
+        const logPath = path.join(debugDir, `trae-debug-log-${sessionId}.ndjson`);
+        const payload = {
+          ts: new Date().toISOString(),
+          sessionId,
+          event: req.body?.event ?? null,
+          data: req.body?.data ?? null
+        };
+        await fs.mkdir(debugDir, { recursive: true });
+        await fs.appendFile(logPath, `${JSON.stringify(payload)}\n`, "utf8");
+        res.json({ ok: true });
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    app.get("/api/__debug/logs", async (req, res, next) => {
+      try {
+        const sessionId = sanitizeSessionId(req.query.sessionId);
+        const tail = Math.max(1, Math.min(Number(req.query.tail ?? 200), 2000));
+        const logPath = path.join(debugDir, `trae-debug-log-${sessionId}.ndjson`);
+        const raw = await fs.readFile(logPath, "utf8").catch(() => "");
+        if (!raw) {
+          res.json({ sessionId, lines: [] });
+          return;
+        }
+        const lines = raw.split("\n").filter(Boolean);
+        res.json({ sessionId, lines: lines.slice(-tail) });
+      } catch (error) {
+        next(error);
+      }
+    });
+
+    app.delete("/api/__debug/logs", async (req, res, next) => {
+      try {
+        const sessionId = sanitizeSessionId(req.query.sessionId);
+        const logPath = path.join(debugDir, `trae-debug-log-${sessionId}.ndjson`);
+        await fs.unlink(logPath).catch(() => undefined);
+        res.json({ ok: true });
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
+
   app.use("/api/auth", authRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/accounts", accountRoutes);
@@ -54,8 +117,12 @@ export function createApp() {
   app.use("/api/reports", reportRoutes);
   app.use("/api/assistant", assistantRoutes);
   app.use("/api/social", socialRoutes);
+  app.use("/api/social", walletManagementRoutes);
   app.use("/api/notifications", notificationRoutes);
 
   app.use(errorMiddleware);
   return app;
 }
+
+
+

@@ -1,3 +1,4 @@
+import { fetchGoldPrice, getCurrentGoldPriceInfo } from "./goldPriceService.js";
 import { pool, withDbTransaction, type DbClient } from "../db/pool.js";
 import { badRequest, conflict, forbidden, notFound } from "../utils/errors.js";
 import { normalizeMoney, normalizeNonNegativeMoney, toCents } from "../utils/money.js";
@@ -749,8 +750,15 @@ export async function listWallets(userId: string) {
             w.require_approval AS "requireApproval", w.storage_type AS "storageType",
             w.storage_provider AS "storageProvider", w.storage_account_number AS "storageAccountNumber",
             w.storage_account_id AS "storageAccountId", a.name AS "storageAccountName",
+            w.expense_split_rule AS "expenseSplitRule",
+            w.active_until AS "activeUntil",
+            w.gold_weight_grams::text AS "goldWeightGrams",
+            w.gold_price_per_gram AS "goldPricePerGram",
+            w.gold_price_fetched_at AS "goldPriceFetchedAt",
             wm.role, wm.status,
-            CASE WHEN wm.status = 'accepted' THEN COALESCE(sum(CASE
+            CASE WHEN wm.status = 'accepted' AND w.storage_type = 'gold'
+              THEN COALESCE(w.gold_weight_grams, 0) * COALESCE(w.gold_price_per_gram, 0)
+            WHEN wm.status = 'accepted' THEN COALESCE(sum(CASE
               WHEN e.status = 'approved' AND e.entry_type = 'deposit' THEN e.amount
               WHEN e.status = 'approved' AND e.entry_type = 'expense' THEN -e.amount ELSE 0 END), 0)
               ELSE 0 END::text AS balance,
@@ -778,7 +786,7 @@ export async function createWallet(
     memberIds?: string[];
     adminIds?: string[];
     storageAccountId?: string | null;
-    storageType: "cash" | "bank" | "e_wallet" | "other";
+    storageType: "cash" | "bank" | "e_wallet" | "gold" | "other";
     storageProvider?: string;
     storageAccountNumber?: string;
   }
@@ -921,33 +929,62 @@ export async function addWalletMember(
   walletId: string,
   input: { userId: string; role: "admin" | "member" | "viewer" }
 ) {
-  const role = await assertWalletMember(userId, walletId);
-  if (!["owner", "admin"].includes(role)) throw forbidden("Hanya owner atau admin yang dapat menambah anggota");
-  await assertFriend(userId, input.userId);
-  const privacy = await pool.query(
-    "SELECT allow_wallet_invites FROM user_privacy_settings WHERE user_id = $1",
-    [input.userId]
-  );
-  if (!privacy.rows[0]?.allow_wallet_invites) {
-    throw forbidden("Pengguna tidak mengizinkan undangan dompet bersama");
-  }
-  await pool.query(
-    `INSERT INTO shared_wallet_members (wallet_id, user_id, role, status)
-     VALUES ($1, $2, $3, 'pending')
-     ON CONFLICT (wallet_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = 'pending'`,
-    [walletId, input.userId, input.role]
-  );
-  const wallet = await pool.query("SELECT name FROM shared_wallets WHERE id = $1", [walletId]);
-  await notify(pool, {
-    recipientId: input.userId,
-    actorId: userId,
-    type: "wallet_invite",
-    title: `Undangan dompet ${wallet.rows[0]?.name ?? ""}`,
-    body: `Role Anda: ${input.role}. Terima undangan untuk bergabung.`,
-    entityType: "wallet",
-    entityId: walletId
+  return withDbTransaction(async (client) => {
+    const role = await assertWalletMember(userId, walletId);
+    if (!["owner", "admin"].includes(role)) throw forbidden("Hanya owner atau admin yang dapat menambah anggota");
+    await assertFriend(userId, input.userId);
+    const privacy = await client.query(
+      "SELECT allow_wallet_invites FROM user_privacy_settings WHERE user_id = $1",
+      [input.userId]
+    );
+    if (!privacy.rows[0]?.allow_wallet_invites) {
+      throw forbidden("Pengguna tidak mengizinkan undangan dompet bersama");
+    }
+    await client.query(
+      `INSERT INTO shared_wallet_members (wallet_id, user_id, role, status)
+       VALUES ($1, $2, $3, 'pending')
+       ON CONFLICT (wallet_id, user_id) DO UPDATE
+       SET role = EXCLUDED.role, status = 'pending', updated_at = now()`,
+      [walletId, input.userId, input.role]
+    );
+    const wallet = await client.query("SELECT name FROM shared_wallets WHERE id = $1", [walletId]);
+    const actor = await userName(client, userId);
+    const target = await userName(client, input.userId);
+    await notify(client, {
+      recipientId: input.userId,
+      actorId: userId,
+      type: "wallet_invite",
+      title: `Undangan dompet ${wallet.rows[0]?.name ?? ""}`,
+      body: `Role Anda: ${input.role}. Terima undangan untuk bergabung.`,
+      entityType: "wallet",
+      entityId: walletId
+    });
+    const acceptedMembers = await client.query<{ user_id: string }>(
+      `SELECT user_id FROM shared_wallet_members
+       WHERE wallet_id = $1 AND status = 'accepted' AND user_id <> $2`,
+      [walletId, input.userId]
+    );
+    for (const member of acceptedMembers.rows) {
+      await notify(client, {
+        recipientId: member.user_id,
+        actorId: userId,
+        type: "wallet_member_added",
+        title: "Daftar anggota dompet berubah",
+        body: `${actor} menambahkan ${target} ke ${wallet.rows[0]?.name ?? "dompet bersama"}.`,
+        entityType: "wallet",
+        entityId: walletId
+      });
+    }
+    await writeAuditLog(client, {
+      userId,
+      action: "ADD_MEMBER",
+      entityName: "SharedWalletMember",
+      entityId: walletId,
+      previousValue: null,
+      newValue: { userId: input.userId, role: input.role, status: "pending" }
+    });
+    return { invited: true, role: input.role, status: "pending" };
   });
-  return { invited: true, role: input.role, status: "pending" };
 }
 
 export async function respondWalletInvite(
@@ -955,39 +992,98 @@ export async function respondWalletInvite(
   walletId: string,
   status: "accepted" | "rejected"
 ) {
-  const result = await pool.query(
-    `UPDATE shared_wallet_members SET status = $1, joined_at = now()
-     WHERE wallet_id = $2 AND user_id = $3 AND status = 'pending'
-     RETURNING wallet_id`,
-    [status, walletId, userId]
-  );
-  if (!result.rowCount) throw notFound("Undangan dompet bersama tidak ditemukan");
-  return { walletId, status };
+  return withDbTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE shared_wallet_members
+       SET status = $1,
+           joined_at = CASE WHEN $1 = 'accepted' THEN now() ELSE joined_at END,
+           updated_at = now()
+       WHERE wallet_id = $2 AND user_id = $3 AND status = 'pending'
+       RETURNING wallet_id`,
+      [status, walletId, userId]
+    );
+    if (!result.rowCount) throw notFound("Undangan dompet bersama tidak ditemukan");
+
+    const actor = await userName(client, userId);
+    const wallet = await client.query("SELECT name FROM shared_wallets WHERE id = $1", [walletId]);
+    const members = await client.query<{ user_id: string }>(
+      `SELECT user_id
+       FROM shared_wallet_members
+       WHERE wallet_id = $1 AND status = 'accepted' AND user_id <> $2`,
+      [walletId, userId]
+    );
+    for (const member of members.rows) {
+      await notify(client, {
+        recipientId: member.user_id,
+        actorId: userId,
+        type: status === "accepted" ? "wallet_member_joined" : "wallet_member_declined",
+        title: "Status anggota dompet berubah",
+        body: `${actor} ${status === "accepted" ? "bergabung ke" : "menolak undangan"} ${wallet.rows[0]?.name ?? "dompet bersama"}.`,
+        entityType: "wallet",
+        entityId: walletId
+      });
+    }
+    await writeAuditLog(client, {
+      userId,
+      action: status === "accepted" ? "ACCEPT_INVITE" : "REJECT_INVITE",
+      entityName: "SharedWalletMember",
+      entityId: walletId,
+      newValue: { userId, status }
+    });
+    return { walletId, status };
+  });
 }
 
 export async function walletDetail(userId: string, walletId: string) {
   await assertWalletMember(userId, walletId);
-  const [wallet, members, entries, memberSummary] = await Promise.all([
+  const currentGoldPrice = await getCurrentGoldPriceInfo().catch(() => null);
+  if (currentGoldPrice) {
+    await pool.query(
+      `UPDATE shared_wallets
+       SET gold_price_per_gram = $1,
+           gold_price_fetched_at = $2,
+           updated_at = now()
+       WHERE id = $3 AND storage_type = 'gold'`,
+      [currentGoldPrice.pricePerGram, currentGoldPrice.fetchedAt, walletId]
+    ).catch(() => undefined);
+  }
+
+  const [wallet, members, entries, memberSummary, auditHistory, changeRequests] = await Promise.all([
     pool.query(
       `SELECT w.id, w.name, w.description, w.spending_limit::text AS "spendingLimit",
+              member.role, member.status,
               w.require_approval AS "requireApproval", w.storage_type AS "storageType",
               w.storage_provider AS "storageProvider", w.storage_account_number AS "storageAccountNumber",
               w.storage_account_id AS "storageAccountId", a.name AS "storageAccountName",
+              w.expense_split_rule AS "expenseSplitRule", w.active_until AS "activeUntil",
+              w.gold_weight_grams::text AS "goldWeightGrams",
+              w.gold_price_per_gram AS "goldPricePerGram",
+              w.gold_price_fetched_at AS "goldPriceFetchedAt",
+              (COALESCE(w.gold_weight_grams, 0) * COALESCE(w.gold_price_per_gram, 0))::text AS "goldBalanceValue",
               COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'deposit'
                 THEN e.amount ELSE 0 END), 0)::text AS "totalDeposit",
               COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'expense'
                 THEN e.amount ELSE 0 END), 0)::text AS "totalExpense",
-              COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'deposit' THEN e.amount
-                WHEN e.status = 'approved' AND e.entry_type = 'expense' THEN -e.amount ELSE 0 END), 0)::text AS balance
+              CASE
+                WHEN w.storage_type = 'gold'
+                  THEN (COALESCE(w.gold_weight_grams, 0) * COALESCE(w.gold_price_per_gram, 0))::text
+                ELSE COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'deposit' THEN e.amount
+                  WHEN e.status = 'approved' AND e.entry_type = 'expense' THEN -e.amount ELSE 0 END), 0)::text
+              END AS balance
        FROM shared_wallets w
+       JOIN shared_wallet_members member
+         ON member.wallet_id = w.id
+        AND member.user_id = $2
        LEFT JOIN accounts a ON a.id = w.storage_account_id
        LEFT JOIN shared_wallet_entries e ON e.wallet_id = w.id
-       WHERE w.id = $1 GROUP BY w.id, a.name`,
-      [walletId]
+       WHERE w.id = $1 GROUP BY w.id, member.role, member.status, a.name`,
+      [walletId, userId]
     ),
     pool.query(
       `SELECT u.id, u.full_name AS "fullName", u.username, u.avatar_url AS "avatarUrl",
-              m.role, m.status
+              m.role, m.status,
+              COALESCE(m.display_name, u.full_name) AS "displayName",
+              m.member_note AS "memberNote"
        FROM shared_wallet_members m JOIN users u ON u.id = m.user_id
        WHERE m.wallet_id = $1 AND m.status IN ('accepted', 'pending')
        ORDER BY CASE m.status WHEN 'pending' THEN 0 ELSE 1 END, m.role, u.full_name`,
@@ -997,7 +1093,10 @@ export async function walletDetail(userId: string, walletId: string) {
       `SELECT e.id, e.entry_type AS "entryType", e.amount::text, e.description, e.status,
               e.transaction_date::text AS "transactionDate", e.receipt_id AS "receiptId",
               e.created_at AS "createdAt", creator.full_name AS "createdByName",
-              approver.full_name AS "approvedByName"
+              approver.full_name AS "approvedByName",
+              e.gold_weight_grams::text AS "goldWeightGrams",
+              e.gold_price_per_gram AS "goldPricePerGram",
+              e.gold_price_fetched_at AS "goldPriceFetchedAt"
        FROM shared_wallet_entries e
        JOIN users creator ON creator.id = e.created_by
        LEFT JOIN users approver ON approver.id = e.approved_by
@@ -1009,17 +1108,67 @@ export async function walletDetail(userId: string, walletId: string) {
               COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'deposit'
                 THEN e.amount ELSE 0 END), 0)::text AS deposit,
               COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'expense'
-                THEN e.amount ELSE 0 END), 0)::text AS expense
+                THEN e.amount ELSE 0 END), 0)::text AS expense,
+              COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'deposit'
+                THEN e.gold_weight_grams ELSE 0 END), 0)::text AS "goldDepositGrams",
+              COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'expense'
+                THEN e.gold_weight_grams ELSE 0 END), 0)::text AS "goldExpenseGrams",
+              (COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'deposit'
+                THEN e.gold_weight_grams ELSE 0 END), 0)
+               - COALESCE(sum(CASE WHEN e.status = 'approved' AND e.entry_type = 'expense'
+                THEN e.gold_weight_grams ELSE 0 END), 0))::text AS "goldBalanceGrams"
        FROM shared_wallet_members m
        JOIN users u ON u.id = m.user_id
        LEFT JOIN shared_wallet_entries e ON e.wallet_id = m.wallet_id AND e.created_by = m.user_id
        WHERE m.wallet_id = $1 AND m.status = 'accepted'
        GROUP BY u.id, u.full_name, m.role ORDER BY u.full_name`,
       [walletId]
+    ),
+    pool.query(
+      `SELECT id, action, created_at AS "createdAt"
+       FROM audit_logs
+       WHERE entity_name IN ('SharedWallet', 'SharedWalletMember', 'SharedWalletChangeRequest')
+         AND entity_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [walletId]
+    ),
+    pool.query(
+      `SELECT id, title, status,
+              requested_by AS "requestedBy",
+              required_approvals AS "requiredApprovals",
+              approved_count AS "approvedCount",
+              rejected_count AS "rejectedCount",
+              change_payload AS payload,
+              created_at AS "createdAt",
+              applied_at AS "appliedAt",
+              EXISTS (
+                SELECT 1
+                FROM shared_wallet_change_approvals approvals
+                WHERE approvals.request_id = shared_wallet_change_requests.id
+                  AND approvals.user_id = $2
+              ) AS "hasReviewed"
+       FROM shared_wallet_change_requests
+       WHERE wallet_id = $1
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [walletId, userId]
     )
   ]);
   if (!wallet.rowCount) throw notFound("Dompet bersama tidak ditemukan");
-  return { ...wallet.rows[0], members: members.rows, entries: entries.rows, memberSummary: memberSummary.rows };
+  const walletRow = wallet.rows[0];
+  const goldPricePerGram = Number(walletRow.goldPricePerGram ?? currentGoldPrice?.pricePerGram ?? 0);
+  return {
+    ...walletRow,
+    members: members.rows,
+    entries: entries.rows,
+    memberSummary: memberSummary.rows.map((row) => ({
+      ...row,
+      goldBalanceValue: String(Number(row.goldBalanceGrams ?? 0) * goldPricePerGram)
+    })),
+    auditHistory: auditHistory.rows,
+    changeRequests: changeRequests.rows
+  };
 }
 
 export async function createWalletEntry(
@@ -1027,7 +1176,8 @@ export async function createWalletEntry(
   walletId: string,
   input: {
     entryType: "deposit" | "expense";
-    amount: unknown;
+    amount?: unknown;
+    goldWeightGrams?: number;
     description: string;
     transactionDate: string;
     receiptId?: string | null;
@@ -1036,13 +1186,36 @@ export async function createWalletEntry(
   const role = await assertWalletMember(userId, walletId);
   if (role === "viewer") throw forbidden("Viewer tidak dapat membuat transaksi");
   const wallet = await pool.query(
-    `SELECT name, require_approval, spending_limit FROM shared_wallets WHERE id = $1`,
+    `SELECT name, require_approval, spending_limit, storage_type, gold_weight_grams, gold_price_per_gram, gold_price_fetched_at
+     FROM shared_wallets
+     WHERE id = $1`,
     [walletId]
   );
-  const amount = normalizeMoney(input.amount);
+  const isGold = wallet.rows[0].storage_type === "gold";
+  let amount: string;
+  let goldWeightGrams: number | null = null;
+  let goldPricePerGram: number | null = null;
+  let goldPriceFetchedAt: string | null = null;
+
+  if (wallet.rows[0].storage_type === "gold") {
+    if (!input.goldWeightGrams) throw badRequest("Berat emas harus diisi untuk dompet emas");
+    goldWeightGrams = Number(input.goldWeightGrams.toFixed(4));
+    if (goldWeightGrams <= 0) throw badRequest("Berat emas harus lebih besar dari 0");
+    const priceInfo = await getCurrentGoldPriceInfo();
+    goldPricePerGram = priceInfo.pricePerGram;
+    goldPriceFetchedAt = priceInfo.fetchedAt;
+    amount = String(Number((goldWeightGrams * goldPricePerGram).toFixed(0)));
+  } else {
+    if (!input.amount) throw badRequest("Nominal harus diisi");
+    amount = normalizeMoney(input.amount);
+  }
+
   if (input.receiptId) {
     const receipt = await pool.query("SELECT 1 FROM receipts WHERE id = $1 AND user_id = $2", [input.receiptId, userId]);
     if (!receipt.rowCount) throw badRequest("Attachment tidak ditemukan");
+  }
+  if (isGold && input.entryType === "expense" && goldWeightGrams !== null && Number(wallet.rows[0].gold_weight_grams ?? 0) < goldWeightGrams) {
+    throw forbidden("Saldo emas tidak mencukupi untuk transaksi ini");
   }
   if (input.entryType === "expense" && wallet.rows[0].spending_limit && Number(amount) > Number(wallet.rows[0].spending_limit)) {
     throw forbidden("Nominal melebihi batas pengeluaran dompet");
@@ -1051,13 +1224,26 @@ export async function createWalletEntry(
   const result = await pool.query(
     `INSERT INTO shared_wallet_entries
      (wallet_id, created_by, entry_type, amount, description, transaction_date, receipt_id,
-      status, approved_by, approved_at)
-     VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8::varchar, $9,
-       CASE WHEN $8::varchar = 'approved' THEN now() ELSE NULL END)
-     RETURNING id, entry_type AS "entryType", amount::text, status, transaction_date::text AS "transactionDate"`,
+      gold_weight_grams, gold_price_per_gram, gold_price_fetched_at, status, approved_by, approved_at)
+     VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11::varchar, $12,
+       CASE WHEN $11::varchar = 'approved' THEN now() ELSE NULL END)
+     RETURNING id, entry_type AS "entryType", amount::text, status, transaction_date::text AS "transactionDate",
+               gold_weight_grams AS "goldWeightGrams",
+               gold_price_per_gram AS "goldPricePerGram",
+               gold_price_fetched_at AS "goldPriceFetchedAt"`,
     [walletId, userId, input.entryType, amount, input.description, input.transactionDate,
-      input.receiptId || null, autoApprove ? "approved" : "pending", autoApprove ? userId : null]
+      input.receiptId || null, goldWeightGrams, goldPricePerGram, goldPriceFetchedAt, autoApprove ? "approved" : "pending", autoApprove ? userId : null]
   );
+  if (isGold && autoApprove && goldPricePerGram) {
+    await pool.query(
+      `UPDATE shared_wallets
+       SET gold_price_per_gram = $1,
+           gold_price_fetched_at = $2,
+           updated_at = now()
+       WHERE id = $3`,
+      [goldPricePerGram, goldPriceFetchedAt, walletId]
+    );
+  }
   if (!autoApprove) {
     const approvers = await pool.query(
       `SELECT user_id FROM shared_wallet_members
@@ -1084,7 +1270,10 @@ export async function createWalletEntry(
      WHERE wm.wallet_id = $1 AND wm.status = 'accepted' AND wm.user_id <> $2`,
     [walletId, userId]
   );
-  const amountLabel = `Rp${Number(amount).toLocaleString("id-ID")}`;
+  const amountLabel = wallet.rows[0].storage_type === "gold"
+    ? `${goldWeightGrams} gram emas`
+    : `Rp${Number(amount).toLocaleString("id-ID")}`;
+    
   for (const member of members.rows) {
     const isEnglish = member.language === "en";
     await notify(pool, {
@@ -1170,13 +1359,24 @@ export async function createWalletReminder(
 
 export async function approveWalletEntry(userId: string, entryId: string, status: "approved" | "rejected") {
   const entry = await pool.query(
-    `SELECT e.id, e.wallet_id, e.created_by, e.description
-     FROM shared_wallet_entries e WHERE e.id = $1 AND e.status = 'pending'`,
+    `SELECT e.id, e.wallet_id, e.created_by, e.description, e.entry_type, e.gold_weight_grams,
+            w.storage_type, w.gold_weight_grams AS wallet_gold_weight
+     FROM shared_wallet_entries e
+     JOIN shared_wallets w ON w.id = e.wallet_id
+     WHERE e.id = $1 AND e.status = 'pending'`,
     [entryId]
   );
   if (!entry.rowCount) throw notFound("Permintaan approval tidak ditemukan");
   const role = await assertWalletMember(userId, entry.rows[0].wallet_id);
   if (!["owner", "admin"].includes(role)) throw forbidden("Hanya owner atau admin yang dapat menyetujui");
+  if (
+    status === "approved"
+    && entry.rows[0].storage_type === "gold"
+    && entry.rows[0].entry_type === "expense"
+    && Number(entry.rows[0].wallet_gold_weight ?? 0) < Number(entry.rows[0].gold_weight_grams ?? 0)
+  ) {
+    throw forbidden("Saldo emas tidak mencukupi saat transaksi diproses");
+  }
   await pool.query(
     `UPDATE shared_wallet_entries SET status = $1, approved_by = $2, approved_at = now(), updated_at = now()
      WHERE id = $3`,

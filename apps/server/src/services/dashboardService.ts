@@ -106,7 +106,7 @@ export async function dashboardSummary(userId: string) {
   const scheduledUntilMonthEnd = Number(scheduledCommitments.rows[0].total);
   const availableUntilMonthEnd = Number(balances.rows[0].balance) - scheduledUntilMonthEnd;
 
-  return {
+  var result = {
     balance: balances.rows[0].balance,
     incomeThisMonth: monthly.rows[0].income,
     expenseThisMonth: monthly.rows[0].expense,
@@ -122,4 +122,6 @@ export async function dashboardSummary(userId: string) {
       availableUntilMonthEnd: availableUntilMonthEnd.toFixed(2)
     }
   };
+  console.log(result)
+  return result;
 }

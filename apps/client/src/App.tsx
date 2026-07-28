@@ -1,4 +1,4 @@
-﻿import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ArrowDownLeft,
   ArrowLeft,
@@ -62,9 +62,21 @@ import heic2any from "heic2any";
 import QRCode from "qrcode";
 import jsQR from "jsqr";
 import { ApiError, apiFetch, downloadUrl, type Session } from "./lib/api";
+import { type StoredSession } from "../../client/src/lib/session";
+import { resolveAsyncContentState } from "./lib/asyncContentState";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "./lib/format";
-import { isValidSession, loadSavedSession } from "./lib/session";
+import {
+  ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS,
+  isAccessTokenExpired,
+  isValidSession,
+  loadSavedSession,
+  saveSession,
+  updateSessionActivity,
+  SESSION_ACTIVITY_WINDOW_MS
+} from "./lib/session";
 import { installUiTranslation } from "./lib/uiTranslation";
+import { WalletAccountEditModal } from "./components/SharedWalletEditModals";
+
 
 declare global {
   interface Window {
@@ -295,7 +307,9 @@ const mobileNavigation: Array<{ id: View; label: string; icon: LucideIcon }> = [
 ];
 
 function App() {
-  const [session, setSession] = useState<Session | null>(() => loadSavedSession(localStorage));
+  const [session, setSession] = useState<StoredSession | null>(
+    () => loadSavedSession(localStorage)
+  );
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as View | null;
@@ -307,6 +321,9 @@ function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
+  const [coreLoading, setCoreLoading] = useState(() => isValidSession(loadSavedSession(localStorage)));
+
+  const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
   const [socialSummaryData, setSocialSummaryData] = useState<SocialSummary | null>(null);
   const [headerNotifications, setHeaderNotifications] = useState<HeaderNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -327,13 +344,33 @@ function App() {
   const notifiedScheduleIds = useRef(new Set<string>());
   const refreshPromiseRef = useRef<Promise<string> | null>(null);
   const sessionExpiredAlertShown = useRef(false);
+  const sessionRef = useRef(session);
+  const sessionInitializedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
   const [dismissedScheduleIds, setDismissedScheduleIds] = useState<Set<string>>(
     () => storedStringSet("dismissed-schedule-notifications")
   );
   const token = session?.accessToken;
 
+  //#region debug-point login-error-report
+  const reportDebug = (event: string, data: unknown) => {
+    if (!import.meta.env.DEV) return;
+    void fetch(downloadUrl("/__debug/log"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "login-error", event, data })
+    }).catch(() => undefined);
+  };
+  //#endregion
+
   const clearSession = (message?: string) => {
+    sessionInitializedRef.current = null;
     setSession(null);
+    setCoreLoading(false);
+    setCoreLoadError(null);
     setAccounts([]);
     setCategories([]);
     setSchedules([]);
@@ -342,8 +379,19 @@ function App() {
     if (message) setNotice(message);
   };
 
+  //#region debug-point login-error-accept-session
   const acceptSession = (nextSession: Session) => {
-    if (!isValidSession(nextSession)) {
+    const storedSession = saveSession(localStorage, nextSession);
+    reportDebug("accept_session_called", {
+      keys: nextSession && typeof nextSession === "object" ? Object.keys(nextSession as Record<string, unknown>) : null,
+      hasLastActivityAt: Boolean((storedSession as any)?.lastActivityAt),
+      userKeys: nextSession && typeof nextSession === "object" && (nextSession as any).user && typeof (nextSession as any).user === "object"
+        ? Object.keys((nextSession as any).user)
+        : null,
+      valid: isValidSession(storedSession)
+    });
+    if (!isValidSession(storedSession)) {
+      reportDebug("accept_session_invalid", storedSession);
       clearSession("Data sesi tidak valid. Silakan login kembali.");
       return;
     }
@@ -355,12 +403,14 @@ function App() {
     window.history.replaceState({}, "", window.location.pathname);
     window.scrollTo({ top: 0, behavior: "auto" });
     sessionExpiredAlertShown.current = false;
-    setSession(nextSession);
+    setSession(storedSession);
+    reportDebug("accept_session_applied", { view: "dashboard" });
   };
+  //#endregion
 
   const refreshAccessToken = async () => {
     if (refreshPromiseRef.current) return refreshPromiseRef.current;
-    const activeSession = session;
+    const activeSession = sessionRef.current;
     if (!activeSession?.refreshToken) throw new Error("Refresh token tidak tersedia");
 
     refreshPromiseRef.current = (async () => {
@@ -368,14 +418,18 @@ function App() {
         method: "POST",
         body: JSON.stringify({ refreshToken: activeSession.refreshToken })
       });
-      const nextSession: Session = {
+      const nextSession: StoredSession = {
         user: refreshed.user,
         accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken
+        refreshToken: refreshed.refreshToken,
+        lastActivityAt: Date.now()
       };
       if (!isValidSession(nextSession)) throw new Error("Sesi tidak lengkap");
       setSession(nextSession);
-      localStorage.setItem("finance-session", JSON.stringify(nextSession));
+      localStorage.setItem(
+        "finance-session",
+        JSON.stringify(nextSession)
+      );
       return nextSession.accessToken;
     })();
     try {
@@ -383,6 +437,13 @@ function App() {
     } finally {
       refreshPromiseRef.current = null;
     }
+  };
+
+  const ensureFreshAccessToken = async () => {
+    const activeSession = sessionRef.current;
+    if (!activeSession?.refreshToken) return;
+    if (!isAccessTokenExpired(activeSession.accessToken)) return;
+    await refreshAccessToken();
   };
 
   const expireSession = (message = "Sesi Anda sudah selesai. Silakan login kembali.") => {
@@ -398,13 +459,13 @@ function App() {
   const request = async <T,>(path: string, options: RequestInit = {}) => {
     const method = String(options.method ?? "GET").toUpperCase();
     try {
-      const result = await apiFetch<T>(path, session?.accessToken, options);
+      const result = await apiFetch<T>(path, sessionRef.current?.accessToken, options);
       const message = successMessageFor(path, method);
       if (message) setNotice(message);
       return result;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401 && path !== "/auth/refresh-token") {
-        if (session?.refreshToken) {
+        if (sessionRef.current?.refreshToken) {
           try {
             const refreshedToken = await refreshAccessToken();
             const result = await apiFetch<T>(path, refreshedToken, options);
@@ -469,31 +530,152 @@ function App() {
   };
 
   const refreshCore = async () => {
-    if (!token) return;
-    const [nextAccounts, nextCategories, nextDashboard, nextSchedules, nextSocialSummary, nextNotifications] = await Promise.all([
-      request<Account[]>("/accounts"),
-      request<Category[]>("/categories"),
+  const accessToken = sessionRef.current?.accessToken;
+
+  if (!accessToken) {
+    setCoreLoading(false);
+    setCoreLoadError(null);
+    return;
+  }
+
+  setCoreLoading(true);
+  setCoreLoadError(null);
+
+  try {
+    const [
+      nextAccounts,
+      nextCategories,
+      nextDashboard,
+      nextSchedules,
+      nextSocialSummary,
+      nextNotifications
+    ] = await Promise.all([
+      request<Account[]>("/accounts").catch(() => []),
+      request<Category[]>("/categories").catch(() => []),
       request<DashboardSummary>("/dashboard/summary"),
       request<Schedule[]>("/schedules").catch(() => []),
       request<SocialSummary>("/social/summary").catch(() => null),
       request<HeaderNotification[]>("/social/activity").catch(() => [])
     ]);
+
     setAccounts(nextAccounts);
     setCategories(nextCategories);
     setDashboard(nextDashboard);
     setSchedules(nextSchedules);
     setSocialSummaryData(nextSocialSummary);
     setHeaderNotifications(nextNotifications);
-  };
+  } catch (error) {
+    console.error("Dashboard summary gagal dimuat:", error);
+
+    setDashboard(null);
+    setCoreLoadError(
+      error instanceof Error
+        ? error.message
+        : "Gagal memuat dashboard"
+    );
+  } finally {
+    setCoreLoading(false);
+  }
+};
+
 
   useEffect(() => {
     if (isValidSession(session)) {
       localStorage.setItem("finance-session", JSON.stringify(session));
-      refreshCore().catch((error) => setNotice(error.message));
     } else {
       localStorage.removeItem("finance-session");
     }
-  }, [session?.accessToken]);
+    reportDebug("session_effect", {
+      valid: isValidSession(session),
+      hasSession: Boolean(session),
+      hasLastActivityAt: Boolean((session as any)?.lastActivityAt)
+    });
+  }, [session]);
+
+  useEffect(() => {
+  if (!isValidSession(session)) {
+    setCoreLoading(false);
+    setCoreLoadError(null);
+    return;
+  }
+
+  const controller = new AbortController();
+
+  const initializeSession = async () => {
+    try {
+      await ensureFreshAccessToken();
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      await refreshCore();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      if (error instanceof ApiError && error.status === 401) {
+        expireSession();
+        return;
+      }
+
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Gagal memuat data"
+      );
+    }
+  };
+
+  void initializeSession();
+
+  return () => {
+    controller.abort();
+  };
+}, [session?.user.id]);
+
+  useEffect(() => {
+    if (!session?.refreshToken) return;
+
+    
+    const keepSessionAlive = () => {
+      const activeSession = sessionRef.current;
+
+      if (!activeSession) return;
+
+      const inactiveDuration =
+        Date.now() - activeSession.lastActivityAt;
+
+      if (inactiveDuration > SESSION_ACTIVITY_WINDOW_MS) {
+        return;
+      }
+
+      refreshAccessToken().catch((error) => {
+        if (error instanceof ApiError && error.status === 401) {
+          expireSession();
+        }
+      });
+    };
+
+    const intervalId = window.setInterval(keepSessionAlive, ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS);
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      const activeSession = sessionRef.current;
+      if (!activeSession?.accessToken || !isAccessTokenExpired(activeSession.accessToken)) return;
+      keepSessionAlive();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleVisibility);
+    };
+  }, [session?.refreshToken]);
 
   useEffect(() => {
     if (!session || pushStatus !== "granted") return;
@@ -775,9 +957,16 @@ function App() {
           {view === "dashboard" && (
             <DashboardView
               dashboard={dashboard}
+              loading={coreLoading}
+              error={coreLoadError}
               language={language}
               onAdd={() => navigate("manual")}
               onAssistant={() => navigate("assistant")}
+              onRetry={() => {
+                refreshCore().catch((error) => {
+                  setNotice(error instanceof Error ? error.message : "Gagal memuat data");
+                });
+              }}
             />
           )}
           {view === "manual" && (
@@ -1253,10 +1442,29 @@ function AuthView({
     setSocialLoading(provider);
     setError(null);
     try {
-      onSignedIn(await apiFetch<Session>("/auth/social", undefined, {
+      const session = await apiFetch<Session>("/auth/social", undefined, {
         method: "POST",
         body: JSON.stringify({ provider, idToken, fullName: fullName || null })
-      }));
+      });
+      if (import.meta.env.DEV) {
+        void fetch(downloadUrl("/__debug/log"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "login-error",
+            event: "auth_social_response",
+            data: {
+              provider,
+              keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
+              hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
+              userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
+                ? Object.keys((session as any).user)
+                : null
+            }
+          })
+        }).catch(() => undefined);
+      }
+      onSignedIn(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : `Login ${provider} gagal`);
     } finally {
@@ -1322,10 +1530,29 @@ function AuthView({
       const payload = mode === "register"
         ? { fullName: String(form.get("fullName")), email: String(form.get("email")), password: String(form.get("password")), currency: "IDR" }
         : { email: String(form.get("email")), password: String(form.get("password")) };
-      onSignedIn(await apiFetch<Session>(`/auth/${mode === "register" ? "register" : "login"}`, undefined, {
+      const session = await apiFetch<Session>(`/auth/${mode === "register" ? "register" : "login"}`, undefined, {
         method: "POST",
         body: JSON.stringify(payload)
-      }));
+      });
+      if (import.meta.env.DEV) {
+        void fetch(downloadUrl("/__debug/log"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "login-error",
+            event: "auth_email_response",
+            data: {
+              mode,
+              keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
+              hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
+              userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
+                ? Object.keys((session as any).user)
+                : null
+            }
+          })
+        }).catch(() => undefined);
+      }
+      onSignedIn(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal masuk");
     } finally {
@@ -1445,18 +1672,27 @@ function ExpenseDonut({ dashboard }: { dashboard: DashboardSummary }) {
   );
 }
 
-function DashboardView({
+export function DashboardView({
   dashboard,
+  loading,
+  error,
   language,
   onAdd,
-  onAssistant
+  onAssistant,
+  onRetry
 }: {
   dashboard: DashboardSummary | null;
+  loading: boolean;
+  error: string | null;
   language: AppLanguage;
   onAdd: () => void;
   onAssistant: () => void;
+  onRetry: () => void;
 }) {
-  if (!dashboard) return <LoadingState />;
+  const state = resolveAsyncContentState({ loading, error, data: dashboard });
+  if (state === "loading") return <LoadingState />;
+  if (state === "error") return <DataErrorState message={error ?? "Data dashboard gagal dimuat"} onRetry={onRetry} />;
+  if (state === "empty" || !dashboard) return <EmptyState text="Ringkasan dashboard belum tersedia." />;
   const income = Number(dashboard.incomeThisMonth);
   const expense = Number(dashboard.expenseThisMonth);
   const balance = Number(dashboard.balance);
@@ -3187,21 +3423,29 @@ function HistoryView({
   const [fromDate, setFromDate] = useState(() => currentMonthDateBounds().from);
   const [toDate, setToDate] = useState(() => currentMonthDateBounds().to);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [highlightedTransactionId, setHighlightedTransactionId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const transactionRefs = useRef(new Map<string, HTMLDivElement>());
 
   const load = async (nextSearch = search, nextType = type, nextFromDate = fromDate, nextToDate = toDate, nextAccountId = accountId) => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (nextSearch.trim()) params.set("search", nextSearch.trim());
-    if (nextType) params.set("type", nextType);
-    if (nextAccountId) params.set("accountId", nextAccountId);
-    if (nextFromDate) params.set("from", dateFilterIso(nextFromDate, "start"));
-    if (nextToDate) params.set("to", dateFilterIso(nextToDate, "end"));
-    const result = await request<{ data: Transaction[] }>(`/transactions?${params.toString()}`);
-    setRows(result.data);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const params = new URLSearchParams();
+      if (nextSearch.trim()) params.set("search", nextSearch.trim());
+      if (nextType) params.set("type", nextType);
+      if (nextAccountId) params.set("accountId", nextAccountId);
+      if (nextFromDate) params.set("from", dateFilterIso(nextFromDate, "start"));
+      if (nextToDate) params.set("to", dateFilterIso(nextToDate, "end"));
+      const result = await request<{ data: Transaction[] }>(`/transactions?${params.toString()}`);
+      setRows(result.data);
+    } catch (error) {
+      setRows([]);
+      setLoadError(error instanceof Error ? error.message : "Riwayat transaksi gagal dimuat");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -3456,7 +3700,7 @@ function HistoryView({
       )}
 
       <div className="space-y-3">
-        {loading ? <LoadingState /> : rows.length === 0 ? <EmptyState text="Tidak ada transaksi." /> : (
+        {loading ? <LoadingState /> : loadError ? <DataErrorState message={loadError} onRetry={() => { load().catch(() => undefined); }} /> : rows.length === 0 ? <EmptyState text="Tidak ada transaksi." /> : (
           groupedRows.map((group) => (
             <section key={group.key} className="overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
@@ -5494,14 +5738,21 @@ type SocialWallet = {
   name: string;
   description?: string | null;
   balance: string;
+  spendingLimit?: string | null;
+  requireApproval?: boolean;
   pendingCount: number;
   role: string;
   status: string;
-  storageType: "cash" | "bank" | "e_wallet" | "other";
+  storageType: "cash" | "bank" | "e_wallet" | "other" | "gold";
   storageAccountId?: string | null;
   storageAccountName?: string | null;
   storageProvider?: string | null;
   storageAccountNumber?: string | null;
+  expenseSplitRule?: "equal" | "percentage" | "manual";
+  activeUntil?: string | null;
+  goldWeightGrams?: string | null;
+  goldPricePerGram?: number | null;
+  goldPriceFetchedAt?: string | null;
 };
 
 type WalletReminder = {
@@ -5548,10 +5799,29 @@ type GroupDetail = SocialGroup & {
 type WalletDetail = SocialWallet & {
   totalDeposit: string;
   totalExpense: string;
+  goldBalanceValue?: string | null;
   storageAccountId?: string | null;
   storageAccountName?: string | null;
-  members: Array<{ id: string; fullName: string; username: string; role: string; status: string }>;
-  memberSummary: Array<{ userId: string; fullName: string; role: string; deposit: string; expense: string }>;
+  members: Array<{
+    id: string;
+    fullName: string;
+    username: string;
+    role: "owner" | "admin" | "member" | "viewer";
+    status: "accepted" | "pending" | "rejected";
+    displayName?: string | null;
+    memberNote?: string | null;
+  }>;
+  memberSummary: Array<{
+    userId: string;
+    fullName: string;
+    role: string;
+    deposit: string;
+    expense: string;
+    goldDepositGrams?: string;
+    goldExpenseGrams?: string;
+    goldBalanceGrams?: string;
+    goldBalanceValue?: string;
+  }>;
   entries: Array<{
     id: string;
     entryType: "deposit" | "expense";
@@ -5562,6 +5832,30 @@ type WalletDetail = SocialWallet & {
     createdAt: string;
     transactionDate: string;
     receiptId?: string | null;
+    goldWeightGrams?: string | null;
+    goldPricePerGram?: number | null;
+    goldPriceFetchedAt?: string | null;
+  }>;
+  auditHistory: Array<{ id: string; action: string; createdAt: string }>;
+  changeRequests: Array<{
+    id: string;
+    title: string;
+    status: string;
+    requestedBy: string;
+    requiredApprovals: number;
+    approvedCount: number;
+    rejectedCount: number;
+    payload: {
+      name?: string;
+      description?: string | null;
+      spendingLimit?: string | number | null;
+      requireApproval?: boolean;
+      expenseSplitRule?: "equal" | "percentage" | "manual";
+      activeUntil?: string | null;
+    };
+    createdAt: string;
+    appliedAt?: string | null;
+    hasReviewed?: boolean;
   }>;
 };
 
@@ -5718,6 +6012,174 @@ function SocialFriendPicker({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+function WalletMembersManageModal({
+  walletId,
+  walletName,
+  members,
+  friends,
+  request,
+  onClose,
+  onSaved
+}: {
+  walletId: string;
+  walletName: string;
+  members: WalletDetail["members"];
+  friends: SocialFriend[];
+  request: <T>(path: string, options?: RequestInit) => Promise<T>;
+  onClose: () => void;
+  onSaved: (message: string) => Promise<void> | void;
+}) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const existingMemberIds = useMemo(
+    () => new Set(members.map((member) => member.id)),
+    [members]
+  );
+
+  const toggleMember = (userId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
+
+  const addMembers = async () => {
+    if (selectedIds.size === 0 || loading) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      await Promise.all(
+        [...selectedIds].map((userId) =>
+          request(`/social/wallets/${walletId}/members`, {
+            method: "POST",
+            body: JSON.stringify({ userId, role: "member" })
+          })
+        )
+      );
+
+      setSelectedIds(new Set());
+      await onSaved(`${selectedIds.size} anggota berhasil ditambahkan`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Gagal menambahkan anggota");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const removeMember = async (member: WalletDetail["members"][number]) => {
+    if (member.role === "owner" || removingMemberId) return;
+    if (!window.confirm(`Hapus ${member.fullName} dari dompet ${walletName}?`)) return;
+
+    try {
+      setRemovingMemberId(member.id);
+      setError(null);
+
+      await request(`/social/wallets/${walletId}/members/${member.id}`, {
+        method: "DELETE"
+      });
+
+      await onSaved(`${member.fullName} berhasil dihapus dari dompet`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Gagal menghapus anggota");
+    } finally {
+      setRemovingMemberId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-4">
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Tutup" onClick={onClose} />
+
+      <section className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-[26px] bg-white p-4 shadow-xl sm:max-w-lg sm:rounded-[26px]">
+        <SectionHeader
+          title="Kelola anggota"
+          caption={`Tambah atau hapus anggota dari ${walletName}.`}
+          action={(
+            <button type="button" className="mobile-icon-btn" aria-label="Tutup" onClick={onClose}>
+              <X size={18} />
+            </button>
+          )}
+        />
+
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-100 p-3">
+            <SocialFriendPicker
+              friends={friends}
+              selectedIds={selectedIds}
+              excludedIds={existingMemberIds}
+              title="Tambah anggota"
+              onToggle={toggleMember}
+            />
+
+            <button
+              type="button"
+              className="btn-primary mt-3 w-full justify-center"
+              disabled={selectedIds.size === 0 || loading}
+              onClick={addMembers}
+            >
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+              {loading ? "Menambahkan..." : `Tambahkan ${selectedIds.size || ""} anggota`}
+            </button>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-slate-700">Anggota saat ini</p>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">
+                {members.length} anggota
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {members.map((member) => {
+                const isOwner = member.role === "owner";
+                const isRemoving = removingMemberId === member.id;
+
+                return (
+                  <div key={member.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 px-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{member.fullName}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                        @{member.username} · {member.status === "pending" ? "Menunggu" : "Aktif"}
+                      </p>
+                    </div>
+
+                    {isOwner ? (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500">Pemilik</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 disabled:opacity-50"
+                        disabled={Boolean(removingMemberId)}
+                        onClick={() => removeMember(member)}
+                      >
+                        {isRemoving ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        {isRemoving ? "Menghapus" : "Hapus"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {error && (
+            <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{error}</p>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -6017,6 +6479,8 @@ function SocialHubView({
   const [walletReminders, setWalletReminders] = useState<WalletReminder[]>([]);
   const [showWalletReminderForm, setShowWalletReminderForm] = useState(false);
   const [showWalletEntryForm, setShowWalletEntryForm] = useState(false);
+  const [showWalletEditModal, setShowWalletEditModal] = useState(false);
+  const [showWalletMembersModal, setShowWalletMembersModal] = useState(false);
   const [walletEntryReceiptId, setWalletEntryReceiptId] = useState<string | null>(null);
   const [walletEntryAttachmentName, setWalletEntryAttachmentName] = useState("");
   const [walletEntryAttachmentMessage, setWalletEntryAttachmentMessage] = useState<string | null>(null);
@@ -6289,6 +6753,8 @@ function SocialHubView({
       request<WalletReminder[]>(`/social/wallets/${id}/reminders`).catch(() => [])
     ]);
     setSelectedWallet(wallet);
+    setShowWalletEditModal(false);
+    setShowWalletMembersModal(false);
     setWalletMemberIds(new Set());
     setWalletReminders(reminders);
     setShowWalletEntryForm(false);
@@ -7276,13 +7742,60 @@ function SocialHubView({
 
       {!loading && tab === "wallets" && selectedWallet && (
         <div className="space-y-3">
-          <button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" onClick={() => setSelectedWallet(null)}><ArrowLeft size={14} /> Kembali</button>
+          <button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" onClick={() => {
+            setShowWalletEditModal(false);
+            setShowWalletMembersModal(false);
+            setSelectedWallet(null);
+          }}><ArrowLeft size={14} /> Kembali</button>
           <div className="rounded-[22px] bg-[#16A34A] p-4 text-white shadow-soft">
-            <p className="text-xs text-white/70">Saldo bersama · tidak termasuk saldo pribadi</p>
-            <h3 className="mt-1 text-2xl font-semibold">{rupiah(selectedWallet.balance)}</h3>
-            <p className="mt-1 text-xs text-white/70">
-              {selectedWallet.name} · {selectedWallet.members.filter((member) => member.status === "accepted").length} anggota
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-white/70">Saldo bersama · tidak termasuk saldo pribadi</p>
+                <h3 className="mt-1 text-2xl font-semibold">{rupiah(selectedWallet.balance)}</h3>
+                <p className="mt-1 text-xs text-white/70">
+                  {selectedWallet.name} · {selectedWallet.members.filter((member) => member.status === "accepted").length} anggota
+                </p>
+              </div>
+              {["owner", "admin"].includes(selectedWallet.role) && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white"
+                    onClick={() => setShowWalletEditModal(true)}
+                  >
+                    <Settings size={14} /> Edit akun
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white"
+                    onClick={() => setShowWalletMembersModal(true)}
+                  >
+                    <Users size={14} /> Edit anggota
+                  </button>
+                </div>
+              )}
+            </div>
+            {selectedWallet.storageType === "gold" && (
+              <div className="mt-3 rounded-2xl bg-white/10 px-3 py-3">
+                <p className="text-[10px] font-medium uppercase text-white/60">Saldo Emas</p>
+                <p className="mt-1 text-sm font-semibold">
+                  {Number(selectedWallet.goldWeightGrams || 0).toLocaleString("id-ID", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram
+                </p>
+                <p className="mt-1 text-xs text-white/75">
+                  Nilai setara: {rupiah(selectedWallet.goldBalanceValue || selectedWallet.balance)}
+                </p>
+                {selectedWallet.goldPricePerGram && (
+                  <p className="mt-1 text-[11px] text-white/75">
+                    Harga jual Pegadaian: Rp{Number(selectedWallet.goldPricePerGram).toLocaleString("id-ID")}/gram
+                  </p>
+                )}
+                {selectedWallet.goldPriceFetchedAt && (
+                  <p className="mt-1 text-[11px] text-white/75">
+                    Update terakhir: {localDate(selectedWallet.goldPriceFetchedAt)}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-3 divide-x divide-white/15 rounded-2xl bg-white/10 py-3">
               <div className="min-w-0 px-3">
                 <p className="text-[9px] text-white/65">Setoran</p>
@@ -7300,73 +7813,121 @@ function SocialHubView({
             <div className="mt-3 rounded-2xl bg-white/10 px-3 py-2.5">
               <p className="text-[10px] font-medium uppercase text-white/60">Dana disimpan di</p>
               <p className="mt-1 text-[10px] text-white/65">
-                {selectedWallet.storageType === "e_wallet" ? "E-wallet / e-money" : selectedWallet.storageType === "bank" ? "Rekening bank" : selectedWallet.storageType === "cash" ? "Tunai" : "Penyimpanan lainnya"}
+                {selectedWallet.storageType === "gold"
+                  ? "Emas"
+                  : selectedWallet.storageType === "e_wallet"
+                  ? "E-wallet / e-money"
+                  : selectedWallet.storageType === "bank"
+                  ? "Rekening bank"
+                  : selectedWallet.storageType === "cash"
+                  ? "Tunai"
+                  : "Penyimpanan lainnya"}
               </p>
               <p className="mt-1 text-sm font-semibold">
                 {selectedWallet.storageAccountName || selectedWallet.storageProvider || (selectedWallet.storageType === "cash" ? "Tunai" : selectedWallet.storageType)}
               </p>
               {selectedWallet.storageAccountNumber && <p className="mt-0.5 text-xs text-white/75">{selectedWallet.storageAccountNumber}</p>}
+              <p className="mt-2 text-[11px] text-white/75">
+                Split biaya: {selectedWallet.expenseSplitRule === "percentage" ? "Persentase" : selectedWallet.expenseSplitRule === "manual" ? "Manual" : "Merata"}
+                {selectedWallet.activeUntil ? ` · Aktif sampai ${localDate(selectedWallet.activeUntil)}` : " · Aktif tanpa batas waktu"}
+              </p>
             </div>
           </div>
-          {["owner", "admin"].includes(selectedWallet.role) && (
-            <form className="rounded-[22px] bg-white p-4 shadow-soft" onSubmit={(event) => {
-              event.preventDefault();
-              const role = String(new FormData(event.currentTarget).get("role"));
-              runAction(
-                () => Promise.all([...walletMemberIds].map((userId) =>
-                  request(`/social/wallets/${selectedWallet.id}/members`, {
-                    method: "POST",
-                    body: JSON.stringify({ userId, role })
-                  })
-                )),
-                "Anggota dompet ditambahkan"
-              ).then(() => {
-                setWalletMemberIds(new Set());
-                openWallet(selectedWallet.id);
-              });
-            }}>
-              <SectionHeader title="Tambah anggota" caption="Pilih role sesuai akses yang dibutuhkan." />
-              {selectedWallet.members.some((member) => member.status === "pending") && (
-                <div className="mb-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-3">
-                  <p className="text-[11px] font-semibold text-amber-800">
-                    Menunggu persetujuan ({selectedWallet.members.filter((member) => member.status === "pending").length})
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {selectedWallet.members
-                      .filter((member) => member.status === "pending")
-                      .map((member) => (
-                        <span key={member.id} className="inline-flex items-center gap-2 rounded-full bg-white px-2.5 py-1.5 text-[11px] text-slate-700 shadow-sm">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-[9px] font-semibold text-amber-700">
-                            {member.fullName.slice(0, 2).toUpperCase()}
-                          </span>
-                          {member.fullName}
-                          <span className="text-[9px] text-amber-600">Menunggu</span>
-                        </span>
-                      ))}
+
+          <section className="rounded-[22px] bg-white p-4 shadow-soft">
+            <SectionHeader
+              title="Anggota dompet"
+              caption="Lihat anggota aktif, role, dan akses edit anggota dalam satu tempat."
+              action={["owner", "admin"].includes(selectedWallet.role) ? (
+                <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => setShowWalletMembersModal(true)}>
+                  <UserPlus size={14} /> Kelola anggota
+                </button>
+              ) : undefined}
+            />
+            <div className="space-y-3">
+              {selectedWallet.members.map((member) => (
+                <div key={member.id} className="rounded-2xl border border-slate-100 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{member.displayName || member.fullName}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">@{member.username} · {socialEnumLabel(member.role)} · {socialEnumLabel(member.status)}</p>
+                      {member.memberNote && <p className="mt-1 text-[11px] text-slate-500">{member.memberNote}</p>}
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${member.status === "pending" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
+                      {member.status === "pending" ? "Menunggu" : socialEnumLabel(member.role)}
+                    </span>
                   </div>
                 </div>
-              )}
-              <div className="space-y-3">
-                <SocialFriendPicker
-                  friends={friends}
-                  selectedIds={walletMemberIds}
-                  excludedIds={new Set(selectedWallet.members.map((member) => member.id))}
-                  title="Pilih teman"
-                  onToggle={(friendId) => toggleSelectedFriend(setWalletMemberIds, friendId)}
-                />
-                <Field label="Role anggota">
-                <select className="input" name="role" defaultValue="member">
-                  <option value="admin">Admin</option>
-                  <option value="member">Member</option>
-                  <option value="viewer">Viewer</option>
-                </select>
-                </Field>
-              </div>
-              <button className="btn-secondary mt-3 w-full" disabled={walletMemberIds.size === 0}>
-                <UserPlus size={15} /> Tambahkan {walletMemberIds.size || ""} anggota
-              </button>
-            </form>
+              ))}
+            </div>
+          </section>
+
+          {showWalletEditModal && ["owner", "admin"].includes(selectedWallet.role) && (
+            <WalletAccountEditModal
+              wallet={selectedWallet}
+              request={request}
+              onClose={() => setShowWalletEditModal(false)}
+              onSaved={async (nextMessage) => {
+                setMessage(nextMessage);
+                setShowWalletEditModal(false);
+                await openWallet(selectedWallet.id);
+              }}
+            />
           )}
+
+          {showWalletMembersModal && ["owner", "admin"].includes(selectedWallet.role) && (
+            <WalletMembersManageModal
+              walletId={selectedWallet.id}
+              walletName={selectedWallet.name}
+              members={selectedWallet.members}
+              friends={friends}
+              request={request}
+              onClose={() => setShowWalletMembersModal(false)}
+              onSaved={async (nextMessage) => {
+                setMessage(nextMessage);
+                await openWallet(selectedWallet.id);
+              }}
+            />
+          )}
+
+          <section className="rounded-[22px] bg-white p-4 shadow-soft">
+            <SectionHeader title="Perubahan dompet" caption="Permintaan perubahan besar membutuhkan suara mayoritas anggota aktif." />
+            <div className="space-y-2">
+              {selectedWallet.changeRequests.length === 0 && <p className="rounded-2xl bg-slate-50 px-3 py-3 text-xs text-slate-500">Belum ada permintaan perubahan dompet.</p>}
+              {selectedWallet.changeRequests.map((item) => (
+                <div key={item.id} className="rounded-2xl border border-slate-100 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{item.title}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {socialEnumLabel(item.status)} · {item.approvedCount}/{item.requiredApprovals} setuju · dibuat {localDate(item.createdAt)}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                      {item.payload.expenseSplitRule === "percentage" ? "Persentase" : item.payload.expenseSplitRule === "manual" ? "Manual" : "Merata"}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-600">
+                    {item.payload.name && <p>Nama: {item.payload.name}</p>}
+                    {item.payload.activeUntil && <p>Aktif sampai: {localDate(item.payload.activeUntil)}</p>}
+                  </div>
+                  {item.status === "pending" && !item.hasReviewed && item.requestedBy !== currentUser.id && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white" onClick={() => runAction(
+                        () => request(`/social/wallets/${selectedWallet.id}/change-requests/${item.id}`, { method: "PUT", body: JSON.stringify({ decision: "approved" }) }),
+                        "Perubahan dompet disetujui"
+                      ).then(() => openWallet(selectedWallet.id))}>Setujui</button>
+                      <button className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600" onClick={() => runAction(
+                        () => request(`/social/wallets/${selectedWallet.id}/change-requests/${item.id}`, { method: "PUT", body: JSON.stringify({ decision: "rejected" }) }),
+                        "Perubahan dompet ditolak"
+                      ).then(() => openWallet(selectedWallet.id))}>Tolak</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
           <section className="rounded-[22px] bg-white p-4 shadow-soft">
             <SectionHeader
               title="Pengingat dompet"
@@ -7488,7 +8049,8 @@ function SocialHubView({
                 method: "POST",
                 body: JSON.stringify({
                   entryType: String(form.get("entryType")),
-                  amount: String(form.get("amount")),
+                  amount: selectedWallet.storageType === "gold" ? undefined : String(form.get("amount")),
+                  goldWeightGrams: selectedWallet.storageType === "gold" ? Number(form.get("goldWeightGrams")) : null,
                   description: String(form.get("description")),
                   transactionDate: String(form.get("transactionDate")),
                   receiptId: walletEntryReceiptId
@@ -7523,7 +8085,24 @@ function SocialHubView({
                   />
                 </div>
               </Field>
-              <input className="input" name="amount" inputMode="numeric" placeholder="Nominal" onInput={handleMoneyInput} required />
+              {selectedWallet.storageType === "gold" ? (
+                <div className="space-y-2">
+                  <input
+                    className="input"
+                    name="goldWeightGrams"
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    placeholder="Berat emas (gram)"
+                    required
+                  />
+                  <p className="text-[11px] text-slate-500">
+                    Nilai rupiah akan dihitung otomatis berdasarkan harga emas Pegadaian terkini
+                  </p>
+                </div>
+              ) : (
+                <input className="input" name="amount" inputMode="numeric" placeholder="Nominal" onInput={handleMoneyInput} required />
+              )}
               <input className="input" name="description" placeholder="Keterangan" required />
               <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3">
                 <span className="flex items-center gap-2 text-xs text-slate-600">
@@ -7577,6 +8156,24 @@ function SocialHubView({
                     <p className="text-[9px] text-slate-400">Pengeluaran</p>
                     <p className="text-[11px] font-semibold text-rose-600">{rupiah(member.expense)}</p>
                   </div>
+                  {selectedWallet.storageType === "gold" && (
+                    <div className="col-span-3 flex items-center justify-between rounded-xl bg-white px-3 py-2 text-[11px] text-slate-600">
+                      <span>{Number(member.goldBalanceGrams || 0).toLocaleString("id-ID", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} gram</span>
+                      <span className="font-semibold text-slate-800">{rupiah(member.goldBalanceValue || 0)}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="rounded-[22px] bg-white p-4 shadow-soft">
+            <SectionHeader title="Audit dompet" caption="Riwayat perubahan untuk kebutuhan audit." />
+            <div className="space-y-2">
+              {selectedWallet.auditHistory.length === 0 && <p className="rounded-2xl bg-slate-50 px-3 py-3 text-xs text-slate-500">Belum ada log audit dompet.</p>}
+              {selectedWallet.auditHistory.map((item) => (
+                <div key={item.id} className="rounded-2xl bg-slate-50 px-3 py-3">
+                  <p className="text-xs font-semibold text-slate-800">{item.action}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{localDate(item.createdAt)}</p>
                 </div>
               ))}
             </div>
@@ -8291,12 +8888,28 @@ function LoadingState() {
   );
 }
 
+function DataErrorState({
+  message,
+  onRetry
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-[22px] border border-rose-100 bg-rose-50/80 p-4 text-center text-sm text-rose-700">
+      <p className="font-semibold">Data belum bisa dimuat.</p>
+      <p className="mt-1 text-xs leading-5 text-rose-600">{message}</p>
+      {onRetry && (
+        <button type="button" className="btn-secondary mt-3" onClick={onRetry}>
+          Coba lagi
+        </button>
+      )}
+    </div>
+  );
+}
+
 function EmptyState({ text }: { text: string }) {
   return <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">{text}</div>;
 }
 
 export default App;
-
-
-
-

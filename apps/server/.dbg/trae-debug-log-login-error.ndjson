@@ -13424,3 +13424,12 @@
 {"ts":"2026-07-28T14:37:49.486Z","sessionId":"login-error","event":"session_effect","data":{"valid":true,"hasSession":true,"hasLastActivityAt":true}}
 {"ts":"2026-07-28T14:38:01.233Z","sessionId":"login-error","event":"session_effect","data":{"valid":true,"hasSession":true,"hasLastActivityAt":true}}
 {"ts":"2026-07-28T14:38:02.376Z","sessionId":"login-error","event":"session_effect","data":{"valid":true,"hasSession":true,"hasLastActivityAt":true}}
+{"ts":"2026-07-28T17:08:28.915Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T17:29:05.423Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T17:50:17.252Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T18:27:09.939Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T18:32:16.155Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T20:08:19.861Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T20:18:38.063Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T20:34:31.921Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-07-28T20:48:52.830Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}

@@ -20,6 +20,7 @@ import { transferRoutes } from "./routes/transferRoutes.js";
 import { socialRoutes } from "./routes/socialRoutes.js";
 import { notificationRoutes } from "./routes/notificationRoutes.js";
 import { walletManagementRoutes } from "./routes/walletManagementRoutes.js";
+import { accountCollaboratorRoutes } from "./routes/accountCollaboratorRoutes.js";
 import { relationshipFinanceRoutes } from "./routes/relationshipFinanceRoutes.js";
 
 export function createApp() {

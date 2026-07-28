@@ -59,6 +59,19 @@ describe("App dashboard loading", () => {
         return jsonResponse({ ok: true });
       }
 
+      if (url.includes("/api/auth/refresh-token")) {
+        return jsonResponse({
+          user: {
+            id: "user-1",
+            fullName: "Demo User",
+            email: "demo@example.com",
+            username: "demo-user"
+          },
+          accessToken: createAccessToken(),
+          refreshToken: "refresh-token"
+        });
+      }
+
       if (url.includes("/api/accounts")) return jsonResponse([]);
       if (url.includes("/api/categories")) return jsonResponse([]);
       if (url.includes("/api/schedules")) return jsonResponse([]);

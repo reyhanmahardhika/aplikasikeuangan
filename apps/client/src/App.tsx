@@ -114,6 +114,12 @@ type View =
 
 type AppLanguage = "en" | "id";
 
+type ChildFrameState = {
+  active: boolean;
+  onBack?: (() => void) | null;
+  onRefresh?: (() => Promise<void> | void) | null;
+};
+
 type Account = {
   id: string;
   name: string;
@@ -341,6 +347,8 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [installedAsApp, setInstalledAsApp] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const notifiedScheduleIds = useRef(new Set<string>());
@@ -348,10 +356,29 @@ function App() {
   const sessionExpiredAlertShown = useRef(false);
   const sessionRef = useRef(session);
   const sessionInitializedRef = useRef<string | null>(null);
+  const profileReturnViewRef = useRef<View>("dashboard");
+  const childFrameActiveRef = useRef(false);
+  const childFrameBackRef = useRef<(() => void) | null>(null);
+  const childFrameRefreshRef = useRef<(() => Promise<void> | void) | null>(null);
+  const pullDistanceRef = useRef(0);
+  const pullRefreshingRef = useRef(false);
+  const gestureStateRef = useRef({
+    mode: null as null | "back" | "pull" | "ignore",
+    startX: 0,
+    startY: 0,
+    deltaX: 0,
+    deltaY: 0
+  });
 
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+  useEffect(() => {
+    pullDistanceRef.current = pullDistance;
+  }, [pullDistance]);
+  useEffect(() => {
+    pullRefreshingRef.current = pullRefreshing;
+  }, [pullRefreshing]);
   const [dismissedScheduleIds, setDismissedScheduleIds] = useState<Set<string>>(
     () => storedStringSet("dismissed-schedule-notifications")
   );
@@ -381,6 +408,12 @@ function App() {
     setDashboard(null);
     setSocialSummaryData(null);
     if (message) setNotice(message);
+  };
+
+  const applyChildFrameState = ({ active, onBack, onRefresh }: ChildFrameState) => {
+    childFrameActiveRef.current = active;
+    childFrameBackRef.current = active ? onBack ?? null : null;
+    childFrameRefreshRef.current = onRefresh ?? null;
   };
 
   //#region debug-point login-error-accept-session
@@ -621,7 +654,7 @@ function App() {
 
   const initializeSession = async () => {
     try {
-      await ensureFreshAccessToken();
+      await refreshAccessToken();
 
       if (controller.signal.aborted) {
         return;
@@ -860,6 +893,15 @@ function App() {
     setView("social");
   };
 
+  const canHandleChildBack = () => {
+    if (childFrameActiveRef.current && childFrameBackRef.current) return true;
+    if (view === "transactionDetail") return true;
+    if (view === "manual" && Boolean(editing && selectedTransaction)) return true;
+    if (view === "profile") return true;
+    if (view === "accounts" || view === "categories" || view === "budgets") return true;
+    return false;
+  };
+
   if (!isValidSession(session)) {
     return <AuthView onSignedIn={acceptSession} onInstall={installApp} showInstall={!installedAsApp} />;
   }
@@ -878,6 +920,13 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const openChildView = (nextView: View, returnView = view) => {
+    if (nextView === "profile") {
+      profileReturnViewRef.current = returnView;
+    }
+    navigate(nextView);
+  };
+
   const openTransactionDetail = async (id: string) => {
     const detail = await request<TransactionDetail>(`/transactions/${id}`);
     setSelectedTransaction(detail);
@@ -889,8 +938,7 @@ function App() {
   const startEditingTransaction = () => {
     if (!selectedTransaction) return;
     setEditing(selectedTransaction);
-    setView("manual");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    openChildView("manual", "transactionDetail");
   };
 
   const removeTransaction = async (id: string) => {
@@ -906,6 +954,151 @@ function App() {
     appNavigationLabel(view, navigation.find((item) => item.id === view)?.label, language) ??
     appNavigationLabel(view, mobileNavigation.find((item) => item.id === view)?.label, language) ??
     "Detail transaksi";
+
+  const goBackFromChildFrame = () => {
+    if (notificationsOpen) return false;
+    if (childFrameActiveRef.current && childFrameBackRef.current) {
+      childFrameBackRef.current();
+      return true;
+    }
+    if (view === "transactionDetail" && selectedTransaction) {
+      setHistoryFocusTransactionId(selectedTransaction.id);
+      navigate("history", true);
+      return true;
+    }
+    if (view === "manual" && editing && selectedTransaction) {
+      navigate("transactionDetail");
+      return true;
+    }
+    if (view === "profile") {
+      navigate(profileReturnViewRef.current ?? "dashboard");
+      return true;
+    }
+    if (view === "accounts" || view === "categories" || view === "budgets") {
+      navigate("manage");
+      return true;
+    }
+    return false;
+  };
+
+  const refreshCurrentView = async () => {
+    if (pullRefreshingRef.current || notificationsOpen || view === "assistant") return;
+    pullRefreshingRef.current = true;
+    setPullRefreshing(true);
+    try {
+      await ensureFreshAccessToken().catch(() => undefined);
+      await refreshCore().catch(() => undefined);
+      if (childFrameRefreshRef.current) {
+        await childFrameRefreshRef.current();
+      }
+    } finally {
+      pullRefreshingRef.current = false;
+      setPullRefreshing(false);
+      setPullDistance(0);
+      pullDistanceRef.current = 0;
+    }
+  };
+
+  useEffect(() => {
+    if (view !== "social" && view !== "manage" && view !== "history") {
+      applyChildFrameState({ active: false, onBack: null, onRefresh: null });
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const resetGesture = () => {
+      gestureStateRef.current.mode = null;
+      gestureStateRef.current.deltaX = 0;
+      gestureStateRef.current.deltaY = 0;
+      if (pullDistanceRef.current > 0 && !pullRefreshingRef.current) {
+        pullDistanceRef.current = 0;
+        setPullDistance(0);
+      }
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || notificationsOpen || pullRefreshingRef.current || view === "assistant" || window.innerWidth >= 1024) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [data-gesture-ignore='true']")) {
+        gestureStateRef.current.mode = "ignore";
+        return;
+      }
+      const touch = event.touches[0];
+      gestureStateRef.current = {
+        mode: null,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        deltaX: 0,
+        deltaY: 0
+      };
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      const gesture = gestureStateRef.current;
+      if (gesture.mode === "ignore") return;
+
+      const touch = event.touches[0];
+      gesture.deltaX = touch.clientX - gesture.startX;
+      gesture.deltaY = touch.clientY - gesture.startY;
+
+      if (gesture.mode === null) {
+        const horizontalLead = Math.abs(gesture.deltaX) > Math.abs(gesture.deltaY) * 1.25;
+        const verticalLead = Math.abs(gesture.deltaY) > Math.abs(gesture.deltaX) * 1.2;
+
+        if (gesture.startX <= 28 && gesture.deltaX > 14 && horizontalLead && canHandleChildBack()) {
+          gesture.mode = "back";
+        } else if (window.scrollY <= 0 && gesture.deltaY > 12 && verticalLead) {
+          gesture.mode = "pull";
+        } else if (Math.abs(gesture.deltaX) > 16 || Math.abs(gesture.deltaY) > 16) {
+          gesture.mode = "ignore";
+        }
+      }
+
+      if (gesture.mode === "back" && gesture.deltaX > 0) {
+        event.preventDefault();
+      }
+
+      if (gesture.mode === "pull" && gesture.deltaY > 0 && window.scrollY <= 0) {
+        event.preventDefault();
+        const nextDistance = Math.min(92, gesture.deltaY * 0.45);
+        if (Math.abs(nextDistance - pullDistanceRef.current) >= 1) {
+          pullDistanceRef.current = nextDistance;
+          setPullDistance(nextDistance);
+        }
+      }
+    };
+
+    const handleTouchEnd = () => {
+      const gesture = gestureStateRef.current;
+      if (gesture.mode === "back" && gesture.deltaX >= 76) {
+        goBackFromChildFrame();
+      } else if (gesture.mode === "pull") {
+        if (pullDistanceRef.current >= 68) {
+          void refreshCurrentView();
+        } else if (!pullRefreshingRef.current) {
+          setPullDistance(0);
+          pullDistanceRef.current = 0;
+        }
+      } else if (!pullRefreshingRef.current && pullDistanceRef.current > 0) {
+        setPullDistance(0);
+        pullDistanceRef.current = 0;
+      }
+      resetGesture();
+    };
+
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
+    window.addEventListener("touchend", handleTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, [editing, notificationsOpen, selectedTransaction, view]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-950 lg:bg-[#F8FAFC] lg:text-slate-900">
@@ -972,7 +1165,7 @@ function App() {
           unreadCount={unreadNotificationCount}
           onLanguageChange={setLanguage}
           onNotifications={() => setNotificationsOpen((open) => !open)}
-          onProfile={() => navigate("profile")}
+          onProfile={() => openChildView("profile")}
         />
 
         {notificationsOpen && (
@@ -990,6 +1183,21 @@ function App() {
         {notice && (
           <div className="fixed left-4 right-4 top-4 z-50 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-lg">
             {notice}
+          </div>
+        )}
+
+        {(pullDistance > 0 || pullRefreshing) && (
+          <div className="pointer-events-none fixed inset-x-0 top-[4.4rem] z-30 flex justify-center lg:hidden">
+            <div
+              className="flex min-w-[156px] items-center justify-center gap-2 rounded-full border border-emerald-100 bg-white/95 px-4 py-2 text-xs font-semibold text-[#16A34A] shadow-[0_14px_34px_rgba(15,23,42,0.12)] backdrop-blur"
+              style={{
+                transform: `translateY(${Math.min(42, pullDistance)}px)`,
+                opacity: pullRefreshing ? 1 : Math.min(1, pullDistance / 48)
+              }}
+            >
+              {pullRefreshing ? <Loader2 size={15} className="animate-spin" /> : <ArrowDownLeft size={15} />}
+              <span>{pullRefreshing ? (language === "en" ? "Refreshing..." : "Memuat ulang...") : (language === "en" ? "Pull to reload" : "Tarik untuk muat ulang")}</span>
+            </div>
           </div>
         )}
 
@@ -1055,6 +1263,7 @@ function App() {
               initialAccountId={historyAccountId}
               focusTransactionId={historyFocusTransactionId}
               onFocused={() => setHistoryFocusTransactionId(null)}
+              onRegisterRefresh={(callback) => applyChildFrameState({ active: false, onBack: null, onRefresh: callback })}
             />
           )}
           {view === "transactionDetail" && selectedTransaction && (
@@ -1091,6 +1300,7 @@ function App() {
               request={request}
               onNavigate={navigate}
               onChanged={refreshCore}
+              onChildFrameStateChange={applyChildFrameState}
               onOpenAccountTransactions={(accountId) => {
                 setHistoryAccountId(accountId);
                 navigate("history", true);
@@ -1108,6 +1318,7 @@ function App() {
               summary={socialSummaryData}
               language={language}
               onChanged={refreshCore}
+              onChildFrameStateChange={applyChildFrameState}
             />
           )}
           {view === "profile" && (
@@ -3450,7 +3661,8 @@ function HistoryView({
   token,
   initialAccountId,
   focusTransactionId,
-  onFocused
+  onFocused,
+  onRegisterRefresh
 }: {
   accounts: Account[];
   language: AppLanguage;
@@ -3461,6 +3673,7 @@ function HistoryView({
   initialAccountId?: string;
   focusTransactionId?: string | null;
   onFocused?: () => void;
+  onRegisterRefresh?: (callback: () => Promise<void>) => void;
 }) {
   const [rows, setRows] = useState<Transaction[]>([]);
   const [search, setSearch] = useState("");
@@ -3500,6 +3713,10 @@ function HistoryView({
     }, 300);
     return () => window.clearTimeout(timer);
   }, [search, type, fromDate, toDate, accountId]);
+
+  useEffect(() => {
+    onRegisterRefresh?.(() => load(search, type, fromDate, toDate, accountId));
+  }, [accountId, fromDate, onRegisterRefresh, search, toDate, type]);
 
   useEffect(() => {
     setAccountId(initialAccountId ?? "");
@@ -3856,7 +4073,8 @@ function ManageView({
   request,
   onNavigate,
   onChanged,
-  onOpenAccountTransactions
+  onOpenAccountTransactions,
+  onChildFrameStateChange
 }: {
   accounts: Account[];
   categories: Category[];
@@ -3865,6 +4083,7 @@ function ManageView({
   onNavigate: (view: View) => void;
   onChanged: () => Promise<void>;
   onOpenAccountTransactions: (accountId: string) => void;
+  onChildFrameStateChange?: (state: ChildFrameState) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ManageTab | null>(null);
   const [quickCreate, setQuickCreate] = useState<ManageTab | null>(null);
@@ -3897,6 +4116,23 @@ function ManageView({
     setShowQuickActions(false);
     setViewVersion((current) => current + 1);
   };
+
+  useEffect(() => {
+    onChildFrameStateChange?.({
+      active: activeTab !== null,
+      onBack: activeTab
+        ? () => {
+            setActiveTab(null);
+            setQuickCreate(null);
+            setShowQuickActions(false);
+          }
+        : null,
+      onRefresh: async () => {
+        await onChanged();
+        setViewVersion((current) => current + 1);
+      }
+    });
+  }, [activeTab, onChanged, onChildFrameStateChange]);
 
   if (activeTab) {
     const activeItem = tabs.find((item) => item.id === activeTab)!;
@@ -6497,7 +6733,8 @@ function SocialHubView({
   currentUser,
   summary,
   language,
-  onChanged
+  onChanged,
+  onChildFrameStateChange
 }: {
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   accounts: Account[];
@@ -6506,6 +6743,7 @@ function SocialHubView({
   summary: SocialSummary | null;
   language: AppLanguage;
   onChanged: () => Promise<void>;
+  onChildFrameStateChange?: (state: ChildFrameState) => void;
 }) {
   const [tab, setTab] = useState<"friends" | "groups" | "wallets" | "activity" | "privacy" | null>(null);
   const [friends, setFriends] = useState<SocialFriend[]>([]);
@@ -6613,6 +6851,65 @@ function SocialHubView({
   useEffect(() => {
     refresh();
   }, []);
+
+  useEffect(() => {
+    const resetSocialState = () => {
+      setSelectedGroup(null);
+      setSelectedWallet(null);
+      setSelectedFriend(null);
+      setShowCreateGroup(false);
+      setShowCreateWallet(false);
+      setGroupMemberIds(new Set());
+      setWalletMemberIds(new Set());
+      setShowWalletReminderForm(false);
+      setShowWalletEntryForm(false);
+    };
+
+    onChildFrameStateChange?.({
+      active: tab !== null && !showWalletEditModal && !showWalletMembersModal,
+      onBack: tab === null
+        ? null
+        : () => {
+            if (selectedGroup) {
+              setSelectedGroup(null);
+              return;
+            }
+            if (selectedWallet) {
+              setSelectedWallet(null);
+              setShowWalletReminderForm(false);
+              setShowWalletEntryForm(false);
+              return;
+            }
+            if (showCreateGroup) {
+              setShowCreateGroup(false);
+              setGroupMemberIds(new Set());
+              return;
+            }
+            if (showCreateWallet) {
+              setShowCreateWallet(false);
+              setWalletMemberIds(new Set());
+              return;
+            }
+            if (selectedFriend) {
+              setSelectedFriend(null);
+              return;
+            }
+            setTab(null);
+            resetSocialState();
+          },
+      onRefresh: refresh
+    });
+  }, [
+    onChildFrameStateChange,
+    selectedFriend,
+    selectedGroup,
+    selectedWallet,
+    showCreateGroup,
+    showCreateWallet,
+    showWalletEditModal,
+    showWalletMembersModal,
+    tab
+  ]);
 
   useEffect(() => {
     const query = friendSearchQuery.trim();
@@ -7578,9 +7875,6 @@ function SocialHubView({
 
       {!loading && tab === "wallets" && !selectedWallet && (
         <div className="space-y-3">
-          {!showCreateWallet && (
-            <button className="btn-primary w-full" onClick={() => setShowCreateWallet(true)}><Plus size={16} /> Buat dompet bersama</button>
-          )}
           {showCreateWallet && (
             <>
             <button
@@ -7959,6 +8253,7 @@ function SocialHubView({
           {showWalletEditModal && ["owner", "admin"].includes(selectedWallet.role) && (
             <WalletAccountEditModal
               wallet={selectedWallet}
+              accounts={accounts}
               request={request}
               onClose={() => setShowWalletEditModal(false)}
               onSaved={async (nextMessage) => {

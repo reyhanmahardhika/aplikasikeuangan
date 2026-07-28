@@ -17,8 +17,10 @@ describe("SharedWalletEditModals", () => {
           spendingLimit: "2500000",
           requireApproval: true,
           expenseSplitRule: "equal",
-          activeUntil: null
+          activeUntil: null,
+          storageAccountId: null
         }}
+        accounts={[]}
         request={request}
         onClose={() => undefined}
         onSaved={onSaved}

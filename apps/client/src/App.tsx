@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+﻿import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ArrowDownLeft,
   ArrowLeft,
@@ -6545,6 +6545,7 @@ function SocialHubView({
   const [showCreateWallet, setShowCreateWallet] = useState(false);
   const [groupMemberIds, setGroupMemberIds] = useState<Set<string>>(new Set());
   const [walletMemberIds, setWalletMemberIds] = useState<Set<string>>(new Set());
+  const [walletInviteActionId, setWalletInviteActionId] = useState<string | null>(null);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [editingGroupExpense, setEditingGroupExpense] = useState<GroupDetail["expenses"][number] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -6580,6 +6581,11 @@ function SocialHubView({
     };
     return labels[value]?.[language] ?? value;
   };
+
+  const pendingWallets = wallets.filter((wallet) => wallet.status === "pending");
+  const activeWallets = wallets.filter((wallet) => wallet.status === "accepted");
+  const activeWalletBalance = activeWallets.reduce((total, wallet) => total + Number(wallet.balance || 0), 0);
+  const pendingWalletApprovals = activeWallets.reduce((total, wallet) => total + Number(wallet.pendingCount || 0), 0);
 
   const refresh = async () => {
     setLoading(true);
@@ -6694,6 +6700,26 @@ function SocialHubView({
       await onChanged();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Aksi gagal");
+    }
+  };
+
+  const respondWalletInvitation = async (wallet: SocialWallet, status: "accepted" | "rejected") => {
+    if (walletInviteActionId) return;
+
+    setWalletInviteActionId(wallet.id);
+    setMessage(null);
+    try {
+      await request(`/social/wallets/${wallet.id}/invite`, {
+        method: "PUT",
+        body: JSON.stringify({ status })
+      });
+      setMessage(status === "accepted" ? `Anda bergabung ke ${wallet.name}` : `Undangan ${wallet.name} ditolak`);
+      await refresh();
+      await onChanged();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Respons undangan gagal disimpan");
+    } finally {
+      setWalletInviteActionId(null);
     }
   };
 
@@ -7731,58 +7757,80 @@ function SocialHubView({
             </form>
             </>
           )}
-          {!showCreateWallet && <div className="grid gap-2 md:grid-cols-2">
-            {wallets.length === 0 && <EmptyState text="Belum ada dompet bersama." />}
-            {wallets.map((wallet) => (
-              <div key={wallet.id} className="rounded-[22px] bg-white p-4 text-left shadow-soft">
-                <button
-                  className="w-full text-left"
-                  disabled={wallet.status === "pending"}
-                  onClick={() => openWallet(wallet.id)}
-                >
-                  <div className="flex justify-between gap-3">
-                    <p className="font-semibold">{wallet.name}</p>
-                    {wallet.status !== "pending" && <ChevronRight size={16} />}
+          {!showCreateWallet && (
+            <div className="space-y-4">
+              <section className="overflow-hidden rounded-[26px] bg-gradient-to-br from-emerald-600 via-[#16A34A] to-teal-700 p-5 text-white shadow-[0_18px_44px_rgba(22,163,74,0.22)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-100">Keuangan kolaboratif</p>
+                    <h2 className="mt-2 text-xl font-semibold">Dompet bersama</h2>
+                    <p className="mt-1 max-w-xs text-xs leading-5 text-emerald-50/85">Kelola kas, tabungan, atau tujuan finansial bersama tanpa mencampur saldo pribadi.</p>
                   </div>
-                  {wallet.status === "pending" ? (
-                    <p className="mt-1 text-xs text-slate-500">Undangan dompet menunggu jawaban Anda</p>
-                  ) : (
-                    <>
-                      <p className="mt-3 text-lg font-semibold text-[#16A34A]">{rupiah(wallet.balance)}</p>
-                      <p className="text-xs text-slate-500">{wallet.pendingCount} menunggu approval · {socialEnumLabel(wallet.role)}</p>
-                      <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2.5">
-                        <p className="text-[9px] font-semibold uppercase text-slate-400">
-                          {wallet.storageType === "e_wallet" ? "E-wallet" : wallet.storageType === "bank" ? "Bank" : wallet.storageType === "cash" ? "Tunai" : "Penyimpanan lain"}
-                        </p>
-                        <p className="mt-1 truncate text-xs font-semibold text-slate-700">
-                          {wallet.storageAccountName || wallet.storageProvider || "Belum diatur"}
-                        </p>
-                        {wallet.storageAccountNumber && <p className="mt-0.5 truncate text-[10px] text-slate-500">{wallet.storageAccountNumber}</p>}
-                      </div>
-                    </>
-                  )}
-                </button>
-                {wallet.status === "pending" && (
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white" onClick={() => runAction(
-                      () => request(`/social/wallets/${wallet.id}/invite`, {
-                        method: "PUT",
-                        body: JSON.stringify({ status: "accepted" })
-                      }),
-                      "Undangan dompet diterima"
-                    )}>Terima</button>
-                    <button className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600" onClick={() => runAction(
-                      () => request(`/social/wallets/${wallet.id}/invite`, {
-                        method: "PUT",
-                        body: JSON.stringify({ status: "rejected" })
-                      }),
-                      "Undangan dompet ditolak"
-                    )}>Tolak</button>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15"><Wallet size={21} /></span>
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/15 pt-4">
+                  <div><p className="text-[10px] text-emerald-100">Aktif</p><p className="mt-1 text-sm font-semibold">{activeWallets.length}</p></div>
+                  <div><p className="text-[10px] text-emerald-100">Saldo dikelola</p><p className="mt-1 truncate text-sm font-semibold">{rupiah(activeWalletBalance)}</p></div>
+                  <div><p className="text-[10px] text-emerald-100">Perlu ditinjau</p><p className="mt-1 text-sm font-semibold">{pendingWalletApprovals}</p></div>
+                </div>
+                <button type="button" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-xs font-semibold text-[#15803D] shadow-sm transition active:scale-[0.98]" onClick={() => setShowCreateWallet(true)}><Plus size={16} /> Buat dompet bersama</button>
+              </section>
+
+              {pendingWallets.length > 0 && (
+                <section>
+                  <SectionHeader title="Menunggu respons" caption={`${pendingWallets.length} undangan perlu Anda jawab`} />
+                  <div className="space-y-2">
+                    {pendingWallets.map((wallet) => {
+                      const responding = walletInviteActionId === wallet.id;
+                      return (
+                        <div key={wallet.id} className="rounded-[22px] border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+                          <div className="flex gap-3">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700"><Wallet size={19} /></span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-slate-900">{wallet.name}</p>
+                              <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-600">{wallet.description || "Anda diundang untuk ikut mengelola dompet ini."}</p>
+                              <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-amber-700">Peran: {socialEnumLabel(wallet.role)}</span>
+                            </div>
+                          </div>
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <button type="button" disabled={responding} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-3 text-xs font-semibold text-white disabled:opacity-60" onClick={() => respondWalletInvitation(wallet, "accepted")}>{responding ? <Loader2 className="animate-spin" size={15} /> : <CheckCircle2 size={15} />} Terima</button>
+                            <button type="button" disabled={responding} className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 disabled:opacity-60" onClick={() => respondWalletInvitation(wallet, "rejected")}>Tolak</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              <section>
+                <SectionHeader title="Dompet Anda" caption={activeWallets.length ? "Pilih dompet untuk melihat transaksi dan anggota." : "Buat dompet pertama untuk mulai mengelola dana bersama."} />
+                {activeWallets.length === 0 ? (
+                  <div className="rounded-[22px] border border-dashed border-slate-200 bg-white px-5 py-8 text-center">
+                    <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]"><Wallet size={21} /></span>
+                    <p className="mt-3 text-sm font-semibold text-slate-900">Belum ada dompet aktif</p>
+                    <p className="mx-auto mt-1 max-w-xs text-xs leading-5 text-slate-500">Gunakan untuk kas rumah, tabungan liburan, atau pengeluaran bersama teman.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {activeWallets.map((wallet) => (
+                      <button key={wallet.id} type="button" className="group rounded-[22px] border border-slate-100 bg-white p-4 text-left shadow-soft transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]" onClick={() => openWallet(wallet.id)}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]"><Wallet size={18} /></span><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{wallet.name}</p><p className="mt-0.5 truncate text-[11px] text-slate-500">{wallet.description || "Dompet bersama"}</p></div></div>
+                          <ChevronRight size={17} className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[#16A34A]" />
+                        </div>
+                        <p className="mt-5 text-xl font-semibold tracking-tight text-slate-950">{rupiah(wallet.balance)}</p>
+                        <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                          <span className="min-w-0 truncate text-[11px] text-slate-500">{wallet.storageAccountName || wallet.storageProvider || (wallet.storageType === "cash" ? "Penyimpanan tunai" : "Penyimpanan belum diatur")}</span>
+                          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${wallet.pendingCount > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-[#15803D]"}`}>{wallet.pendingCount > 0 ? `${wallet.pendingCount} perlu approval` : socialEnumLabel(wallet.role)}</span>
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 )}
-              </div>
-            ))}
-          </div>}
+              </section>
+            </div>
+          )}
         </div>
       )}
 

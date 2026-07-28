@@ -993,16 +993,32 @@ export async function respondWalletInvite(
   status: "accepted" | "rejected"
 ) {
   return withDbTransaction(async (client) => {
-    const result = await client.query(
+    const membership = await client.query<{ status: "accepted" | "pending" | "rejected" | "removed" }>(
+      `SELECT status
+       FROM shared_wallet_members
+       WHERE wallet_id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [walletId, userId]
+    );
+
+    if (!membership.rowCount) throw notFound("Undangan dompet bersama tidak ditemukan");
+
+    const currentStatus = membership.rows[0].status;
+    if (currentStatus === status) {
+      return { walletId, status, alreadyResponded: true };
+    }
+    if (currentStatus !== "pending") {
+      throw badRequest("Undangan dompet ini sudah direspons dan tidak dapat diubah");
+    }
+
+    await client.query(
       `UPDATE shared_wallet_members
        SET status = $1,
            joined_at = CASE WHEN $1 = 'accepted' THEN now() ELSE joined_at END,
            updated_at = now()
-       WHERE wallet_id = $2 AND user_id = $3 AND status = 'pending'
-       RETURNING wallet_id`,
+       WHERE wallet_id = $2 AND user_id = $3`,
       [status, walletId, userId]
     );
-    if (!result.rowCount) throw notFound("Undangan dompet bersama tidak ditemukan");
 
     const actor = await userName(client, userId);
     const wallet = await client.query("SELECT name FROM shared_wallets WHERE id = $1", [walletId]);

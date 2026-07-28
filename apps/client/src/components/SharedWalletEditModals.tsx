@@ -22,6 +22,15 @@ export type SharedWalletAccount = {
   requireApproval?: boolean;
   expenseSplitRule?: "equal" | "percentage" | "manual";
   activeUntil?: string | null;
+  storageAccountId?: string | null;
+};
+
+type EditableStorageAccount = {
+  id: string;
+  name: string;
+  currentBalance: string;
+  isActive: boolean;
+  isSharedWalletAccount?: boolean;
 };
 
 type ModalFrameProps = {
@@ -68,6 +77,7 @@ function normalizeMoneyInput(value: string) {
 
 type WalletAccountEditModalProps = {
   wallet: SharedWalletAccount;
+  accounts: EditableStorageAccount[];
   request: RequestFn;
   onClose: () => void;
   onSaved: (message: string) => Promise<void> | void;
@@ -75,6 +85,7 @@ type WalletAccountEditModalProps = {
 
 export function WalletAccountEditModal({
   wallet,
+  accounts,
   request,
   onClose,
   onSaved
@@ -82,20 +93,29 @@ export function WalletAccountEditModal({
   const [name, setName] = useState(wallet.name);
   const [description, setDescription] = useState(wallet.description || "");
   const [spendingLimit, setSpendingLimit] = useState(wallet.spendingLimit ? formatRupiahInput(String(wallet.spendingLimit)) : "");
+  const [storageAccountId, setStorageAccountId] = useState(wallet.storageAccountId || "");
   const [expenseSplitRule, setExpenseSplitRule] = useState(wallet.expenseSplitRule || "equal");
   const [requireApproval, setRequireApproval] = useState(Boolean(wallet.requireApproval));
+  const [hasExpiry, setHasExpiry] = useState(Boolean(wallet.activeUntil));
   const [activeUntil, setActiveUntil] = useState(wallet.activeUntil ? new Date(wallet.activeUntil).toISOString().slice(0, 16) : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const availableAccounts = accounts.filter((account) => (
+    account.isActive
+    && (!account.isSharedWalletAccount || account.id === wallet.storageAccountId)
+  ));
+  const originalActiveUntil = wallet.activeUntil ? new Date(wallet.activeUntil).toISOString().slice(0, 16) : "";
 
   const isDirty = useMemo(() => (
     name.trim() !== wallet.name
     || description.trim() !== (wallet.description || "")
     || normalizeMoneyInput(spendingLimit) !== String(wallet.spendingLimit || "")
+    || storageAccountId !== (wallet.storageAccountId || "")
     || expenseSplitRule !== (wallet.expenseSplitRule || "equal")
     || requireApproval !== Boolean(wallet.requireApproval)
-    || activeUntil !== (wallet.activeUntil ? new Date(wallet.activeUntil).toISOString().slice(0, 16) : "")
-  ), [activeUntil, description, expenseSplitRule, name, requireApproval, spendingLimit, wallet.activeUntil, wallet.description, wallet.expenseSplitRule, wallet.name, wallet.requireApproval, wallet.spendingLimit]);
+    || hasExpiry !== Boolean(wallet.activeUntil)
+    || (hasExpiry && activeUntil !== originalActiveUntil)
+  ), [activeUntil, description, expenseSplitRule, hasExpiry, name, originalActiveUntil, requireApproval, spendingLimit, storageAccountId, wallet.activeUntil, wallet.description, wallet.expenseSplitRule, wallet.name, wallet.requireApproval, wallet.spendingLimit, wallet.storageAccountId]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -104,19 +124,27 @@ export function WalletAccountEditModal({
       setError("Nama dompet wajib diisi.");
       return;
     }
+    if (hasExpiry && !activeUntil) {
+      setError("Tanggal expired wajib diisi jika masa berlaku diaktifkan.");
+      return;
+    }
 
     setSaving(true);
     setError(null);
     try {
+      const nextActiveUntil = hasExpiry && activeUntil
+        ? new Date(activeUntil).toISOString()
+        : null;
       const response = await request<{ pendingApproval?: boolean; message?: string }>(`/social/wallets/${wallet.id}`, {
         method: "PUT",
         body: JSON.stringify({
           name: trimmedName,
           description: description.trim() || undefined,
           spendingLimit: normalizeMoneyInput(spendingLimit) || undefined,
+          storageAccountId: storageAccountId || null,
           requireApproval,
           expenseSplitRule,
-          activeUntil: activeUntil || null
+          activeUntil: nextActiveUntil
         })
       });
       await onSaved(response?.message || (response?.pendingApproval ? "Perubahan dompet menunggu persetujuan." : "Akun shared wallet berhasil diperbarui"));
@@ -158,6 +186,17 @@ export function WalletAccountEditModal({
           </div>
         </label>
         <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Akun penyimpanan</span>
+          <select className="input" value={storageAccountId} onChange={(event) => setStorageAccountId(event.target.value)}>
+            <option value="">Tanpa akun penyimpanan</option>
+            {availableAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name} - {formatRupiahInput(account.currentBalance)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Aturan pembagian biaya</span>
           <select className="input" value={expenseSplitRule} onChange={(event) => setExpenseSplitRule(event.target.value as typeof expenseSplitRule)}>
             <option value="equal">Merata</option>
@@ -165,10 +204,19 @@ export function WalletAccountEditModal({
             <option value="manual">Manual</option>
           </select>
         </label>
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Aktif sampai</span>
-          <input className="input" type="datetime-local" value={activeUntil} onChange={(event) => setActiveUntil(event.target.value)} />
+        <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold text-slate-700">Ada expired</span>
+            <span className="mt-0.5 block text-[11px] text-slate-500">Aktifkan jika dompet punya batas masa berlaku.</span>
+          </span>
+          <input type="checkbox" checked={hasExpiry} onChange={(event) => setHasExpiry(event.target.checked)} className="h-4 w-4 accent-[#16A34A]" />
         </label>
+        {hasExpiry && (
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Tanggal expired</span>
+            <input className="input" type="datetime-local" value={activeUntil} onChange={(event) => setActiveUntil(event.target.value)} required />
+          </label>
+        )}
         <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
           <span className="min-w-0">
             <span className="block text-xs font-semibold text-slate-700">Perlu approval transaksi</span>

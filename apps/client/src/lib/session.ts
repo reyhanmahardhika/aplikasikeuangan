@@ -164,7 +164,7 @@ export const SESSION_ACTIVITY_WINDOW_MS = 15 * 60 * 1000;
 
 function decodeAccessTokenPayload(
   accessToken: string
-): { exp?: number } | null {
+): { exp?: number; sub?: string } | null {
   try {
     const segment = accessToken.split(".")[1];
 
@@ -179,10 +179,20 @@ function decodeAccessTokenPayload(
       "="
     );
 
-    return JSON.parse(atob(padded)) as { exp?: number };
+    return JSON.parse(atob(padded)) as { exp?: number; sub?: string };
   } catch {
     return null;
   }
+}
+
+export function getAccessTokenSubject(
+  accessToken: string
+): string | null {
+  const payload = decodeAccessTokenPayload(accessToken);
+
+  return typeof payload?.sub === "string"
+    ? payload.sub
+    : null;
 }
 
 export function getAccessTokenExpiry(

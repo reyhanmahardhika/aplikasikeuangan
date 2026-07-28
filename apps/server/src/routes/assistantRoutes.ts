@@ -12,7 +12,7 @@ assistantRoutes.post(
   "/chat",
   asyncHandler(async (req, res) => {
     const payload = assistantChatSchema.parse(req.body);
-    res.json(await answerFinancialQuestion(req.user!.id, payload.message, payload.language));
+    res.json(await answerFinancialQuestion(req.user!.id, payload.message, payload.language, payload.context));
   })
 );
 

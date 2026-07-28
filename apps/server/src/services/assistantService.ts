@@ -1,6 +1,7 @@
 import { pool } from "../db/pool.js";
 import { formatRupiah } from "../utils/money.js";
 import { answerProductKnowledge } from "./productKnowledgeService.js";
+import { relationshipCopilotContext } from "./relationshipFinanceService.js";
 
 type AssistantReply = {
   answer: string;
@@ -16,6 +17,13 @@ type AssistantReply = {
 };
 
 type AssistantLanguage = "en" | "id";
+type AssistantContext = {
+  contextType?: "personal" | "shared_wallet" | "relationship_finance" | "goal" | "budget" | "investment";
+  relationshipFinanceId?: string;
+  entityType?: string;
+  entityId?: string;
+  sourcePage?: string;
+};
 
 function defaultSuggestions(language: AssistantLanguage) {
   return language === "en"
@@ -753,10 +761,93 @@ function translateAssistantReply(reply: AssistantReply): AssistantReply {
 export async function answerFinancialQuestion(
   userId: string,
   question: string,
-  language: AssistantLanguage = "id"
+  language: AssistantLanguage = "id",
+  context?: AssistantContext
 ): Promise<AssistantReply> {
   const productAnswer = answerProductKnowledge(question, language);
   if (productAnswer) return productAnswer;
+  if (context?.contextType === "relationship_finance" && context.relationshipFinanceId) {
+    return answerRelationshipFinanceQuestion(userId, question, language, context);
+  }
   const reply = await answerFinancialQuestionId(userId, question);
   return language === "en" ? translateAssistantReply(reply) : reply;
+}
+
+async function answerRelationshipFinanceQuestion(
+  userId: string,
+  question: string,
+  language: AssistantLanguage,
+  context: AssistantContext
+): Promise<AssistantReply> {
+  const data = await relationshipCopilotContext(userId, context.relationshipFinanceId!, context.entityType, context.entityId);
+  const summary = data.summary;
+  const income = Number(summary.combinedIncome);
+  const expense = Number(summary.combinedExpense);
+  const saving = Number(summary.combinedSaving);
+  const savingRate = Number(summary.savingRate);
+  const netWorth = Number(summary.combinedNetWorth);
+  const debtRatio = Number(summary.debtToIncomeRatio);
+  const topGoal = data.goals[0];
+  const normalized = normalizeQuestion(question);
+  const suggestions = language === "en"
+    ? ["Is our shared finance healthy?", "Is our main goal on track?", "How much should we save each month?", "Which budget should we improve?"]
+    : ["Apakah keuangan bersama kami sehat?", "Apakah target utama masih sesuai jadwal?", "Berapa yang harus kami tabung tiap bulan?", "Budget mana yang perlu diperbaiki?"];
+
+  if (hasAny(normalized, ["who contributes", "contribute most", "kontribusi paling", "siapa paling", "paling banyak kontribusi"])) {
+    const contributors = ((data as any).contributions?.byContributor ?? []) as Array<{ contributorName?: string | null; total: string; count: number }>;
+    if (contributors.length === 0) {
+      return {
+        answer: language === "en" ? "There is no completed contribution history yet." : "Belum ada histori kontribusi yang selesai.",
+        disclaimer: null,
+        suggestions
+      };
+    }
+    const top = contributors[0];
+    return {
+      answer: language === "en"
+        ? `${top.contributorName ?? "A member"} has contributed the most so far: ${formatRupiah(top.total)} across ${top.count} records.`
+        : `${top.contributorName ?? "Anggota"} paling banyak berkontribusi sejauh ini: ${formatRupiah(top.total)} dari ${top.count} catatan.`,
+      disclaimer: language === "en" ? "Only completed contribution records are counted." : "Hanya contribution dengan status selesai yang dihitung.",
+      suggestions,
+      highlights: contributors.slice(0, 3).map((row) => ({
+        label: row.contributorName ?? (language === "en" ? "Member" : "Anggota"),
+        value: formatRupiah(row.total),
+        tone: "positive" as const
+      }))
+    };
+  }
+
+  if (hasAny(normalized, ["goal", "target", "tujuan", "rumah", "jadwal", "deadline"]) && topGoal) {
+    const answer = language === "en"
+      ? `${topGoal.name} is ${Number(topGoal.progress).toFixed(0)}% funded. Remaining amount is ${formatRupiah(topGoal.remainingAmount)}${topGoal.monthlyRequired ? `, so you need around ${formatRupiah(topGoal.monthlyRequired)} per month.` : "."} I only used shared or summary-level data from this workspace.`
+      : `${topGoal.name} sudah ${Number(topGoal.progress).toFixed(0)}% tercapai. Sisa target ${formatRupiah(topGoal.remainingAmount)}${topGoal.monthlyRequired ? `, jadi perlu sekitar ${formatRupiah(topGoal.monthlyRequired)} per bulan.` : "."} Aku hanya memakai data yang dibagikan atau level ringkasan di workspace ini.`;
+    return {
+      answer,
+      disclaimer: language === "en" ? "This is not professional financial advice." : "Ini bukan nasihat keuangan profesional.",
+      suggestions,
+      tone: topGoal.status === "at_risk" ? "warning" : "neutral",
+      highlights: [
+        { label: language === "en" ? "Progress" : "Progress", value: `${Number(topGoal.progress).toFixed(0)}%`, tone: topGoal.status === "at_risk" ? "warning" : "positive" },
+        { label: language === "en" ? "Remaining" : "Sisa", value: formatRupiah(topGoal.remainingAmount), tone: "neutral" }
+      ]
+    };
+  }
+
+  const healthy = saving >= 0 && savingRate >= 20 && debtRatio <= 30;
+  const answer = language === "en"
+    ? `Based on shared data for this month, combined income is ${formatRupiah(income)}, expense is ${formatRupiah(expense)}, and saving is ${formatRupiah(saving)}. Saving rate is ${savingRate.toFixed(0)}% and combined net worth is ${formatRupiah(netWorth)}. ${healthy ? "The position looks healthy." : "There are items worth reviewing together."}`
+    : `Berdasarkan data bersama bulan ini, pemasukan gabungan ${formatRupiah(income)}, pengeluaran ${formatRupiah(expense)}, dan tabungan bersih ${formatRupiah(saving)}. Saving rate ${savingRate.toFixed(0)}% dan net worth gabungan ${formatRupiah(netWorth)}. ${healthy ? "Kondisinya terlihat sehat." : "Ada bagian yang perlu ditinjau bersama."}`;
+  return {
+    answer,
+    disclaimer: language === "en"
+      ? "I only use data allowed by Relationship Finance privacy settings."
+      : "Aku hanya memakai data yang diizinkan oleh pengaturan privasi Relationship Finance.",
+    suggestions,
+    tone: healthy ? "positive" : "warning",
+    highlights: [
+      { label: language === "en" ? "Saving" : "Tabungan", value: formatRupiah(saving), tone: saving >= 0 ? "positive" : "danger" },
+      { label: language === "en" ? "Saving rate" : "Saving rate", value: `${savingRate.toFixed(0)}%`, tone: savingRate >= 20 ? "positive" : "warning" },
+      { label: language === "en" ? "Debt ratio" : "Rasio utang", value: `${debtRatio.toFixed(0)}%`, tone: debtRatio <= 30 ? "positive" : "warning" }
+    ]
+  };
 }

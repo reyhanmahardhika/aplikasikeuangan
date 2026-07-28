@@ -122,6 +122,5 @@ export async function dashboardSummary(userId: string) {
       availableUntilMonthEnd: availableUntilMonthEnd.toFixed(2)
     }
   };
-  console.log(result)
   return result;
 }

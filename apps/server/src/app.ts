@@ -20,6 +20,7 @@ import { transferRoutes } from "./routes/transferRoutes.js";
 import { socialRoutes } from "./routes/socialRoutes.js";
 import { notificationRoutes } from "./routes/notificationRoutes.js";
 import { walletManagementRoutes } from "./routes/walletManagementRoutes.js";
+import { relationshipFinanceRoutes } from "./routes/relationshipFinanceRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -118,6 +119,7 @@ export function createApp() {
   app.use("/api/assistant", assistantRoutes);
   app.use("/api/social", socialRoutes);
   app.use("/api/social", walletManagementRoutes);
+  app.use("/api/relationship-finances", relationshipFinanceRoutes);
   app.use("/api/notifications", notificationRoutes);
 
   app.use(errorMiddleware);

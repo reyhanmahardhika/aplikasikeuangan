@@ -21,6 +21,18 @@ export const errorMiddleware: ErrorRequestHandler = (error, _req, res, _next) =>
     return res.status(409).json({ message: "Data duplikat" });
   }
 
+  if (error?.code === "42P01" || error?.code === "42703") {
+    return res.status(503).json({
+      message: "Database belum sesuai versi aplikasi. Jalankan migration terlebih dahulu."
+    });
+  }
+
+  if (error?.code === "42702") {
+    return res.status(500).json({
+      message: "Query data tidak valid. Silakan deploy versi backend terbaru."
+    });
+  }
+
   console.error(error);
   return res.status(500).json({
     message: "Terjadi kesalahan pada server"

@@ -21,7 +21,7 @@ const topics: KnowledgeTopic[] = [
     id: "product-overview",
     keywords: ["fitur aplikasi", "fitur apa", "cara menggunakan aplikasi", "bantuan aplikasi", "app features", "use the app", "product help"],
     answer: {
-      id: "Aplikasi ini mencakup pencatatan transaksi berbantuan AI, akun dan transfer saldo, kategori, budget, jadwal serta notifikasi, laporan, attachment, pertemanan, split bill, grup, dan dompet bersama. Sebutkan fitur atau kendalanya agar aku dapat memberi langkah yang lebih spesifik.",
+      id: "Aplikasi ini mencakup pencatatan transaksi berbantuan AI, akun dan transfer antar akun, kategori, budget, jadwal serta notifikasi, laporan, attachment, pertemanan, split bill, grup, dan dompet bersama. Sebutkan fitur atau kendalanya agar aku dapat memberi langkah yang lebih spesifik.",
       en: "The app includes AI-assisted transaction entry, accounts and balance transfers, categories, budgets, schedules and notifications, reports, attachments, friends, split bills, groups, and shared wallets. Tell me which feature or issue you need help with for specific steps."
     },
     suggestions: {
@@ -89,17 +89,17 @@ const topics: KnowledgeTopic[] = [
       en: "Open Settings and select Accounts. You can add an account with a zero starting balance, edit its details and starting balance, view account history, or reset it. Reset clears related transactions and starts that account again."
     },
     suggestions: {
-      id: ["Bagaimana transfer saldo?", "Kenapa saldo akun berbeda?"],
+      id: ["Bagaimana transfer antar akun?", "Kenapa saldo akun berbeda?"],
       en: ["How do I transfer a balance?", "Why is my account balance different?"]
     },
     action: { view: "manage", label: { id: "Buka Atur", en: "Open Settings" } }
   },
   {
     id: "balance-transfer",
-    keywords: ["transfer saldo", "biaya admin", "fee transfer", "balance transfer", "transfer fee", "pindah saldo"],
+    keywords: ["transfer antar akun", "transfer saldo", "biaya admin", "fee transfer", "balance transfer", "transfer fee", "pindah saldo"],
     answer: {
-      id: "Buka Atur lalu Akun dan pilih Transfer Saldo. Pilih akun sumber dan tujuan, masukkan nominal serta biaya admin jika ada. Saldo kedua akun ditampilkan sebelum konfirmasi, dan transfer akan dicatat ke riwayat transaksi.",
-      en: "Open Settings, select Accounts, then Balance Transfer. Choose the source and destination accounts, enter the amount and any admin fee. Both balances are shown before confirmation, and the transfer is recorded in transaction history."
+      id: "Buka Atur lalu Akun dan pilih Transfer Antar Akun. Pilih akun sumber dan tujuan, masukkan nominal serta biaya admin jika ada. Saldo kedua akun ditampilkan sebelum konfirmasi, dan transfer akan dicatat ke riwayat transaksi.",
+      en: "Open Settings, select Accounts, then Transfer Between Accounts. Choose the source and destination accounts, enter the amount and any admin fee. Both balances are shown before confirmation, and the transfer is recorded in transaction history."
     },
     suggestions: {
       id: ["Cara tambah akun", "Di mana riwayat transfer?"],

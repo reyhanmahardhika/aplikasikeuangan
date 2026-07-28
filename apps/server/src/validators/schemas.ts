@@ -155,7 +155,14 @@ export const receiptConfirmSchema = z.object({
 
 export const assistantChatSchema = z.object({
   message: z.string().min(1).max(1000),
-  language: z.enum(["en", "id"]).default("id")
+  language: z.enum(["en", "id"]).default("id"),
+  context: z.object({
+    contextType: z.enum(["personal", "shared_wallet", "relationship_finance", "goal", "budget", "investment"]).default("personal"),
+    relationshipFinanceId: uuid.optional(),
+    entityType: z.string().max(80).optional(),
+    entityId: uuid.optional(),
+    sourcePage: z.string().max(80).optional()
+  }).optional()
 });
 
 export const transactionTextParseSchema = z.object({

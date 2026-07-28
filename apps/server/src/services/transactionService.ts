@@ -30,9 +30,13 @@ export type TransactionInput = {
   }>;
 };
 
-function toListQuery(filters: Record<string, unknown>, userId: string) {
-  const where = ["t.user_id = $1"];
-  const values: unknown[] = [userId];
+function toListQuery(
+  filters: Record<string, unknown>,
+  userId: string,
+  options: { baseWhere?: string[]; baseValues?: unknown[]; skipAccountFilter?: boolean } = {}
+) {
+  const where = options.baseWhere ?? ["t.user_id = $1"];
+  const values: unknown[] = options.baseValues ?? [userId];
 
   const add = (sql: string, value: unknown) => {
     values.push(value);
@@ -46,7 +50,7 @@ function toListQuery(filters: Record<string, unknown>, userId: string) {
   }
   if (filters.type) add("t.transaction_type = ?", filters.type);
   if (filters.categoryId) add("t.category_id = ?", filters.categoryId);
-  if (filters.accountId) add("t.account_id = ?", filters.accountId);
+  if (filters.accountId && !options.skipAccountFilter) add("t.account_id = ?", filters.accountId);
   if (filters.paymentMethod) add("t.payment_method = ?", filters.paymentMethod);
   if (filters.sourceType) add("t.source_type = ?", filters.sourceType);
   if (filters.from) add("t.transaction_date >= ?", filters.from);
@@ -56,6 +60,27 @@ function toListQuery(filters: Record<string, unknown>, userId: string) {
   const direction = filters.direction === "asc" ? "ASC" : "DESC";
 
   return { where: where.join(" AND "), values, sort, direction };
+}
+
+async function relationshipGoalAccountAccess(userId: string, accountId: string) {
+  const result = await pool.query<{ account_id: string; owner_user_id: string; goal_created_at: Date }>(
+    `SELECT a.id AS account_id, a.user_id AS owner_user_id, g.created_at AS goal_created_at
+     FROM accounts a
+     JOIN relationship_goals g
+       ON g.linked_account_id = a.id
+      AND g.tracking_mode = 'linked_account'
+      AND g.status = 'active'
+     JOIN relationship_finance_members viewer
+       ON viewer.relationship_finance_id = g.relationship_finance_id
+      AND viewer.user_id = $1
+      AND viewer.status = 'accepted'
+     WHERE a.id = $2
+       AND a.is_active = true
+     ORDER BY g.created_at DESC
+     LIMIT 1`,
+    [userId, accountId]
+  );
+  return result.rows[0] ?? null;
 }
 
 function normalizeItems(items: TransactionInput["items"] = []) {
@@ -159,21 +184,34 @@ export async function listTransactions(userId: string, query: Record<string, unk
   const page = Math.max(Number(query.page ?? 1), 1);
   const limit = Math.min(Math.max(Number(query.limit ?? 20), 1), 100);
   const offset = (page - 1) * limit;
-  const { where, values, sort, direction } = toListQuery(query, userId);
+  const requestedAccountId = typeof query.accountId === "string" ? query.accountId : "";
+  let listOptions: Parameters<typeof toListQuery>[2] = {};
+  if (requestedAccountId) {
+    const goalAccess = await relationshipGoalAccountAccess(userId, requestedAccountId);
+    if (goalAccess && goalAccess.owner_user_id !== userId) {
+      listOptions = {
+        baseWhere: ["t.account_id = $1", "t.transaction_date >= $2"],
+        baseValues: [requestedAccountId, goalAccess.goal_created_at],
+        skipAccountFilter: true
+      };
+    }
+  }
+  const { where, values, sort, direction } = toListQuery(query, userId, listOptions);
 
   const [rows, count] = await Promise.all([
     pool.query(
       `SELECT t.id, t.transaction_type AS "transactionType", t.transaction_date AS "transactionDate",
               t.amount::text, t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod",
               t.notes, t.source_type AS "sourceType", t.status,
-              a.name AS "accountName", c.name AS "categoryName"
+              a.name AS "accountName", c.name AS "categoryName",
+              (t.user_id = $${values.length + 3}) AS "canManage"
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
        LEFT JOIN categories c ON c.id = t.category_id
        WHERE ${where}
        ORDER BY ${sort} ${direction}, t.created_at DESC
        LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
-      [...values, limit, offset]
+      [...values, limit, offset, userId]
     ),
     pool.query(`SELECT count(*)::int AS total FROM transactions t WHERE ${where}`, values)
   ]);
@@ -189,18 +227,44 @@ export async function listTransactions(userId: string, query: Record<string, unk
 }
 
 export async function getTransaction(userId: string, transactionId: string, db: DbClient = pool) {
-  const transaction = await db.query(
+  let transaction = await db.query(
     `SELECT t.id, t.account_id AS "accountId", t.transaction_type AS "transactionType",
             t.transaction_date AS "transactionDate", t.amount::text, t.category_id AS "categoryId",
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
             t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
-            t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName"
+            t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName",
+            true AS "canManage"
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
      LEFT JOIN categories c ON c.id = t.category_id
      WHERE t.id = $1 AND t.user_id = $2`,
     [transactionId, userId]
   );
+  if (!transaction.rowCount) {
+    transaction = await db.query(
+      `SELECT t.id, t.account_id AS "accountId", t.transaction_type AS "transactionType",
+              t.transaction_date AS "transactionDate", t.amount::text, t.category_id AS "categoryId",
+              t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
+              t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
+              t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName",
+              false AS "canManage"
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN categories c ON c.id = t.category_id
+       JOIN relationship_goals g
+         ON g.linked_account_id = t.account_id
+        AND g.tracking_mode = 'linked_account'
+        AND g.status = 'active'
+        AND t.transaction_date >= g.created_at
+       JOIN relationship_finance_members viewer
+         ON viewer.relationship_finance_id = g.relationship_finance_id
+        AND viewer.user_id = $2
+        AND viewer.status = 'accepted'
+       WHERE t.id = $1
+       LIMIT 1`,
+      [transactionId, userId]
+    );
+  }
   if (!transaction.rowCount) throw notFound("Transaksi tidak ditemukan");
 
   const items = await db.query(

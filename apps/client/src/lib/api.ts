@@ -52,7 +52,9 @@ export async function apiFetch<T>(path: string, token?: string, options: Request
       }
     }
     if (!error.message) {
-      error.message = response.status >= 500
+      error.message = response.status === 404
+        ? "Endpoint API tidak ditemukan. Pastikan alamat API benar dan backend sudah redeploy."
+        : response.status >= 500
         ? "Server sedang bermasalah. Silakan coba lagi."
         : "Permintaan tidak dapat diproses.";
     }

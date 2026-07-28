@@ -67,6 +67,7 @@ import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, local
 import {
   ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS,
   clearStoredSession,
+  getAccessTokenSubject,
   isAccessTokenExpired,
   isValidSession,
   loadSavedSessionResult,
@@ -114,6 +115,28 @@ type ChildFrameState = {
   onRefresh?: (() => Promise<void> | void) | null;
 };
 
+type NoticePayload = string | { message: string; type: "success" | "error" };
+
+let debugLogTimer: number | null = null;
+let debugLogPayload: { event: string; data: unknown } | null = null;
+
+function queueDebugLog(event: string, data: unknown) {
+  if (!import.meta.env.DEV || event.toLowerCase().includes("scroll")) return;
+  debugLogPayload = { event, data };
+  if (debugLogTimer) window.clearTimeout(debugLogTimer);
+  debugLogTimer = window.setTimeout(() => {
+    const payload = debugLogPayload;
+    debugLogPayload = null;
+    debugLogTimer = null;
+    if (!payload) return;
+    void fetch(downloadUrl("/__debug/log"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "login-error", event: payload.event, data: payload.data })
+    }).catch(() => undefined);
+  }, 350);
+}
+
 type Account = {
   id: string;
   name: string;
@@ -124,6 +147,13 @@ type Account = {
   providerName?: string | null;
   accountNumber?: string | null;
   isSharedWalletAccount?: boolean;
+  isRelationshipGoalAccount?: boolean;
+  relationshipGoalId?: string | null;
+  relationshipGoalName?: string | null;
+  relationshipGoalCreatedAt?: string | null;
+  ownerUserId?: string | null;
+  ownerName?: string | null;
+  canEdit?: boolean;
   allowNegative: boolean;
   isActive: boolean;
 };
@@ -147,6 +177,7 @@ type Transaction = {
   paymentMethod?: string;
   notes?: string;
   sourceType?: string;
+  canManage?: boolean;
 };
 
 type Schedule = {
@@ -172,6 +203,7 @@ type TransactionDetail = Transaction & {
   accountId: string;
   categoryId?: string;
   receiptId?: string | null;
+  canManage?: boolean;
   visibility?: "private" | "selected_friends" | "group_members" | "everyone_involved";
   viewerIds?: string[];
   items?: Array<{ itemName: string; quantity: string; unitPrice: string; totalPrice: string }>;
@@ -200,6 +232,16 @@ type SocialSummary = {
   activeGroups: number;
   pendingConfirmations: number;
   unreadNotifications: number;
+};
+
+type AssistantContext = {
+  contextType: "personal" | "shared_wallet" | "relationship_finance" | "goal" | "budget" | "investment";
+  relationshipFinanceId?: string;
+  entityType?: string;
+  entityId?: string;
+  sourcePage?: string;
+  label?: string;
+  partnerName?: string | null;
 };
 
 type HeaderNotification = {
@@ -252,7 +294,7 @@ function successMessageFor(path: string, method: string) {
   if (path === "/transactions" && method === "POST") return "Berhasil menambah transaksi";
   if (path.startsWith("/transactions/") && method === "PUT") return "Berhasil mengubah transaksi";
   if (path.startsWith("/transactions/") && method === "DELETE") return "Berhasil menghapus transaksi";
-  if (path === "/transfers" && method === "POST") return "Berhasil transfer saldo";
+  if (path === "/transfers" && method === "POST") return "Berhasil transfer antar akun";
   if (path.includes("/receipts/") && path.endsWith("/confirm") && method === "POST") return "Berhasil menambah transaksi dari struk";
   if (path === "/accounts" && method === "POST") return "Berhasil menambah akun";
   if (path.endsWith("/reset") && path.startsWith("/accounts/") && method === "POST") return "Akun berhasil direset";
@@ -324,7 +366,7 @@ function App() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [coreLoading, setCoreLoading] = useState(() => Boolean(initialSession.session));
-
+  const [coreLoaded, setCoreLoaded] = useState(false);
   const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
   const [socialSummaryData, setSocialSummaryData] = useState<SocialSummary | null>(null);
   const [headerNotifications, setHeaderNotifications] = useState<HeaderNotification[]>([]);
@@ -338,7 +380,18 @@ function App() {
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionDetail | null>(null);
   const [historyFocusTransactionId, setHistoryFocusTransactionId] = useState<string | null>(null);
   const [historyAccountId, setHistoryAccountId] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
+  const [historyFromDate, setHistoryFromDate] = useState("");
+  const [manualInitialType, setManualInitialType] = useState<"income" | "expense">("expense");
+  const [manualResetKey, setManualResetKey] = useState(0);
+  const [accountsInitialView, setAccountsInitialView] = useState<"list" | "account-form" | "transfer-form">("list");
+  const [accountsResetKey, setAccountsResetKey] = useState(0);
+  const [addActionOpen, setAddActionOpen] = useState(false);
+  const [assistantContext, setAssistantContext] = useState<AssistantContext | null>(null);
+  const [assistantSelectorOpen, setAssistantSelectorOpen] = useState(false);
+  const [assistantRelationshipOptions, setAssistantRelationshipOptions] = useState<RelationshipFinanceListItem[]>([]);
+  const [assistantRelationshipLoading, setAssistantRelationshipLoading] = useState(false);
+  const [assistantRelationshipId, setAssistantRelationshipId] = useState("");
+  const [notice, setNotice] = useState<NoticePayload | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -349,6 +402,7 @@ function App() {
   const [installedAsApp, setInstalledAsApp] = useState(() => window.matchMedia("(display-mode: standalone)").matches);
   const notifiedScheduleIds = useRef(new Set<string>());
   const refreshPromiseRef = useRef<Promise<string> | null>(null);
+  const coreLoadedRef = useRef(false);
   const sessionExpiredAlertShown = useRef(false);
   const sessionRef = useRef(session);
   const sessionInitializedRef = useRef<string | null>(null);
@@ -387,12 +441,7 @@ function App() {
 
   //#region debug-point login-error-report
   const reportDebug = (event: string, data: unknown) => {
-    if (!import.meta.env.DEV) return;
-    void fetch(downloadUrl("/__debug/log"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: "login-error", event, data })
-    }).catch(() => undefined);
+    queueDebugLog(event, data);
   };
   //#endregion
 
@@ -402,6 +451,8 @@ function App() {
     sessionInitializedRef.current = null;
     setSession(null);
     setCoreLoading(false);
+    coreLoadedRef.current = false;
+    setCoreLoaded(false);
     setCoreLoadError(null);
     setAccounts([]);
     setCategories([]);
@@ -449,7 +500,15 @@ function App() {
     setEditing(null);
     setSelectedTransaction(null);
     setHistoryAccountId("");
+    setHistoryFromDate("");
+    setManualInitialType("expense");
+    setAccountsInitialView("list");
+    setAddActionOpen(false);
     setHistoryFocusTransactionId(null);
+    coreLoadedRef.current = false;
+    setCoreLoaded(false);
+    setCoreLoadError(null);
+    setCoreLoading(true);
     window.history.replaceState({}, "", window.location.pathname);
     window.scrollTo({ top: 0, behavior: "auto" });
     sessionExpiredAlertShown.current = false;
@@ -498,7 +557,9 @@ function App() {
   const ensureFreshAccessToken = async () => {
     const activeSession = sessionRef.current;
     if (!activeSession?.refreshToken) return;
-    if (!isAccessTokenExpired(activeSession.accessToken)) return;
+    const tokenSubject = getAccessTokenSubject(activeSession.accessToken);
+    const tokenBelongsToSessionUser = tokenSubject === activeSession.user.id;
+    if (tokenBelongsToSessionUser && !isAccessTokenExpired(activeSession.accessToken)) return;
     await refreshAccessToken();
   };
 
@@ -525,7 +586,7 @@ function App() {
     try {
       const result = await apiFetch<T>(path, sessionRef.current?.accessToken, options);
       const message = successMessageFor(path, method);
-      if (message) setNotice(message);
+      if (message) setNotice({ message, type: "success" });
       return result;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401 && path !== "/auth/refresh-token") {
@@ -534,7 +595,7 @@ function App() {
             const refreshedToken = await refreshAccessToken();
             const result = await apiFetch<T>(path, refreshedToken, options);
             const message = successMessageFor(path, method);
-            if (message) setNotice(message);
+            if (message) setNotice({ message, type: "success" });
             return result;
           } catch {
             expireSession();
@@ -544,6 +605,7 @@ function App() {
         expireSession();
         throw new ApiError(401, "Sesi sudah selesai");
       }
+      setNotice({ message: error instanceof Error ? error.message : "Terjadi kesalahan pada server", type: "error" });
       throw error;
     }
   };
@@ -576,6 +638,46 @@ function App() {
     }
   };
 
+  const openAssistantSelector = async () => {
+    setAssistantSelectorOpen(true);
+    setAssistantRelationshipLoading(true);
+    try {
+      const rows = await request<RelationshipFinanceListItem[]>("/relationship-finances");
+      const activeRows = rows.filter((item) => item.status === "active");
+      setAssistantRelationshipOptions(activeRows);
+      setAssistantRelationshipId(activeRows[0]?.id ?? "");
+    } catch (error) {
+      setAssistantRelationshipOptions([]);
+      setAssistantRelationshipId("");
+      setNotice(error instanceof Error ? error.message : "Relationship Finance gagal dimuat");
+    } finally {
+      setAssistantRelationshipLoading(false);
+    }
+  };
+
+  const openPersonalAssistant = () => {
+    setAssistantContext(null);
+    setAssistantSelectorOpen(false);
+    navigate("assistant");
+  };
+
+  const openRelationshipAssistant = () => {
+    if (!assistantRelationshipId) {
+      setNotice(language === "en" ? "Select an active Relationship Finance first." : "Pilih Relationship Finance aktif terlebih dahulu.");
+      return;
+    }
+    const selected = assistantRelationshipOptions.find((item) => item.id === assistantRelationshipId);
+    setAssistantContext({
+      contextType: "relationship_finance",
+      relationshipFinanceId: assistantRelationshipId,
+      sourcePage: "assistant_selector",
+      label: selected?.workspaceName,
+      partnerName: selected?.partnerName ?? null
+    });
+    setAssistantSelectorOpen(false);
+    navigate("assistant");
+  };
+
   const syncPushSubscription = async (requestPermission: boolean) => {
     if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
       setPushStatus("unsupported");
@@ -605,53 +707,74 @@ function App() {
   };
 
   const refreshCore = async () => {
-  const accessToken = sessionRef.current?.accessToken;
+    const accessToken = sessionRef.current?.accessToken;
 
-  if (!accessToken) {
-    setCoreLoading(false);
+    if (!accessToken) {
+      coreLoadedRef.current = false;
+      setCoreLoaded(false);
+      setCoreLoading(false);
+      setCoreLoadError(null);
+      return;
+    }
+
+    const hadLoadedCore = coreLoadedRef.current;
+    setCoreLoading(true);
     setCoreLoadError(null);
-    return;
-  }
 
-  setCoreLoading(true);
-  setCoreLoadError(null);
+    try {
+      const [
+        nextAccounts,
+        nextCategories,
+        nextDashboard
+      ] = await Promise.all([
+        request<Account[]>("/accounts"),
+        request<Category[]>("/categories"),
+        request<DashboardSummary>("/dashboard/summary")
+      ]);
 
-  try {
-    const [
-      nextAccounts,
-      nextCategories,
-      nextDashboard,
-      nextSchedules,
-      nextSocialSummary,
-      nextNotifications
-    ] = await Promise.all([
-      optionalRequest<Account[]>("/accounts", []),
-      optionalRequest<Category[]>("/categories", []),
-      request<DashboardSummary>("/dashboard/summary"),
-      optionalRequest<Schedule[]>("/schedules", []),
-      optionalRequest<SocialSummary | null>("/social/summary", null),
-      optionalRequest<HeaderNotification[]>("/social/activity", [])
-    ]);
+      const [
+        nextSchedules,
+        nextSocialSummary,
+        nextNotifications
+      ] = await Promise.all([
+        optionalRequest<Schedule[]>("/schedules", []),
+        optionalRequest<SocialSummary | null>("/social/summary", null),
+        optionalRequest<HeaderNotification[]>("/social/activity", [])
+      ]);
 
-    setAccounts(nextAccounts);
-    setCategories(nextCategories);
-    setDashboard(nextDashboard);
-    setSchedules(nextSchedules);
-    setSocialSummaryData(nextSocialSummary);
-    setHeaderNotifications(nextNotifications);
-  } catch (error) {
-    console.error("Dashboard summary gagal dimuat:", error);
+      setAccounts(nextAccounts);
+      setCategories(nextCategories);
+      setDashboard(nextDashboard);
+      setSchedules(nextSchedules);
+      setSocialSummaryData(nextSocialSummary);
+      setHeaderNotifications(nextNotifications);
+      coreLoadedRef.current = true;
+      setCoreLoaded(true);
+    } catch (error) {
+      console.error("Data inti gagal dimuat:", error);
 
-    setDashboard(null);
-    setCoreLoadError(
-      error instanceof Error
-        ? error.message
-        : "Gagal memuat dashboard"
-    );
-  } finally {
-    setCoreLoading(false);
-  }
-};
+      if (!hadLoadedCore) {
+        setDashboard(null);
+        setAccounts([]);
+        setCategories([]);
+        setSchedules([]);
+        setSocialSummaryData(null);
+        setHeaderNotifications([]);
+        coreLoadedRef.current = false;
+        setCoreLoaded(false);
+      }
+
+      const message = error instanceof Error ? error.message : "Gagal memuat data";
+      if (hadLoadedCore) {
+        setNotice(message);
+        setCoreLoadError(null);
+      } else {
+        setCoreLoadError(message);
+      }
+    } finally {
+      setCoreLoading(false);
+    }
+  };
 
 
   useEffect(() => {
@@ -660,15 +783,12 @@ function App() {
     } else {
       localStorage.removeItem("finance-session");
     }
-    reportDebug("session_effect", {
-      valid: isValidSession(session),
-      hasSession: Boolean(session),
-      hasLastActivityAt: Boolean((session as any)?.lastActivityAt)
-    });
   }, [session]);
 
   useEffect(() => {
   if (!isValidSession(session)) {
+    coreLoadedRef.current = false;
+    setCoreLoaded(false);
     setCoreLoading(false);
     setCoreLoadError(null);
     return;
@@ -700,6 +820,8 @@ function App() {
           ? error.message
           : "Gagal memuat data"
       );
+      coreLoadedRef.current = false;
+      setCoreLoaded(false);
       setCoreLoading(false);
     }
   };
@@ -949,6 +1071,26 @@ function App() {
     navigate(nextView);
   };
 
+  const openAddActionSheet = () => {
+    setAddActionOpen(true);
+  };
+
+  const startAddTransaction = (type: "income" | "expense") => {
+    setAddActionOpen(false);
+    setEditing(null);
+    setManualInitialType(type);
+    setManualResetKey((current) => current + 1);
+    navigate("manual");
+  };
+
+  const startAccountTransfer = () => {
+    setAddActionOpen(false);
+    setEditing(null);
+    setAccountsInitialView("transfer-form");
+    setAccountsResetKey((current) => current + 1);
+    navigate("accounts");
+  };
+
   const openTransactionDetail = async (id: string) => {
     const detail = await request<TransactionDetail>(`/transactions/${id}`);
     setSelectedTransaction(detail);
@@ -1189,7 +1331,14 @@ function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => navigate(item.id)}
+                onClick={() => {
+                  if (item.id === "assistant") {
+                    openAssistantSelector().catch((error) => setNotice(error instanceof Error ? error.message : "Kopilot gagal dibuka"));
+                    return;
+                  }
+                  if (item.id === "accounts") setAccountsInitialView("list");
+                  navigate(item.id);
+                }}
                 className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium transition ${
                   active ? "bg-emerald-50 text-emerald-800" : "text-slate-600 hover:bg-slate-100"
                 }`}
@@ -1251,9 +1400,20 @@ function App() {
         )}
 
         {notice && (
-          <div className="fixed left-4 right-4 top-4 z-50 rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-lg">
-            {notice}
-          </div>
+          (() => {
+            const message = typeof notice === "string" ? notice : notice.message;
+            const inferredError = /gagal|error|tidak|sesi|pilih|failed|cannot|unauthor|kadaluarsa|bermasalah/i.test(message);
+            const type = typeof notice === "string" ? (inferredError ? "error" : "success") : notice.type;
+            return (
+              <div className={`fixed left-4 right-4 top-4 z-50 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-lg ${
+                type === "error"
+                  ? "border-rose-100 bg-rose-50 text-rose-700"
+                  : "border-emerald-100 bg-white text-[#15803D]"
+              }`}>
+                {message}
+              </div>
+            );
+          })()
         )}
 
         {(pullDistance > 0 || pullRefreshing) && (
@@ -1304,14 +1464,31 @@ function App() {
             willChange: "transform"
           } : undefined}
         >
+          {!coreLoaded ? (
+            <div className="pt-6">
+              {coreLoadError ? (
+                <DataErrorState
+                  message={coreLoadError}
+                  onRetry={() => {
+                    refreshCore().catch((error) => {
+                      setNotice(error instanceof Error ? error.message : "Gagal memuat data");
+                    });
+                  }}
+                />
+              ) : (
+                <LoadingState />
+              )}
+            </div>
+          ) : (
+            <>
           {view === "dashboard" && (
             <DashboardView
               dashboard={dashboard}
-              loading={coreLoading}
+              loading={coreLoading || !coreLoaded}
               error={coreLoadError}
               language={language}
-              onAdd={() => navigate("manual")}
-              onAssistant={() => navigate("assistant")}
+              onAdd={openAddActionSheet}
+              onAssistant={openAssistantSelector}
               onRetry={() => {
                 refreshCore().catch((error) => {
                   setNotice(error instanceof Error ? error.message : "Gagal memuat data");
@@ -1324,6 +1501,8 @@ function App() {
               accounts={accounts}
               categories={categories}
               editing={editing}
+              initialType={manualInitialType}
+              resetKey={manualResetKey}
               language={language}
               request={request}
               onCancel={() => {
@@ -1357,6 +1536,7 @@ function App() {
               onChanged={refreshCore}
               token={token!}
               initialAccountId={historyAccountId}
+              initialFromDate={historyFromDate}
               focusTransactionId={historyFocusTransactionId}
               onFocused={() => setHistoryFocusTransactionId(null)}
               onRegisterRefresh={(callback) => applyChildFrameState({ active: false, onBack: null, onRefresh: callback })}
@@ -1380,8 +1560,12 @@ function App() {
               accounts={accounts}
               request={request}
               onChanged={refreshCore}
-              onOpenTransactions={(accountId) => {
+              initialView={accountsInitialView}
+              resetKey={accountsResetKey}
+              language={language}
+              onOpenTransactions={(accountId, fromDate) => {
                 setHistoryAccountId(accountId);
+                setHistoryFromDate(fromDate ?? "");
                 navigate("history", true);
               }}
             />
@@ -1397,14 +1581,15 @@ function App() {
               onNavigate={navigate}
               onChanged={refreshCore}
               onChildFrameStateChange={applyChildFrameState}
-              onOpenAccountTransactions={(accountId) => {
+              onOpenAccountTransactions={(accountId, fromDate) => {
                 setHistoryAccountId(accountId);
+                setHistoryFromDate(fromDate ?? "");
                 navigate("history", true);
               }}
             />
           )}
           {view === "reports" && <ReportsView request={request} />}
-          {view === "assistant" && <AssistantView request={request} language={language} onNavigate={navigate} />}
+          {view === "assistant" && <AssistantView request={request} language={language} onNavigate={navigate} context={assistantContext} />}
           {view === "social" && (
             <SocialHubView
               request={request}
@@ -1415,6 +1600,10 @@ function App() {
               language={language}
               onChanged={refreshCore}
               onChildFrameStateChange={applyChildFrameState}
+              onOpenAssistantContext={(context) => {
+                setAssistantContext(context);
+                navigate("assistant");
+              }}
             />
           )}
           {view === "profile" && (
@@ -1427,9 +1616,44 @@ function App() {
               onLogout={logout}
             />
           )}
+            </>
+          )}
         </main>
 
-        <MobileBottomNav view={view} language={language} isScrolling={isScrolling} onNavigate={navigate} />
+        <MobileBottomNav
+          view={view}
+          language={language}
+          isScrolling={isScrolling}
+          onAdd={openAddActionSheet}
+          onNavigate={(nextView) => {
+            if (nextView === "assistant") {
+              openAssistantSelector().catch((error) => setNotice(error instanceof Error ? error.message : "Kopilot gagal dibuka"));
+              return;
+            }
+            if (nextView === "accounts") setAccountsInitialView("list");
+            navigate(nextView);
+          }}
+        />
+        {addActionOpen && (
+          <AddActionSheet
+            language={language}
+            onClose={() => setAddActionOpen(false)}
+            onTransaction={() => startAddTransaction("expense")}
+            onTransfer={startAccountTransfer}
+          />
+        )}
+        {assistantSelectorOpen && (
+          <AssistantContextSheet
+            language={language}
+            relationships={assistantRelationshipOptions}
+            selectedRelationshipId={assistantRelationshipId}
+            loading={assistantRelationshipLoading}
+            onSelectRelationship={setAssistantRelationshipId}
+            onClose={() => setAssistantSelectorOpen(false)}
+            onPersonal={openPersonalAssistant}
+            onRelationship={openRelationshipAssistant}
+          />
+        )}
         {showScrollTop && view !== "assistant" && (
           <button
             type="button"
@@ -1517,6 +1741,123 @@ function NotificationBadge({ count }: { count: number }) {
     <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-none text-white ring-2 ring-white">
       {count > 9 ? "9+" : count}
     </span>
+  );
+}
+
+function AssistantContextSheet({
+  language,
+  relationships,
+  selectedRelationshipId,
+  loading,
+  onSelectRelationship,
+  onClose,
+  onPersonal,
+  onRelationship
+}: {
+  language: AppLanguage;
+  relationships: RelationshipFinanceListItem[];
+  selectedRelationshipId: string;
+  loading: boolean;
+  onSelectRelationship: (id: string) => void;
+  onClose: () => void;
+  onPersonal: () => void;
+  onRelationship: () => void;
+}) {
+  const isEnglish = language === "en";
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]"
+        aria-label={isEnglish ? "Close Copilot options" : "Tutup pilihan Kopilot"}
+        onClick={onClose}
+      />
+      <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[24px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Finance Copilot</p>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">
+              {isEnglish ? "Choose Copilot context" : "Pilih konteks Kopilot"}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {isEnglish
+                ? "Use personal Copilot or analyze a shared relationship workspace."
+                : "Gunakan Kopilot pribadi atau analisis workspace Relationship Finance."}
+            </p>
+          </div>
+          <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-left transition active:scale-[0.99]"
+            onClick={onPersonal}
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#16A34A]">
+              <Bot size={20} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Personal Copilot" : "Kopilot pribadi"}</span>
+              <span className="mt-0.5 block text-xs text-slate-500">{isEnglish ? "Balances, budgets, bills, and personal transactions." : "Saldo, budget, tagihan, dan transaksi pribadi."}</span>
+            </span>
+            <ChevronRight size={18} className="text-slate-300" />
+          </button>
+
+          {loading ? (
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-[#F8FAFC] p-3 text-left">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#16A34A]">
+                <Loader2 size={18} className="animate-spin" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Relationship Copilot" : "Kopilot Relationship"}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">{isEnglish ? "Loading workspaces..." : "Memuat workspace..."}</span>
+              </span>
+            </div>
+          ) : relationships.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-[#F8FAFC] p-3 text-left opacity-60">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
+                <HeartPulse size={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Relationship Copilot" : "Kopilot Relationship"}</span>
+                <span className="mt-0.5 block text-xs leading-5 text-slate-500">
+                  {isEnglish ? "No active Relationship Finance workspace yet." : "Belum ada workspace Relationship Finance yang aktif."}
+                </span>
+              </span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-left transition hover:bg-emerald-50/50 active:scale-[0.99]"
+              onClick={onRelationship}
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
+                <HeartPulse size={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Relationship Copilot" : "Kopilot Relationship"}</span>
+                <select
+                  className="mt-1 w-full rounded-xl border border-slate-100 bg-[#F8FAFC] px-2 py-1.5 text-xs font-semibold text-slate-600 outline-none"
+                  value={selectedRelationshipId}
+                  onChange={(event) => onSelectRelationship(event.target.value)}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  {relationships.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.workspaceName}{item.partnerName ? ` - ${item.partnerName}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <ChevronRight size={18} className="text-slate-300" />
+            </button>
+          )}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1653,11 +1994,13 @@ function MobileBottomNav({
   view,
   language,
   isScrolling,
+  onAdd,
   onNavigate
 }: {
   view: View;
   language: AppLanguage;
   isScrolling: boolean;
+  onAdd: () => void;
   onNavigate: (view: View) => void;
 }) {
   const plusActive = view === "manual";
@@ -1690,12 +2033,88 @@ function MobileBottomNav({
           aria-label={language === "en" ? "Add transaction" : "Tambah transaksi"}
           title={language === "en" ? "Add transaction" : "Tambah transaksi"}
           aria-current={plusActive ? "page" : undefined}
-          onClick={() => onNavigate("manual")}
+          onClick={onAdd}
         >
           <Plus size={31} strokeWidth={3} />
         </button>
       </div>
     </nav>
+  );
+}
+
+function AddActionSheet({
+  language,
+  onClose,
+  onTransaction,
+  onTransfer
+}: {
+  language: AppLanguage;
+  onClose: () => void;
+  onTransaction: () => void;
+  onTransfer: () => void;
+}) {
+  const copy = language === "en" ? {
+    title: "Add financial activity",
+    subtitle: "Choose what you want to record.",
+    transaction: "Income / expense transaction",
+    transactionCaption: "Record salary, sales, shopping, food, bills, or daily spending.",
+    transfer: "Transfer between accounts",
+    transferCaption: "Move balance between cash, bank, or e-wallet accounts."
+  } : {
+    title: "Tambah aktivitas keuangan",
+    subtitle: "Pilih dulu yang ingin dicatat.",
+    transaction: "Transaksi pemasukan/pengeluaran",
+    transactionCaption: "Catat gaji, penjualan, belanja, makan, tagihan, atau pengeluaran harian.",
+    transfer: "Transfer antar akun",
+    transferCaption: "Pindahkan saldo antar tunai, bank, atau e-wallet."
+  };
+  const actions = [
+    { label: copy.transaction, caption: copy.transactionCaption, icon: ReceiptText, tone: "bg-emerald-50 text-[#16A34A]", onClick: onTransaction },
+    { label: copy.transfer, caption: copy.transferCaption, icon: ArrowLeftRight, tone: "bg-sky-50 text-sky-600", onClick: onTransfer }
+  ];
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]"
+        aria-label={language === "en" ? "Close add menu" : "Tutup menu tambah"}
+        onClick={onClose}
+      />
+      <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">{copy.title}</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{copy.subtitle}</p>
+          </div>
+          <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {actions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.label}
+                type="button"
+                className="ripple-card flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-left shadow-sm transition active:scale-[0.99]"
+                onClick={action.onClick}
+              >
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${action.tone}`}>
+                  <Icon size={20} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-slate-950">{action.label}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">{action.caption}</span>
+                </span>
+                <ChevronRight size={18} className="text-slate-300" />
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1800,24 +2219,14 @@ function AuthView({
         method: "POST",
         body: JSON.stringify({ provider, idToken, fullName: fullName || null })
       });
-      if (import.meta.env.DEV) {
-        void fetch(downloadUrl("/__debug/log"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: "login-error",
-            event: "auth_social_response",
-            data: {
-              provider,
-              keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
-              hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
-              userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
-                ? Object.keys((session as any).user)
-                : null
-            }
-          })
-        }).catch(() => undefined);
-      }
+      queueDebugLog("auth_social_response", {
+        provider,
+        keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
+        hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
+        userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
+          ? Object.keys((session as any).user)
+          : null
+      });
       onSignedIn(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : `Login ${provider} gagal`);
@@ -1930,24 +2339,14 @@ function AuthView({
         method: "POST",
         body: JSON.stringify(payload)
       });
-      if (import.meta.env.DEV) {
-        void fetch(downloadUrl("/__debug/log"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: "login-error",
-            event: "auth_email_response",
-            data: {
-              mode,
-              keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
-              hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
-              userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
-                ? Object.keys((session as any).user)
-                : null
-            }
-          })
-        }).catch(() => undefined);
-      }
+      queueDebugLog("auth_email_response", {
+        mode,
+        keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
+        hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
+        userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
+          ? Object.keys((session as any).user)
+          : null
+      });
       onSignedIn(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal masuk");
@@ -2546,6 +2945,8 @@ function ManualTransactionView({
   accounts,
   categories,
   editing,
+  initialType,
+  resetKey,
   language,
   request,
   onCancel,
@@ -2554,15 +2955,17 @@ function ManualTransactionView({
   accounts: Account[];
   categories: Category[];
   editing: TransactionDetail | null;
+  initialType: "income" | "expense";
+  resetKey?: number;
   language: AppLanguage;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onCancel: () => void;
   onDone: () => Promise<void>;
 }) {
   const transactionAccounts = accounts.filter(
-    (account) => !account.isSharedWalletAccount || account.id === editing?.accountId
+    (account) => (!account.isSharedWalletAccount && account.canEdit !== false) || account.id === editing?.accountId
   );
-  const [transactionType, setTransactionType] = useState<"income" | "expense">(editing?.transactionType ?? "expense");
+  const [transactionType, setTransactionType] = useState<"income" | "expense">(editing?.transactionType ?? initialType);
   const initialDraft = useMemo<ManualDraft>(
     () => ({
       accountId: editing?.accountId ?? transactionAccounts[0]?.id ?? "",
@@ -2654,9 +3057,10 @@ function ManualTransactionView({
   );
 
   useEffect(() => {
-    setTransactionType(editing?.transactionType ?? "expense");
+    setTransactionType(editing?.transactionType ?? initialType);
     setDraft(initialDraft);
     setFormVersion((current) => current + 1);
+    setFreeText("");
     setParseResult(null);
     setAnalysisStep(0);
     setChangedFields(new Set());
@@ -2667,7 +3071,7 @@ function ManualTransactionView({
     setViewerIds(editing?.viewerIds ?? []);
     setError(null);
     setErrorContext(null);
-  }, [editing?.id, initialDraft]);
+  }, [editing?.id, initialDraft, initialType, resetKey]);
 
   useEffect(() => {
     request<BudgetRow[]>("/budgets")
@@ -2756,8 +3160,8 @@ function ManualTransactionView({
       window.setTimeout(() => {
         formCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 120);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Teks transaksi gagal dibaca");
+    } catch {
+      setError(null);
       setErrorContext("parse");
     } finally {
       setParseLoading(false);
@@ -2847,8 +3251,8 @@ function ManualTransactionView({
         body: JSON.stringify(payload)
       });
       await onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Transaksi gagal disimpan");
+    } catch {
+      setError(null);
       setErrorContext("submit");
     } finally {
       setLoading(false);
@@ -3066,20 +3470,30 @@ function ManualTransactionView({
                 }}
                 required
               >
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id} disabled={Boolean(account.isSharedWalletAccount)}>
-                    {account.name} - {rupiah(account.currentBalance)}{account.isSharedWalletAccount ? " · Dipakai dompet bersama" : ""}
+                {accounts.map((account) => {
+                  const disabled = Boolean(account.isSharedWalletAccount || account.canEdit === false);
+                  return (
+                  <option key={account.id} value={account.id} disabled={disabled}>
+                    {accountOptionLabel(account, { balance: true, language })}
                   </option>
-                ))}
+                  );
+                })}
               </select>
-              {accounts.some((account) => account.isSharedWalletAccount) && (
+              {accounts.some((account) => account.isSharedWalletAccount || account.canEdit === false) && (
                 <p className="mt-1.5 text-[10px] text-amber-700">
-                  Akun bertanda “Dipakai dompet bersama” tidak dapat digunakan untuk transaksi pribadi.
+                  Akun bertanda “Dipakai dompet bersama” atau “Account bersama” tidak dapat digunakan untuk transaksi pribadi.
                 </p>
               )}
               {selectedAccount && (
-                <div className="mt-1.5 flex items-center justify-between px-1 text-xs text-slate-500">
-                  <span>{copy.currentBalance}</span>
+                <div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
+                  <span className="inline-flex items-center gap-1">
+                    {copy.currentBalance}
+                    {accountSharedLabel(selectedAccount, language) && (
+                      <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#16A34A]">
+                        {accountSharedLabel(selectedAccount, language)}
+                      </span>
+                    )}
+                  </span>
                   <span className="font-semibold text-slate-900">{rupiah(selectedAccount.currentBalance)}</span>
                 </div>
               )}
@@ -3270,8 +3684,12 @@ function TransactionDetailView({
     .catch(() => setComments([]));
 
   useEffect(() => {
+    if (transaction.canManage === false) {
+      setComments([]);
+      return;
+    }
     loadComments();
-  }, [transaction.id]);
+  }, [transaction.id, transaction.canManage]);
 
   useEffect(() => {
     if (!transaction.receiptId) {
@@ -3440,6 +3858,7 @@ function TransactionDetailView({
           </div>
         )}
 
+        {transaction.canManage !== false && (
         <div className="border-t border-slate-100 px-5 py-4">
           <p className="text-[11px] font-semibold uppercase text-slate-400">Diskusi transaksi</p>
           <div className="mt-3 space-y-2">
@@ -3472,15 +3891,18 @@ function TransactionDetailView({
           </form>
           {commentError && <p className="mt-2 text-xs text-rose-600">{commentError}</p>}
         </div>
+        )}
 
-        <div className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 p-5">
-          <button type="button" className="btn-primary" onClick={onEdit}>
-            <Settings size={15} /> Edit transaksi
-          </button>
-          <button type="button" className="btn-danger px-3" onClick={onDelete} aria-label="Hapus transaksi">
-            <Trash2 size={16} />
-          </button>
-        </div>
+        {transaction.canManage !== false && (
+          <div className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 p-5">
+            <button type="button" className="btn-primary" onClick={onEdit}>
+              <Settings size={15} /> Edit transaksi
+            </button>
+            <button type="button" className="btn-danger px-3" onClick={onDelete} aria-label="Hapus transaksi">
+              <Trash2 size={16} />
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -3549,8 +3971,8 @@ function ReceiptView({
       setParsed(processed.parsed);
       setRawText(processed.rawOcrText);
       setMessage(processed.message ?? null);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Struk gagal diproses");
+    } catch {
+      setMessage(null);
     } finally {
       setLoading(false);
     }
@@ -3579,8 +4001,8 @@ function ReceiptView({
     try {
       await request(`/receipts/${receiptId}/confirm`, { method: "POST", body: JSON.stringify(payload) });
       await onDone();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Konfirmasi gagal");
+    } catch {
+      setMessage(null);
     } finally {
       setLoading(false);
     }
@@ -3668,7 +4090,7 @@ function ReceiptView({
             <Field label="Akun pembayaran">
               <select className="input" name="accountId" required>
                 {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>{account.name}</option>
+                  <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>
                 ))}
               </select>
             </Field>
@@ -3881,6 +4303,7 @@ function HistoryView({
   onChanged,
   token,
   initialAccountId,
+  initialFromDate,
   focusTransactionId,
   onFocused,
   onRegisterRefresh
@@ -3892,6 +4315,7 @@ function HistoryView({
   onChanged: () => Promise<void>;
   token: string;
   initialAccountId?: string;
+  initialFromDate?: string;
   focusTransactionId?: string | null;
   onFocused?: () => void;
   onRegisterRefresh?: (callback: () => Promise<void>) => void;
@@ -3900,7 +4324,7 @@ function HistoryView({
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [accountId, setAccountId] = useState(initialAccountId ?? "");
-  const [fromDate, setFromDate] = useState(() => currentMonthDateBounds().from);
+  const [fromDate, setFromDate] = useState(() => initialFromDate || currentMonthDateBounds().from);
   const [toDate, setToDate] = useState(() => currentMonthDateBounds().to);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -3941,7 +4365,8 @@ function HistoryView({
 
   useEffect(() => {
     setAccountId(initialAccountId ?? "");
-  }, [initialAccountId]);
+    setFromDate(initialFromDate || currentMonthDateBounds().from);
+  }, [initialAccountId, initialFromDate]);
 
   useEffect(() => {
     if (loading || !focusTransactionId) return;
@@ -3990,7 +4415,7 @@ function HistoryView({
   const totalIncome = rows.reduce((sum, row) => sum + (row.transactionType === "income" ? Number(row.amount) : 0), 0);
   const totalExpense = rows.reduce((sum, row) => sum + (row.transactionType === "expense" ? Number(row.amount) : 0), 0);
   const netTotal = totalIncome - totalExpense;
-  const visibleIds = useMemo(() => rows.map((row) => row.id), [rows]);
+  const visibleIds = useMemo(() => rows.filter((row) => row.canManage !== false).map((row) => row.id), [rows]);
   const selectedCount = selectedIds.size;
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const typeOptions = [
@@ -4114,7 +4539,7 @@ function HistoryView({
           >
             <option value="">Semua akun</option>
             {accounts.map((account) => (
-              <option key={account.id} value={account.id}>{account.name}</option>
+              <option key={account.id} value={account.id}>{accountOptionLabel(account, { language })}</option>
             ))}
           </select>
         </label>
@@ -4212,11 +4637,11 @@ function HistoryView({
                     <TransactionHistoryItem
                       row={row}
                       onOpen={() => onOpen(row.id)}
-                      onRemove={() => remove(row.id)}
+                      onRemove={row.canManage === false ? undefined : () => remove(row.id)}
                       selected={selectedIds.has(row.id)}
                       selectionMode={selectedCount > 0}
-                      onToggleSelect={() => toggleSelected(row.id)}
-                      onLongPress={() => toggleSelected(row.id)}
+                      onToggleSelect={row.canManage === false ? undefined : () => toggleSelected(row.id)}
+                      onLongPress={row.canManage === false ? undefined : () => toggleSelected(row.id)}
                     />
                   </div>
                 ))}
@@ -4256,6 +4681,18 @@ function accountTypeLabel(type: string) {
     other: "Lainnya"
   };
   return labels[type] ?? type;
+}
+
+function accountSharedLabel(account: Account, language: AppLanguage = "id") {
+  if (account.isRelationshipGoalAccount) return language === "en" ? "shared account" : "account bersama";
+  if (account.isSharedWalletAccount) return language === "en" ? "shared wallet" : "dompet bersama";
+  return "";
+}
+
+function accountOptionLabel(account: Account, options: { balance?: boolean; language?: AppLanguage } = {}) {
+  const balance = options.balance ? ` - ${rupiah(account.currentBalance)}` : "";
+  const shared = accountSharedLabel(account, options.language);
+  return `${account.name}${balance}${shared ? ` (${shared})` : ""}`;
 }
 
 function accountTypeIcon(type: string): LucideIcon {
@@ -4303,7 +4740,7 @@ function ManageView({
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onNavigate: (view: View) => void;
   onChanged: () => Promise<void>;
-  onOpenAccountTransactions: (accountId: string) => void;
+  onOpenAccountTransactions: (accountId: string, fromDate?: string) => void;
   onChildFrameStateChange?: (state: ChildFrameState) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ManageTab | null>(null);
@@ -4399,6 +4836,7 @@ function ManageView({
             onChanged={onChanged}
             onOpenTransactions={onOpenAccountTransactions}
             initialView={quickCreate === "accounts" ? "account-form" : "list"}
+            language={language}
           />
         )}
         {activeTab === "categories" && (
@@ -4555,8 +4993,8 @@ function SchedulesView({
       setEditingSchedule(null);
       await load();
       setScheduleView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Jadwal gagal disimpan");
+    } catch {
+      setError(null);
     }
   };
 
@@ -4685,13 +5123,13 @@ function SchedulesView({
             <Field label="Akun sumber">
               <select className="input" name="accountId" defaultValue={editingSchedule?.accountId ?? ""}>
                 <option value="">Pilih akun</option>
-                {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                {accounts.map((account) => <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>)}
               </select>
             </Field>
             <Field label="Akun tujuan">
               <select className="input" name="destinationAccountId" defaultValue={editingSchedule?.destinationAccountId ?? ""}>
                 <option value="">Opsional</option>
-                {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                {accounts.map((account) => <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>)}
               </select>
             </Field>
           </div>
@@ -4717,13 +5155,17 @@ function AccountsView({
   request,
   onChanged,
   onOpenTransactions,
-  initialView = "list"
+  initialView = "list",
+  resetKey = 0,
+  language = "id"
 }: {
   accounts: Account[];
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   onChanged: () => Promise<void>;
-  onOpenTransactions: (accountId: string) => void;
-  initialView?: "list" | "account-form";
+  onOpenTransactions: (accountId: string, fromDate?: string) => void;
+  initialView?: "list" | "account-form" | "transfer-form";
+  resetKey?: number;
+  language?: AppLanguage;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -4734,7 +5176,22 @@ function AccountsView({
   const [transferAttachmentName, setTransferAttachmentName] = useState("");
   const [transferAttachmentLoading, setTransferAttachmentLoading] = useState(false);
   const [transferAttachmentMessage, setTransferAttachmentMessage] = useState<string | null>(null);
+  const [transferText, setTransferText] = useState("");
+  const [transferParseLoading, setTransferParseLoading] = useState(false);
+  const [transferAnalysisStep, setTransferAnalysisStep] = useState(-1);
+  const [transferParsed, setTransferParsed] = useState(false);
+  const [transferDraft, setTransferDraft] = useState({
+    amount: "",
+    feeAmount: "",
+    transferDate: isoDateInput(),
+    notes: ""
+  });
+  const transferFormFieldsRef = useRef<HTMLDivElement>(null);
   const [resettingAccount, setResettingAccount] = useState(false);
+  const transferableAccounts = useMemo(
+    () => accounts.filter((account) => !account.isSharedWalletAccount && account.canEdit !== false),
+    [accounts]
+  );
   const sourceAccount = accounts.find((account) => account.id === sourceAccountId);
   const destinationAccount = accounts.find((account) => account.id === destinationAccountId);
   const totalBalance = accounts.reduce(
@@ -4743,18 +5200,34 @@ function AccountsView({
   );
 
   useEffect(() => {
-    if (!accounts.length) {
+    setAccountView(initialView);
+  }, [initialView, resetKey]);
+
+  useEffect(() => {
+    if (accountView !== "transfer-form") return;
+    setError(null);
+    setTransferText("");
+    setTransferParsed(false);
+    setTransferAnalysisStep(-1);
+    setTransferDraft({ amount: "", feeAmount: "", transferDate: isoDateInput(), notes: "" });
+    setTransferAttachmentId(null);
+    setTransferAttachmentName("");
+    setTransferAttachmentMessage(null);
+  }, [accountView, resetKey]);
+
+  useEffect(() => {
+    if (!transferableAccounts.length) {
       setSourceAccountId("");
       setDestinationAccountId("");
       return;
     }
 
-    setSourceAccountId((current) => accounts.some((account) => account.id === current) ? current : accounts[0].id);
+    setSourceAccountId((current) => transferableAccounts.some((account) => account.id === current) ? current : transferableAccounts[0].id);
     setDestinationAccountId((current) => {
-      if (accounts.some((account) => account.id === current && account.id !== sourceAccountId)) return current;
-      return accounts.find((account) => account.id !== sourceAccountId)?.id ?? accounts[0].id;
+      if (transferableAccounts.some((account) => account.id === current && account.id !== sourceAccountId)) return current;
+      return transferableAccounts.find((account) => account.id !== sourceAccountId)?.id ?? transferableAccounts[0].id;
     });
-  }, [accounts, sourceAccountId]);
+  }, [transferableAccounts, sourceAccountId]);
 
   const uploadTransferAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -4810,8 +5283,8 @@ function AccountsView({
       setEditingAccount(null);
       await onChanged();
       setAccountView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Akun gagal disimpan");
+    } catch {
+      setError(null);
     }
   };
 
@@ -4834,8 +5307,8 @@ function AccountsView({
       setEditingAccount(null);
       await onChanged();
       setAccountView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Akun gagal direset");
+    } catch {
+      setError(null);
     } finally {
       setResettingAccount(false);
     }
@@ -4863,10 +5336,93 @@ function AccountsView({
       setTransferAttachmentId(null);
       setTransferAttachmentName("");
       setTransferAttachmentMessage(null);
+      setTransferText("");
+      setTransferDraft({ amount: "", feeAmount: "", transferDate: isoDateInput(), notes: "" });
       await onChanged();
       setAccountView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Transfer gagal");
+    } catch {
+      setError(null);
+    }
+  };
+
+  const parseTransferQuickAdd = async () => {
+    const text = transferText.trim();
+    if (!text) {
+      setError("Tulis transfer dulu, misalnya: transfer BCA ke GoPay 300rb fee 2.500");
+      return;
+    }
+    setTransferParseLoading(true);
+    setTransferAnalysisStep(0);
+    setError(null);
+    try {
+      const progressTimer = window.setInterval(() => {
+        setTransferAnalysisStep((current) => Math.min(current + 1, 3));
+      }, 260);
+      await new Promise((resolve) => window.setTimeout(resolve, 1050));
+      window.clearInterval(progressTimer);
+      setTransferAnalysisStep(3);
+      const lower = text.toLowerCase();
+      const amounts = Array.from(text.matchAll(/(?:rp\s*)?(\d+(?:[.,]\d+)?)(?:\s*(rb|ribu|k|jt|juta|mio|m))?/gi))
+        .map((match) => {
+          const raw = match[0];
+          const value = Number(match[1].replace(",", "."));
+          const suffix = (match[2] ?? "").toLowerCase();
+          const multiplier = ["jt", "juta", "mio", "m"].includes(suffix) ? 1_000_000 : ["rb", "ribu", "k"].includes(suffix) ? 1_000 : 1;
+          return { raw, value: Math.round(value * multiplier) };
+        })
+        .filter((item) => Number.isFinite(item.value) && item.value > 0);
+      const feeMatch = lower.match(/(?:fee|admin|biaya admin)\s*(?:rp\s*)?(\d+(?:[.,]\d+)?)(?:\s*(rb|ribu|k))?/i);
+      const feeAmount = feeMatch
+        ? formatRupiahInput(Math.round(Number(feeMatch[1].replace(",", ".")) * (feeMatch[2] ? 1000 : 1)))
+        : "";
+      const mainAmount = amounts.find((item) => !feeMatch || !item.raw.toLowerCase().includes(feeMatch[1])) ?? amounts[0];
+      const cleanAccountSegment = (segment: string) => segment
+        .replace(/\b(?:transfer|kirim|pindah|tarik|dari|from|ke|to|rp|fee|admin|biaya|biaya admin)\b/gi, " ")
+        .replace(/\d+(?:[.,]\d+)?\s*(?:rb|ribu|k|jt|juta|mio|m)?/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const accountTokens = (account: Account) => {
+        const values = [account.name, account.providerName, account.accountNumber].filter(Boolean).map((value) => String(value).toLowerCase());
+        return Array.from(new Set(values.flatMap((value) => {
+          const parts = value.split(/\s+/).filter((part) => part.length >= 3 && !["bank", "rekening", "akun"].includes(part));
+          return [value, ...parts];
+        }))).sort((a, b) => b.length - a.length);
+      };
+      const findAccountInSegment = (segment: string, exceptId = "") => {
+        const cleaned = cleanAccountSegment(segment).toLowerCase();
+        if (!cleaned) return undefined;
+        return transferableAccounts.find((account) => {
+          if (account.id === exceptId) return false;
+          return accountTokens(account).some((token) => cleaned.includes(token));
+        });
+      };
+      const directionMatch = lower.match(/(?:transfer|kirim|pindah|tarik)?\s*(?:dari\s+)?(.+?)\s+(?:ke|to)\s+(.+?)(?=\s+(?:rp|\d|fee|admin|biaya)|$)/i);
+      const fromToMatch = lower.match(/(?:dari|from)\s+(.+?)\s+(?:ke|to)\s+(.+?)(?=\s+(?:rp|\d|fee|admin|biaya)|$)/i);
+      const sourceSegment = fromToMatch?.[1] ?? directionMatch?.[1] ?? "";
+      const destinationSegment = fromToMatch?.[2] ?? directionMatch?.[2] ?? "";
+      const source = sourceSegment
+        ? findAccountInSegment(sourceSegment)
+        : transferableAccounts.find((account) => accountTokens(account).some((token) => lower.includes(token)));
+      const destination = destinationSegment
+        ? findAccountInSegment(destinationSegment, source?.id)
+        : transferableAccounts.find((account) => account.id !== source?.id && accountTokens(account).some((token) => lower.includes(token)));
+      const nextSourceId = source?.id ?? sourceAccountId;
+      const nextDestinationId = destination?.id && destination.id !== nextSourceId ? destination.id : destinationAccountId;
+      if (nextSourceId) setSourceAccountId(nextSourceId);
+      if (nextDestinationId && nextDestinationId !== nextSourceId) setDestinationAccountId(nextDestinationId);
+      setTransferParsed(true);
+      setTransferDraft({
+        amount: mainAmount ? formatRupiahInput(mainAmount.value) : transferDraft.amount,
+        feeAmount,
+        transferDate: isoDateInput(),
+        notes: text
+      });
+      window.setTimeout(() => {
+        transferFormFieldsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+    } finally {
+      setTransferParseLoading(false);
+      window.setTimeout(() => setTransferAnalysisStep(-1), 350);
     }
   };
 
@@ -4894,13 +5450,13 @@ function AccountsView({
         <button
           type="button"
           className="btn-primary mb-3 w-full"
-          disabled={accounts.length < 2}
+          disabled={transferableAccounts.length < 2}
           onClick={() => {
             setError(null);
             setAccountView("transfer-form");
           }}
         >
-          <ArrowLeftRight size={16} /> Transfer saldo
+          <ArrowLeftRight size={16} /> Transfer antar akun
         </button>
         {accounts.length === 0 ? (
           <EmptyState text="Belum ada akun. Tambahkan kas, rekening, atau e-wallet pertama Anda." />
@@ -4917,7 +5473,14 @@ function AccountsView({
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-950">{account.name}</p>
-                      <p className="mt-0.5 text-xs font-semibold text-slate-500">{accountTypeLabel(account.accountType)}</p>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        <p className="text-xs font-semibold text-slate-500">{accountTypeLabel(account.accountType)}</p>
+                        {account.isRelationshipGoalAccount && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold text-[#16A34A]">
+                            account bersama
+                          </span>
+                        )}
+                      </div>
                       {(account.providerName || account.accountNumber) && (
                         <p className="mt-0.5 truncate text-[10px] text-slate-400">
                           {[account.providerName, account.accountNumber].filter(Boolean).join(" · ")}
@@ -4928,7 +5491,7 @@ function AccountsView({
                   <button
                     type="button"
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] transition hover:bg-emerald-100 active:scale-95 lg:rounded-md"
-                    onClick={() => onOpenTransactions(account.id)}
+                    onClick={() => onOpenTransactions(account.id, account.relationshipGoalCreatedAt?.slice(0, 10))}
                     aria-label={`Lihat riwayat transaksi akun ${account.name}`}
                     title="Lihat riwayat transaksi"
                   >
@@ -4937,18 +5500,28 @@ function AccountsView({
                 </div>
                 <p className="mt-3 text-lg font-semibold tracking-normal text-slate-950">{rupiah(account.currentBalance)}</p>
                 <div className="mt-1 flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold text-slate-500">Saldo awal {rupiah(account.initialBalance)}</p>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
-                    onClick={() => {
-                      setError(null);
-                      setEditingAccount(account);
-                      setAccountView("account-form");
-                    }}
-                  >
-                    <Settings size={12} /> Edit
-                  </button>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-slate-500">Saldo awal {rupiah(account.initialBalance)}</p>
+                    {account.isRelationshipGoalAccount && (
+                      <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">
+                        {account.relationshipGoalName ? `Goal: ${account.relationshipGoalName}` : "Tertaut goals bersama"}
+                        {account.ownerName && account.canEdit === false ? ` · milik ${account.ownerName}` : ""}
+                      </p>
+                    )}
+                  </div>
+                  {account.canEdit !== false && (
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
+                      onClick={() => {
+                        setError(null);
+                        setEditingAccount(account);
+                        setAccountView("account-form");
+                      }}
+                    >
+                      <Settings size={12} /> Edit
+                    </button>
+                  )}
                 </div>
               </div>
               );
@@ -5049,7 +5622,7 @@ function AccountsView({
       {accountView === "transfer-form" && (
         <form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={transfer}>
           <SectionHeader
-            title="Transfer saldo"
+            title="Transfer antar akun"
             caption="Pindahkan uang antar akun tanpa membuat pengeluaran."
             action={(
               <button
@@ -5064,8 +5637,67 @@ function AccountsView({
               </button>
             )}
           />
-          <div className="space-y-3">
-            <Field label="Dari akun">
+          <div className="mb-3 rounded-[20px] border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-md">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#16A34A] shadow-sm">
+              <Sparkles size={12} /> AI Quick Add
+            </span>
+            <p className="mt-2 text-sm font-semibold text-slate-950">Ketik transfer dengan bahasa sehari-hari</p>
+            <textarea
+              className="mt-2 min-h-20 w-full resize-none rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 lg:rounded-md"
+              value={transferText}
+              onChange={(event) => {
+                setTransferText(event.target.value);
+                setTransferParsed(false);
+              }}
+              placeholder="Contoh: transfer BCA ke GoPay 300rb fee 2.500"
+              disabled={transferParseLoading}
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              {["transfer BCA ke GoPay 300rb", "tarik tunai BCA ke Tunai 500rb admin 6.500", "kirim Mandiri ke DANA 100rb"].map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  className="rounded-full border border-emerald-100 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]"
+                  onClick={() => setTransferText(example)}
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+            {transferParseLoading && (
+              <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-emerald-100 bg-white/80 p-3 text-[11px] font-semibold text-slate-600 lg:rounded-md">
+                {[
+                  "Membaca nominal",
+                  "Menentukan akun asal",
+                  "Menentukan akun tujuan",
+                  "Mengecek fee/admin"
+                ].map((step, index) => {
+                  const done = transferAnalysisStep >= index;
+                  return (
+                    <div key={step} className="flex items-center gap-2">
+                      {done ? (
+                        <CheckCircle2 className="text-[#16A34A]" size={14} />
+                      ) : (
+                        <Loader2 className="animate-spin text-slate-300" size={14} />
+                      )}
+                      <span className={done ? "text-[#15803D]" : "text-slate-400"}>{step}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              type="button"
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(22,163,74,0.18)] transition hover:bg-[#15803D] disabled:opacity-60 lg:rounded-md"
+              onClick={parseTransferQuickAdd}
+              disabled={transferParseLoading || transferableAccounts.length < 2}
+            >
+              {transferParseLoading ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />}
+              {transferParseLoading ? "Menganalisis transfer..." : "Analisis Transfer"}
+            </button>
+          </div>
+          <div ref={transferFormFieldsRef} className="space-y-3 scroll-mt-24">
+            <Field label="Dari akun" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language} />}>
               <div>
                 <select
                   className="input"
@@ -5075,23 +5707,30 @@ function AccountsView({
                     const nextSourceId = event.target.value;
                     setSourceAccountId(nextSourceId);
                     if (destinationAccountId === nextSourceId) {
-                      setDestinationAccountId(accounts.find((account) => account.id !== nextSourceId)?.id ?? "");
+                      setDestinationAccountId(transferableAccounts.find((account) => account.id !== nextSourceId)?.id ?? "");
                     }
                   }}
                   required
-                  disabled={accounts.length < 2}
+                  disabled={transferableAccounts.length < 2}
                 >
-                  {accounts.map((account) => <option key={account.id} value={account.id}>{account.name} - {rupiah(account.currentBalance)}</option>)}
+                  {transferableAccounts.map((account) => <option key={account.id} value={account.id}>{accountOptionLabel(account, { balance: true })}</option>)}
                 </select>
                 {sourceAccount && (
-                  <div className="mt-1.5 flex items-center justify-between px-1 text-xs text-slate-500">
-                    <span>Saldo tersedia</span>
+                  <div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
+                    <span className="inline-flex items-center gap-1">
+                      Saldo tersedia
+                      {accountSharedLabel(sourceAccount) && (
+                        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#16A34A]">
+                          {accountSharedLabel(sourceAccount)}
+                        </span>
+                      )}
+                    </span>
                     <span className="font-semibold text-slate-900">{rupiah(sourceAccount.currentBalance)}</span>
                   </div>
                 )}
               </div>
             </Field>
-            <Field label="Ke akun">
+            <Field label="Ke akun" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language} />}>
               <div>
                 <select
                   className="input"
@@ -5099,30 +5738,59 @@ function AccountsView({
                   value={destinationAccountId}
                   onChange={(event) => setDestinationAccountId(event.target.value)}
                   required
-                  disabled={accounts.length < 2}
+                  disabled={transferableAccounts.length < 2}
                 >
-                  {accounts.filter((account) => account.id !== sourceAccountId).map((account) => (
-                    <option key={account.id} value={account.id}>{account.name} - {rupiah(account.currentBalance)}</option>
+                  {transferableAccounts.filter((account) => account.id !== sourceAccountId).map((account) => (
+                    <option key={account.id} value={account.id}>{accountOptionLabel(account, { balance: true })}</option>
                   ))}
                 </select>
                 {destinationAccount && (
-                  <div className="mt-1.5 flex items-center justify-between px-1 text-xs text-slate-500">
-                    <span>Saldo saat ini</span>
+                  <div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
+                    <span className="inline-flex items-center gap-1">
+                      Saldo saat ini
+                      {accountSharedLabel(destinationAccount) && (
+                        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#16A34A]">
+                          {accountSharedLabel(destinationAccount)}
+                        </span>
+                      )}
+                    </span>
                     <span className="font-semibold text-slate-900">{rupiah(destinationAccount.currentBalance)}</span>
                   </div>
                 )}
               </div>
             </Field>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Nominal">
-                <input className="input" name="amount" inputMode="numeric" placeholder="100000" onInput={handleMoneyInput} required />
+              <Field label="Nominal" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language} />}>
+                <input
+                  className="input"
+                  name="amount"
+                  inputMode="numeric"
+                  placeholder="100000"
+                  value={transferDraft.amount}
+                  onChange={(event) => setTransferDraft((current) => ({ ...current, amount: formatRupiahInput(event.target.value) }))}
+                  required
+                />
               </Field>
-              <Field label="Tanggal">
-                <input className="input" name="transferDate" type="date" defaultValue={isoDateInput()} required />
+              <Field label="Tanggal" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language} />}>
+                <input
+                  className="input"
+                  name="transferDate"
+                  type="date"
+                  value={transferDraft.transferDate}
+                  onChange={(event) => setTransferDraft((current) => ({ ...current, transferDate: event.target.value }))}
+                  required
+                />
               </Field>
             </div>
-            <Field label="Fee/admin">
-              <input className="input" name="feeAmount" inputMode="numeric" placeholder="Opsional, contoh: 2500" onInput={handleMoneyInput} />
+            <Field label="Fee/admin" hint={<AiFieldBadge status={transferParsed && transferDraft.feeAmount ? "ai" : null} language={language} />}>
+              <input
+                className="input"
+                name="feeAmount"
+                inputMode="numeric"
+                placeholder="Opsional, contoh: 2500"
+                value={transferDraft.feeAmount}
+                onChange={(event) => setTransferDraft((current) => ({ ...current, feeAmount: formatRupiahInput(event.target.value) }))}
+              />
             </Field>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:rounded-md">
               <div className="flex items-start justify-between gap-3">
@@ -5154,8 +5822,14 @@ function AccountsView({
                 </p>
               )}
             </div>
-            <input className="input" name="notes" placeholder="Catatan transfer (opsional)" />
-            <button className="btn-secondary w-full" disabled={accounts.length < 2 || transferAttachmentLoading}><ArrowLeftRight size={16} /> Transfer</button>
+            <input
+              className="input"
+              name="notes"
+              placeholder="Catatan transfer (opsional)"
+              value={transferDraft.notes}
+              onChange={(event) => setTransferDraft((current) => ({ ...current, notes: event.target.value }))}
+            />
+            <button className="btn-primary w-full" disabled={transferableAccounts.length < 2 || transferAttachmentLoading || transferParseLoading}><ArrowLeftRight size={16} /> Transfer</button>
           </div>
         </form>
       )}
@@ -5206,8 +5880,8 @@ function CategoriesView({
       setEditingCategory(null);
       await onChanged();
       setCategoryView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kategori gagal disimpan");
+    } catch {
+      setError(null);
     }
   };
 
@@ -5221,8 +5895,8 @@ function CategoriesView({
       setEditingCategory(null);
       await onChanged();
       setCategoryView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kategori gagal dihapus");
+    } catch {
+      setError(null);
     } finally {
       setDeleting(false);
     }
@@ -5447,8 +6121,8 @@ function BudgetsView({
       await load();
       await onChanged?.();
       setBudgetView("list");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Anggaran gagal disimpan");
+    } catch {
+      setError(null);
     }
   };
 
@@ -5981,21 +6655,35 @@ type AssistantMessage = {
 function AssistantView({
   request,
   language,
-  onNavigate
+  onNavigate,
+  context
 }: {
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   language: AppLanguage;
   onNavigate: (view: View) => void;
+  context?: AssistantContext | null;
 }) {
+  const relationshipMode = context?.contextType === "relationship_finance";
+  const relationshipLabel = context?.label
+    ?? (relationshipMode ? (language === "en" ? "Selected relationship" : "Relationship terpilih") : "");
+  const relationshipMeta = context?.partnerName
+    ? (language === "en" ? `With ${context.partnerName}` : `Dengan ${context.partnerName}`)
+    : (relationshipMode ? (language === "en" ? "Relationship Finance context" : "Konteks Relationship Finance") : "");
   const copy = language === "en" ? {
     greeting: "Hi, I can help you make financial decisions using the data recorded in this app.",
-    header: "Finance Copilot",
-    subheader: "Ask about affordability, budgets, bills, balances, or shared debt",
+    relationshipGreeting: "Hi, I can analyze your shared relationship workspace using only data both of you allowed.",
+    header: relationshipMode ? "Relationship Copilot" : "Finance Copilot",
+    subheader: relationshipMode ? "Ask about shared goals, cashflow, saving rate, or agreements" : "Ask about affordability, budgets, bills, balances, or shared debt",
     placeholder: "Example: Can I afford shoes for 1 million?",
     send: "Send",
     loading: "Checking your finances...",
     error: "The assistant is temporarily unavailable. Please try again.",
-    suggestions: [
+    suggestions: relationshipMode ? [
+      "Is our shared finance healthy?",
+      "Is our main goal on track?",
+      "How much should we save each month?",
+      "Which budget should we improve?"
+    ] : [
       "Can I afford shoes for 1 million?",
       "Check my finances this month",
       "Any bills due soon?",
@@ -6003,13 +6691,19 @@ function AssistantView({
     ]
   } : {
     greeting: "Hai, aku bisa membantu mengambil keputusan keuangan berdasarkan data yang tercatat di aplikasi ini.",
-    header: "Kopilot Keuangan",
-    subheader: "Tanya kelayakan belanja, budget, tagihan, saldo, atau utang bersama",
+    relationshipGreeting: "Hai, aku bisa menganalisis workspace keuangan bersama hanya dari data yang kalian izinkan.",
+    header: relationshipMode ? "Kopilot Relationship" : "Kopilot Keuangan",
+    subheader: relationshipMode ? "Tanya goal bersama, arus kas, saving rate, atau kesepakatan" : "Tanya kelayakan belanja, budget, tagihan, saldo, atau utang bersama",
     placeholder: "Contoh: Boleh beli sepatu 1 juta?",
     send: "Kirim",
     loading: "Memeriksa kondisi keuangan...",
     error: "Kopilot sedang tidak bisa menjawab. Coba lagi sebentar.",
-    suggestions: [
+    suggestions: relationshipMode ? [
+      "Apakah keuangan bersama kami sehat?",
+      "Apakah target utama masih sesuai jadwal?",
+      "Berapa yang harus kami tabung tiap bulan?",
+      "Budget mana yang perlu diperbaiki?"
+    ] : [
       "Boleh beli sepatu 1 juta?",
       "Cek kondisi keuangan bulan ini",
       "Ada tagihan yang segera jatuh tempo?",
@@ -6020,7 +6714,7 @@ function AssistantView({
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
-      text: copy.greeting,
+      text: relationshipMode ? copy.relationshipGreeting : copy.greeting,
       suggestions: initialSuggestions
     }
   ]);
@@ -6030,10 +6724,10 @@ function AssistantView({
   useEffect(() => {
     setMessages([{
       role: "assistant",
-      text: copy.greeting,
+      text: relationshipMode ? copy.relationshipGreeting : copy.greeting,
       suggestions: copy.suggestions
     }]);
-  }, [language]);
+  }, [language, relationshipMode, context?.relationshipFinanceId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -6055,7 +6749,7 @@ function AssistantView({
         actions?: AssistantMessage["actions"];
       }>("/assistant/chat", {
         method: "POST",
-        body: JSON.stringify({ message, language })
+        body: JSON.stringify({ message, language, context: context ?? undefined })
       });
       setMessages((current) => [
         ...current,
@@ -6102,6 +6796,13 @@ function AssistantView({
           <div className="min-w-0">
             <h2 className="text-base font-semibold leading-tight text-slate-950">{copy.header}</h2>
             <p className="mt-0.5 truncate text-xs text-slate-500">{copy.subheader}</p>
+            {relationshipMode && (
+              <div className="mt-2 flex min-w-0 items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-[#16A34A]">
+                <HeartPulse size={13} />
+                <span className="truncate">{relationshipLabel}</span>
+                {relationshipMeta && <span className="hidden text-emerald-700/70 sm:inline">- {relationshipMeta}</span>}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -6256,6 +6957,104 @@ type SocialWallet = {
   goldWeightGrams?: string | null;
   goldPricePerGram?: number | null;
   goldPriceFetchedAt?: string | null;
+};
+
+type RelationshipFinanceListItem = {
+  id: string;
+  workspaceName: string;
+  relationshipType: "partner" | "married_couple" | "family";
+  status: "pending" | "active" | "cancelled" | "archived";
+  acceptedAt?: string | null;
+  createdAt: string;
+  role: "owner" | "partner";
+  partnerUserId?: string | null;
+  partnerName?: string | null;
+  partnerUsername?: string | null;
+  partnerAvatarUrl?: string | null;
+  invitationId?: string | null;
+  invitationStatus?: "pending" | "accepted" | "declined" | "cancelled" | "expired" | null;
+  incomingInvitation?: boolean;
+};
+
+type RelationshipGoal = {
+  id: string;
+  name: string;
+  goalType: string;
+  icon: string;
+  targetAmount: string;
+  currentAmount: string;
+  deadline?: string | null;
+  priority: "low" | "medium" | "high" | "critical";
+  status: "active" | "completed" | "paused" | "cancelled";
+  progress: string;
+  remainingAmount: string;
+  monthlyRequired?: string | null;
+  trackingMode: "contribution" | "linked_account";
+  linkedAccountId?: string | null;
+  linkedAccountName?: string | null;
+  linkedAccountOwnerName?: string | null;
+  totalContributions?: number;
+  lastContributionDate?: string | null;
+  predictionStatus: "on_track" | "needs_attention" | "at_risk" | "completed" | "insufficient_data";
+};
+
+type RelationshipGoalContribution = {
+  id: string;
+  relationshipGoalId: string;
+  contributorUserId?: string | null;
+  contributorName?: string | null;
+  amount: string;
+  contributionDate: string;
+  sourceType: "manual" | "transaction" | "linked_account" | "shared_wallet" | "scheduled" | "income_allocation" | "adjustment";
+  accountId?: string | null;
+  accountName?: string | null;
+  transactionId?: string | null;
+  sharedWalletEntryId?: string | null;
+  notes?: string | null;
+  status: "pending" | "completed" | "cancelled";
+  adjustmentReason?: string | null;
+  createdAt: string;
+};
+
+type RelationshipOverview = {
+  relationship: RelationshipFinanceListItem & {
+    members?: Array<{
+      userId: string;
+      fullName: string;
+      username?: string | null;
+      avatarUrl?: string | null;
+      role: "owner" | "partner";
+      status: string;
+    }>;
+  };
+  summary: {
+    period: string;
+    combinedIncome: string;
+    combinedExpense: string;
+    combinedSaving: string;
+    savingRate: string;
+    combinedNetWorth: string;
+    emergencyFundCoverage: string | null;
+    debtToIncomeRatio: string;
+  };
+  goals: RelationshipGoal[];
+  insights: Array<{
+    type: string;
+    severity: "positive" | "info" | "warning" | "critical";
+    titleKey: string;
+    descriptionKey: string;
+    parameters: Record<string, unknown>;
+  }>;
+  timeline: Array<{
+    id: string;
+    eventType: string;
+    entityType?: string | null;
+    entityId?: string | null;
+    metadata?: Record<string, unknown>;
+    createdAt: string;
+    actorUserId?: string | null;
+    actorName?: string | null;
+  }>;
 };
 
 type WalletReminder = {
@@ -6574,8 +7373,8 @@ function WalletMembersManageModal({
 
       setSelectedIds(new Set());
       await onSaved(`${selectedIds.size} anggota berhasil ditambahkan`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Gagal menambahkan anggota");
+    } catch {
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -6594,8 +7393,8 @@ function WalletMembersManageModal({
       });
 
       await onSaved(`${member.fullName} berhasil dihapus dari dompet`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Gagal menghapus anggota");
+    } catch {
+      setError(null);
     } finally {
       setRemovingMemberId(null);
     }
@@ -6955,7 +7754,8 @@ function SocialHubView({
   summary,
   language,
   onChanged,
-  onChildFrameStateChange
+  onChildFrameStateChange,
+  onOpenAssistantContext
 }: {
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   accounts: Account[];
@@ -6965,11 +7765,24 @@ function SocialHubView({
   language: AppLanguage;
   onChanged: () => Promise<void>;
   onChildFrameStateChange?: (state: ChildFrameState) => void;
+  onOpenAssistantContext: (context: AssistantContext) => void;
 }) {
-  const [tab, setTab] = useState<"friends" | "groups" | "wallets" | "activity" | "privacy" | null>(null);
+  const [tab, setTab] = useState<"friends" | "groups" | "wallets" | "relationships" | "activity" | "privacy" | null>(null);
   const [friends, setFriends] = useState<SocialFriend[]>([]);
   const [groups, setGroups] = useState<SocialGroup[]>([]);
   const [wallets, setWallets] = useState<SocialWallet[]>([]);
+  const [relationships, setRelationships] = useState<RelationshipFinanceListItem[]>([]);
+  const [selectedRelationship, setSelectedRelationship] = useState<RelationshipFinanceListItem | null>(null);
+  const [relationshipOverviewData, setRelationshipOverviewData] = useState<RelationshipOverview | null>(null);
+  const [relationshipPartnerId, setRelationshipPartnerId] = useState("");
+  const [relationshipDetailTab, setRelationshipDetailTab] = useState<"goals" | "timeline">("goals");
+  const [relationshipGoalFilterId, setRelationshipGoalFilterId] = useState("");
+  const [showCreateRelationship, setShowCreateRelationship] = useState(false);
+  const [goalFormMode, setGoalFormMode] = useState<null | "add" | "edit">(null);
+  const [editingGoal, setEditingGoal] = useState<RelationshipGoal | null>(null);
+  const [goalAction, setGoalAction] = useState<null | { goal: RelationshipGoal; type: "contribution" | "adjustment" | "history" }>(null);
+  const [goalContributions, setGoalContributions] = useState<RelationshipGoalContribution[]>([]);
+  const [goalContributionLoading, setGoalContributionLoading] = useState(false);
   const [activity, setActivity] = useState<SocialActivity[]>([]);
   const [activityLoadingMore, setActivityLoadingMore] = useState(false);
   const [activityHasMore, setActivityHasMore] = useState(true);
@@ -7046,6 +7859,12 @@ function SocialHubView({
   const activeWalletBalance = activeWallets.reduce((total, wallet) => total + Number(wallet.balance || 0), 0);
   const pendingWalletApprovals = activeWallets.reduce((total, wallet) => total + Number(wallet.pendingCount || 0), 0);
 
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
   const refresh = async () => {
     setLoading(true);
     try {
@@ -7056,14 +7875,16 @@ function SocialHubView({
         request<SocialActivity[]>("/social/activity?limit=20&offset=0"),
         request<typeof privacy>("/social/privacy")
       ]);
+      const nextRelationships = await request<RelationshipFinanceListItem[]>("/relationship-finances").catch(() => []);
       setFriends(nextFriends);
       setGroups(nextGroups);
       setWallets(nextWallets);
+      setRelationships(nextRelationships);
       setActivity(nextActivity);
       setActivityHasMore(nextActivity.length === 20);
       setPrivacy(nextPrivacy);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Data sosial gagal dimuat");
+    } catch {
+      setMessage(null);
     } finally {
       setLoading(false);
     }
@@ -7077,9 +7898,16 @@ function SocialHubView({
     const resetSocialState = () => {
       setSelectedGroup(null);
       setSelectedWallet(null);
+      setSelectedRelationship(null);
+      setRelationshipOverviewData(null);
+      setRelationshipDetailTab("goals");
+      setRelationshipGoalFilterId("");
+      setGoalFormMode(null);
+      setEditingGoal(null);
       setSelectedFriend(null);
       setShowCreateGroup(false);
       setShowCreateWallet(false);
+      setShowCreateRelationship(false);
       setGroupMemberIds(new Set());
       setWalletMemberIds(new Set());
       setShowWalletReminderForm(false);
@@ -7101,6 +7929,21 @@ function SocialHubView({
               setShowWalletEntryForm(false);
               return;
             }
+            if (goalFormMode || goalAction) {
+              setGoalFormMode(null);
+              setEditingGoal(null);
+              setGoalAction(null);
+              return;
+            }
+            if (selectedRelationship) {
+              setSelectedRelationship(null);
+              setRelationshipOverviewData(null);
+              setRelationshipDetailTab("goals");
+              setRelationshipGoalFilterId("");
+              setGoalFormMode(null);
+              setEditingGoal(null);
+              return;
+            }
             if (showCreateGroup) {
               setShowCreateGroup(false);
               setGroupMemberIds(new Set());
@@ -7109,6 +7952,11 @@ function SocialHubView({
             if (showCreateWallet) {
               setShowCreateWallet(false);
               setWalletMemberIds(new Set());
+              return;
+            }
+            if (showCreateRelationship) {
+              setShowCreateRelationship(false);
+              setRelationshipPartnerId("");
               return;
             }
             if (selectedFriend) {
@@ -7124,8 +7972,10 @@ function SocialHubView({
     onChildFrameStateChange,
     selectedFriend,
     selectedGroup,
+    selectedRelationship,
     selectedWallet,
     showCreateGroup,
+    showCreateRelationship,
     showCreateWallet,
     showWalletEditModal,
     showWalletMembersModal,
@@ -7202,8 +8052,8 @@ function SocialHubView({
       if (!value) throw new Error("QR code tidak terbaca");
       setSearchResults(await request<any[]>(`/social/people/search?q=${encodeURIComponent(value)}`));
       setMessage(null);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "QR code gagal dibaca");
+    } catch {
+      setMessage(null);
     } finally {
       event.target.value = "";
     }
@@ -7216,8 +8066,8 @@ function SocialHubView({
       setMessage(success);
       await refresh();
       await onChanged();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Aksi gagal");
+    } catch {
+      setMessage(null);
     }
   };
 
@@ -7234,8 +8084,8 @@ function SocialHubView({
       setMessage(status === "accepted" ? `Anda bergabung ke ${wallet.name}` : `Undangan ${wallet.name} ditolak`);
       await refresh();
       await onChanged();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Respons undangan gagal disimpan");
+    } catch {
+      setMessage(null);
     } finally {
       setWalletInviteActionId(null);
     }
@@ -7251,8 +8101,8 @@ function SocialHubView({
       setSearchResults(results);
       setFriendSearchAttempted(true);
       if (results.length > 0) setMessage(null);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Pencarian gagal");
+    } catch {
+      setMessage(null);
     } finally {
       setFriendSearchLoading(false);
     }
@@ -7326,8 +8176,8 @@ function SocialHubView({
       const url = URL.createObjectURL(resolvedBlob);
       window.open(url, "_blank", "noopener,noreferrer");
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Attachment tidak dapat dibuka");
+    } catch {
+      setMessage(null);
     }
   };
 
@@ -7352,6 +8202,146 @@ function SocialHubView({
     setWalletEntryAttachmentName("");
     setWalletEntryAttachmentMessage(null);
     setWalletEntryDate(isoDateInput());
+  };
+
+  const openRelationship = async (item: RelationshipFinanceListItem) => {
+    setSelectedRelationship(item);
+    setShowCreateRelationship(false);
+    setRelationshipPartnerId("");
+    setRelationshipDetailTab("goals");
+    setRelationshipGoalFilterId("");
+    setGoalFormMode(null);
+    setEditingGoal(null);
+    setGoalAction(null);
+    if (item.status === "active") {
+      setRelationshipOverviewData(await request<RelationshipOverview>(`/relationship-finances/${item.id}/overview`));
+    } else {
+      setRelationshipOverviewData(null);
+    }
+  };
+
+  const respondRelationship = async (item: RelationshipFinanceListItem, action: "accept" | "decline" | "cancel") => {
+    if (!item.invitationId) return;
+    await runAction(
+      async () => {
+        try {
+          await request(`/relationship-finances/${item.id}/invitations/${item.invitationId}/${action}`, { method: "POST" });
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 404) {
+            await request(`/relationship-finances/invitations/${item.invitationId}/${action}`, { method: "POST" });
+            return;
+          }
+          throw error;
+        }
+      },
+      action === "accept"
+        ? (language === "en" ? "Relationship Finance is active" : "Relationship Finance sudah aktif")
+        : (language === "en" ? "Invitation updated" : "Undangan diperbarui")
+    );
+    setSelectedRelationship(null);
+    setRelationshipOverviewData(null);
+  };
+
+  const createRelationship = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await runAction(
+      () => request("/relationship-finances", {
+        method: "POST",
+        body: JSON.stringify({
+          partnerUserId: relationshipPartnerId,
+          workspaceName: String(data.get("workspaceName") ?? ""),
+          relationshipType: String(data.get("relationshipType") ?? "partner"),
+          privacy: {
+            incomeVisibility: String(data.get("incomeVisibility") ?? "summary_only"),
+            expenseVisibility: String(data.get("expenseVisibility") ?? "summary_only"),
+            accountsVisibility: String(data.get("accountsVisibility") ?? "private"),
+            transactionsVisibility: String(data.get("transactionsVisibility") ?? "private"),
+            assetsVisibility: String(data.get("assetsVisibility") ?? "summary_only"),
+            liabilitiesVisibility: String(data.get("liabilitiesVisibility") ?? "summary_only"),
+            investmentsVisibility: "private",
+            goalsVisibility: "shared"
+          }
+        })
+      }),
+      language === "en" ? "Invitation sent" : "Undangan dikirim"
+    );
+    setShowCreateRelationship(false);
+    setRelationshipPartnerId("");
+  };
+
+  const submitRelationshipGoal = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedRelationship) return;
+    const data = new FormData(event.currentTarget);
+    const trackingMode = String(data.get("trackingMode") ?? "linked_account") as "contribution" | "linked_account";
+    const isEdit = goalFormMode === "edit" && editingGoal;
+    await runAction(
+      () => request(isEdit
+        ? `/relationship-finances/${selectedRelationship.id}/goals/${editingGoal.id}`
+        : `/relationship-finances/${selectedRelationship.id}/goals`, {
+        method: isEdit ? "PATCH" : "POST",
+        body: JSON.stringify({
+          name: String(data.get("name") ?? ""),
+          goalType: String(data.get("goalType") ?? "custom"),
+          targetAmount: String(data.get("targetAmount") ?? "0"),
+          deadline: String(data.get("deadline") || "") || null,
+          priority: String(data.get("priority") ?? "medium"),
+          description: String(data.get("description") || "") || null,
+          trackingMode,
+          linkedAccountId: trackingMode === "linked_account" ? String(data.get("linkedAccountId") || "") || null : null
+        })
+      }),
+      isEdit
+        ? (language === "en" ? "Goal updated" : "Goal diperbarui")
+        : (language === "en" ? "Goal added" : "Goal ditambahkan")
+    );
+    await openRelationship(selectedRelationship);
+    setGoalFormMode(null);
+    setEditingGoal(null);
+    event.currentTarget.reset();
+  };
+
+  const openGoalHistory = async (goal: RelationshipGoal, type: "history" | "contribution" | "adjustment") => {
+    setGoalAction({ goal, type });
+    setGoalFormMode(null);
+    setEditingGoal(null);
+    setGoalContributionLoading(true);
+    try {
+      const rows = await request<RelationshipGoalContribution[]>(`/relationship-finances/${selectedRelationship?.id}/goals/${goal.id}/contributions`);
+      setGoalContributions(rows);
+    } catch {
+      setMessage(null);
+      setGoalContributions([]);
+    } finally {
+      setGoalContributionLoading(false);
+    }
+  };
+
+  const submitGoalContribution = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedRelationship || !goalAction) return;
+    const data = new FormData(event.currentTarget);
+    const isAdjustment = goalAction.type === "adjustment";
+    await runAction(
+      () => request(`/relationship-finances/${selectedRelationship.id}/goals/${goalAction.goal.id}/${isAdjustment ? "adjustments" : "contributions"}`, {
+        method: "POST",
+        body: JSON.stringify({
+          amount: String(data.get("amount") ?? ""),
+          contributionDate: String(data.get("contributionDate") || "") || null,
+          contributorUserId: String(data.get("contributorUserId") || "") || currentUser.id,
+          sourceType: isAdjustment ? "adjustment" : String(data.get("sourceType") || "manual"),
+          notes: String(data.get("notes") || "") || null,
+          adjustmentReason: isAdjustment ? String(data.get("adjustmentReason") || "") : null,
+          status: "completed"
+        })
+      }),
+      isAdjustment
+        ? (language === "en" ? "Goal adjusted" : "Goal disesuaikan")
+        : (language === "en" ? "Contribution added" : "Kontribusi ditambahkan")
+    );
+    await openRelationship(selectedRelationship);
+    await openGoalHistory(goalAction.goal, "history");
   };
 
   useEffect(() => {
@@ -7400,6 +8390,22 @@ function SocialHubView({
     return () => observer.disconnect();
   }, [tab, activity.length, activityHasMore, activityLoadingMore]);
 
+  const filteredRelationshipGoal = relationshipOverviewData?.goals.find((goal) => goal.id === relationshipGoalFilterId) ?? null;
+  const filteredRelationshipTimeline = relationshipOverviewData
+    ? relationshipGoalFilterId
+      ? relationshipOverviewData.timeline.filter((event) => {
+          const metadata = event.metadata ?? {};
+          const metadataGoalId = String(metadata.goalId ?? metadata.relationshipGoalId ?? "");
+          return event.entityId === relationshipGoalFilterId || metadataGoalId === relationshipGoalFilterId;
+        })
+      : relationshipOverviewData.timeline
+    : [];
+  const filteredRelationshipInsights = relationshipOverviewData
+    ? relationshipGoalFilterId
+      ? relationshipOverviewData.insights.filter((insight) => insight.type.includes("goal"))
+      : relationshipOverviewData.insights
+    : [];
+
   const tabs = [
     {
       id: "friends" as const,
@@ -7424,6 +8430,14 @@ function SocialHubView({
       count: `${wallets.length} dompet`,
       meta: "Kelola kas dan saldo bersama",
       tone: "bg-violet-50 text-violet-700"
+    },
+    {
+      id: "relationships" as const,
+      label: language === "en" ? "Relationship Finance" : "Relationship Finance",
+      icon: HeartPulse,
+      count: `${relationships.filter((item) => item.status === "active").length} aktif`,
+      meta: language === "en" ? "Shared goals, budget, assets, and partner insights" : "Goal, budget, aset, dan insight bersama pasangan",
+      tone: "bg-rose-50 text-rose-700"
     },
     {
       id: "activity" as const,
@@ -7501,11 +8515,15 @@ function SocialHubView({
                       setTab(item.id);
                       setSelectedGroup(null);
                       setSelectedWallet(null);
+                      setSelectedRelationship(null);
+                      setRelationshipOverviewData(null);
                       setSelectedFriend(null);
                       setShowCreateGroup(false);
                       setShowCreateWallet(false);
+                      setShowCreateRelationship(false);
                       setGroupMemberIds(new Set());
                       setWalletMemberIds(new Set());
+                      setRelationshipPartnerId("");
                     }}
                   >
                     <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${item.tone}`}>
@@ -7566,7 +8584,7 @@ function SocialHubView({
             </div>
           </div>
         </>
-      ) : !selectedGroup && !selectedWallet && !showCreateGroup && !showCreateWallet ? (
+      ) : !selectedGroup && !selectedWallet && !selectedRelationship && !showCreateGroup && !showCreateWallet && !showCreateRelationship ? (
         <div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
           <button
             type="button"
@@ -7575,11 +8593,15 @@ function SocialHubView({
               setTab(null);
               setSelectedGroup(null);
               setSelectedWallet(null);
+              setSelectedRelationship(null);
+              setRelationshipOverviewData(null);
               setSelectedFriend(null);
               setShowCreateGroup(false);
               setShowCreateWallet(false);
+              setShowCreateRelationship(false);
               setGroupMemberIds(new Set());
               setWalletMemberIds(new Set());
+              setRelationshipPartnerId("");
             }}
           >
             <ArrowLeft size={16} /> Kembali ke Social
@@ -7602,8 +8624,579 @@ function SocialHubView({
         </div>
       ) : null}
 
-      {message && <p className="rounded-2xl bg-white px-3 py-2 text-sm text-slate-600 shadow-soft">{message}</p>}
+      {message && (
+        <div className="fixed left-4 right-4 top-20 z-50 rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-lg">
+          {message}
+        </div>
+      )}
       {loading && tab !== null && <LoadingState />}
+
+      {!loading && tab === "relationships" && (
+        <div className="space-y-3">
+          {showCreateRelationship ? (
+            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={createRelationship}>
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <SectionHeader
+                  title={language === "en" ? "Create Relationship Finance" : "Buat Relationship Finance"}
+                  caption={language === "en" ? "Invite one accepted friend as your partner." : "Undang satu teman aktif sebagai partner."}
+                />
+                <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-50" onClick={() => setShowCreateRelationship(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <Field label={language === "en" ? "Partner" : "Partner"}>
+                  <select className="input" value={relationshipPartnerId} onChange={(event) => setRelationshipPartnerId(event.target.value)} required>
+                    <option value="">{language === "en" ? "Select friend" : "Pilih teman"}</option>
+                    {friends.filter((friend) => friend.status === "accepted").map((friend) => (
+                      <option key={friend.userId} value={friend.userId}>{friend.fullName} @{friend.username}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={language === "en" ? "Workspace name" : "Nama workspace"}>
+                  <input className="input" name="workspaceName" placeholder={language === "en" ? "Example: Shared Finance" : "Contoh: Keuangan Bersama"} required minLength={2} />
+                </Field>
+                <Field label={language === "en" ? "Relationship type" : "Jenis hubungan"}>
+                  <select className="input" name="relationshipType" defaultValue="partner">
+                    <option value="partner">Partner</option>
+                    <option value="married_couple">{language === "en" ? "Married Couple" : "Pasangan menikah"}</option>
+                  </select>
+                </Field>
+                <div className="rounded-2xl bg-[#F8FAFC] p-3">
+                  <p className="text-xs font-semibold text-slate-900">{language === "en" ? "Data sharing" : "Data yang dibagikan"}</p>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                    {language === "en"
+                      ? "Choose what your partner can use inside Relationship Finance. This does not change your private transaction visibility outside this workspace."
+                      : "Pilih data apa yang boleh dipakai partner di Relationship Finance. Ini tidak mengubah visibilitas transaksi pribadi di luar workspace ini."}
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {[
+                        [
+                          language === "en" ? "Private" : "Private",
+                          language === "en" ? "Not used or shown in shared analysis." : "Tidak dipakai atau ditampilkan di analisis bersama."
+                        ],
+                        [
+                          language === "en" ? "Summary only" : "Ringkasan saja",
+                          language === "en" ? "Only aggregate totals, no names or details." : "Hanya total agregat, tanpa nama dan detail."
+                        ],
+                        [
+                          language === "en" ? "Shared" : "Dibagikan",
+                          language === "en" ? "Can show relevant detail to your partner." : "Detail relevan dapat dilihat partner."
+                        ]
+                      ].map(([title, description]) => (
+                        <div key={title} className="rounded-2xl bg-white p-3">
+                          <p className="text-[11px] font-semibold text-slate-900">{title}</p>
+                          <p className="mt-1 text-[10px] leading-4 text-slate-500">{description}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {[
+                      {
+                        name: "incomeVisibility",
+                        label: language === "en" ? "Income" : "Pemasukan",
+                        defaultValue: "summary_only",
+                        description: language === "en"
+                          ? "Private: hidden. Summary: total income only. Shared: income source/category can be used."
+                          : "Private: disembunyikan. Ringkasan: total pemasukan saja. Dibagikan: sumber/kategori pemasukan bisa dipakai."
+                      },
+                      {
+                        name: "expenseVisibility",
+                        label: language === "en" ? "Expense" : "Pengeluaran",
+                        defaultValue: "summary_only",
+                        description: language === "en"
+                          ? "Private: hidden. Summary: total expense and main category only. Shared: category and trend details can be used."
+                          : "Private: disembunyikan. Ringkasan: total pengeluaran dan kategori utama saja. Dibagikan: detail kategori dan tren bisa dipakai."
+                      },
+                      {
+                        name: "accountsVisibility",
+                        label: language === "en" ? "Accounts" : "Akun",
+                        defaultValue: "private",
+                        description: language === "en"
+                          ? "Private: account names/balances hidden. Summary: total balance only. Shared: account name/type can be shown."
+                          : "Private: nama akun/saldo disembunyikan. Ringkasan: total saldo saja. Dibagikan: nama dan tipe akun bisa terlihat."
+                      },
+                      {
+                        name: "transactionsVisibility",
+                        label: language === "en" ? "Transactions" : "Transaksi",
+                        defaultValue: "private",
+                        description: language === "en"
+                          ? "Private: no transaction detail. Summary: totals by period/category only. Shared: selected transaction details can be shown."
+                          : "Private: tidak ada detail transaksi. Ringkasan: total per periode/kategori saja. Dibagikan: detail transaksi pilihan bisa terlihat."
+                      },
+                      {
+                        name: "assetsVisibility",
+                        label: language === "en" ? "Assets" : "Aset",
+                        defaultValue: "summary_only",
+                        description: language === "en"
+                          ? "Private: hidden. Summary: total asset value only. Shared: asset name/type/value can be shown."
+                          : "Private: disembunyikan. Ringkasan: total nilai aset saja. Dibagikan: nama, tipe, dan nilai aset bisa terlihat."
+                      },
+                      {
+                        name: "liabilitiesVisibility",
+                        label: language === "en" ? "Liabilities" : "Kewajiban",
+                        defaultValue: "summary_only",
+                        description: language === "en"
+                          ? "Private: hidden. Summary: total debt and monthly payment only. Shared: liability name/type/due date can be shown."
+                          : "Private: disembunyikan. Ringkasan: total utang dan cicilan bulanan saja. Dibagikan: nama, tipe, dan jatuh tempo bisa terlihat."
+                      }
+                    ].map((item) => (
+                      <label key={item.name} className="rounded-2xl bg-white p-3">
+                        <span className="text-[11px] font-semibold text-slate-900">{item.label}</span>
+                        <span className="mt-1 block text-[10px] leading-4 text-slate-500">{item.description}</span>
+                        <select className="input mt-2" name={item.name} defaultValue={item.defaultValue}>
+                          <option value="private">{language === "en" ? "Private" : "Private"}</option>
+                          <option value="summary_only">{language === "en" ? "Summary only" : "Ringkasan saja"}</option>
+                          <option value="shared">{language === "en" ? "Shared" : "Dibagikan"}</option>
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button className="btn-primary w-full" disabled={!relationshipPartnerId}>
+                  <UserPlus size={16} /> {language === "en" ? "Send invitation" : "Kirim undangan"}
+                </button>
+              </div>
+            </form>
+          ) : selectedRelationship ? (
+            <div className="space-y-3">
+              <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"
+                    onClick={() => {
+                      setSelectedRelationship(null);
+                      setRelationshipOverviewData(null);
+                    }}
+                  >
+                    <ArrowLeft size={15} /> {language === "en" ? "Back" : "Kembali"}
+                  </button>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-[#16A34A]">
+                    {selectedRelationship.status === "active" ? (language === "en" ? "Active" : "Aktif") : (language === "en" ? "Pending" : "Menunggu")}
+                  </span>
+                </div>
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="flex -space-x-2">
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-white bg-emerald-100 text-sm font-semibold text-[#16A34A]">{currentUser.fullName.slice(0, 1).toUpperCase()}</span>
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-white bg-rose-100 text-sm font-semibold text-rose-700">{(selectedRelationship.partnerName ?? "?").slice(0, 1).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-semibold text-slate-950">{currentUser.fullName} + {selectedRelationship.partnerName ?? "Partner"}</h2>
+                    <p className="truncate text-xs text-slate-500">{selectedRelationship.workspaceName}</p>
+                  </div>
+                </div>
+                {selectedRelationship.status !== "active" && (
+                  <div className="mt-4 rounded-2xl bg-[#F8FAFC] p-3">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {selectedRelationship.incomingInvitation
+                        ? (language === "en" ? "Invitation waiting for your response" : "Undangan menunggu respons Anda")
+                        : (language === "en" ? "Waiting for partner response" : "Menunggu respons partner")}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      {selectedRelationship.incomingInvitation ? (
+                        <>
+                          <button className="btn-primary flex-1" onClick={() => respondRelationship(selectedRelationship, "accept")}>{language === "en" ? "Accept" : "Terima"}</button>
+                          <button className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600" onClick={() => respondRelationship(selectedRelationship, "decline")}>{language === "en" ? "Decline" : "Tolak"}</button>
+                        </>
+                      ) : (
+                        <button className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700" onClick={() => respondRelationship(selectedRelationship, "cancel")}>{language === "en" ? "Cancel invitation" : "Batalkan undangan"}</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {selectedRelationship.status === "active" && relationshipOverviewData && (
+                <>
+                  <div className="rounded-[22px] bg-[#16A34A] p-4 text-white shadow-[0_18px_42px_rgba(22,163,74,0.22)] lg:rounded-lg">
+                    <p className="text-[10px] font-semibold uppercase text-white/70">{language === "en" ? "Shared financial condition" : "Kondisi keuangan bersama"}</p>
+                    <h3 className="mt-1 text-xl font-semibold">{language === "en" ? "This month summary" : "Ringkasan bulan ini"}</h3>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="rounded-2xl bg-white/12 p-3">
+                        <p className="text-[11px] text-white/70">{language === "en" ? "Income" : "Pemasukan"}</p>
+                        <p className="mt-1 text-sm font-semibold">{rupiah(relationshipOverviewData.summary.combinedIncome)}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/12 p-3">
+                        <p className="text-[11px] text-white/70">{language === "en" ? "Expense" : "Pengeluaran"}</p>
+                        <p className="mt-1 text-sm font-semibold">{rupiah(relationshipOverviewData.summary.combinedExpense)}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/12 p-3">
+                        <p className="text-[11px] text-white/70">{language === "en" ? "Saving" : "Tabungan"}</p>
+                        <p className="mt-1 text-sm font-semibold">{rupiah(relationshipOverviewData.summary.combinedSaving)}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white/12 p-3">
+                        <p className="text-[11px] text-white/70">{language === "en" ? "Saving rate" : "Saving rate"}</p>
+                        <p className="mt-1 text-sm font-semibold">{Number(relationshipOverviewData.summary.savingRate).toFixed(0)}%</p>
+                      </div>
+                    </div>
+                    <button
+                      className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#16A34A]"
+                      onClick={() => onOpenAssistantContext({
+                        contextType: "relationship_finance",
+                        relationshipFinanceId: selectedRelationship.id,
+                        sourcePage: "overview",
+                        label: selectedRelationship.workspaceName,
+                        partnerName: selectedRelationship.partnerName ?? null
+                      })}
+                    >
+                      <Bot size={16} /> {language === "en" ? "Analyze with Finance Copilot" : "Analisis dengan Finance Copilot"}
+                    </button>
+                  </div>
+
+                  {(goalFormMode || goalAction) ? (
+                    <div className="space-y-3">
+                      <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500"
+                          onClick={() => {
+                            setGoalFormMode(null);
+                            setEditingGoal(null);
+                            setGoalAction(null);
+                          }}
+                        >
+                          <ArrowLeft size={15} /> {language === "en" ? "Back to Shared goals" : "Kembali ke Shared goals"}
+                        </button>
+                      </div>
+
+                      {goalFormMode && (
+                        <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                          <SectionHeader
+                            title={goalFormMode === "edit" ? (language === "en" ? "Edit goal" : "Edit goal") : (language === "en" ? "New goal" : "Goal baru")}
+                            caption={language === "en" ? "Set the linked savings account and goal target." : "Atur akun tabungan tertaut dan target goal."}
+                          />
+                          <form key={editingGoal?.id ?? "new-goal"} className="grid gap-2 sm:grid-cols-2" onSubmit={submitRelationshipGoal}>
+                            <input className="input sm:col-span-2" name="name" placeholder={language === "en" ? "Goal name, e.g. Home" : "Nama tujuan, contoh: Rumah"} defaultValue={editingGoal?.name ?? ""} required />
+                            <select className="input" name="goalType" defaultValue={editingGoal?.goalType ?? "custom"}>
+                              <option value="home">{language === "en" ? "Home" : "Rumah"}</option>
+                              <option value="wedding">{language === "en" ? "Wedding" : "Pernikahan"}</option>
+                              <option value="vacation">{language === "en" ? "Vacation" : "Liburan"}</option>
+                              <option value="emergency_fund">{language === "en" ? "Emergency fund" : "Dana darurat"}</option>
+                              <option value="custom">Custom</option>
+                            </select>
+                            <select className="input" name="priority" defaultValue={editingGoal?.priority ?? "medium"}>
+                              <option value="medium">{language === "en" ? "Medium" : "Sedang"}</option>
+                              <option value="high">{language === "en" ? "High" : "Tinggi"}</option>
+                              <option value="critical">{language === "en" ? "Critical" : "Kritis"}</option>
+                              <option value="low">{language === "en" ? "Low" : "Rendah"}</option>
+                            </select>
+                            <input className="input" name="targetAmount" inputMode="numeric" placeholder={language === "en" ? "Target amount" : "Nominal target"} defaultValue={editingGoal ? moneyInputValue(editingGoal.targetAmount) : ""} onInput={handleMoneyInput} required />
+                            <input type="hidden" name="trackingMode" value="linked_account" />
+                            <select className="input" name="linkedAccountId" defaultValue={editingGoal?.linkedAccountId ?? ""} required>
+                              <option value="">{language === "en" ? "Select savings account" : "Pilih akun tabungan"}</option>
+                              {accounts.filter((account) => account.isActive).map((account) => {
+                                const alreadyLinked = Boolean(account.isRelationshipGoalAccount && account.id !== editingGoal?.linkedAccountId);
+                                const owner = account.ownerName && account.canEdit === false ? ` · ${language === "en" ? "owned by" : "milik"} ${account.ownerName}` : "";
+                                const linked = alreadyLinked ? ` · ${language === "en" ? "already linked" : "sudah tertaut"}` : "";
+                                return (
+                                  <option key={account.id} value={account.id} disabled={alreadyLinked}>
+                                    {accountOptionLabel(account, { balance: true, language })}{owner}{linked}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-[11px] leading-4 text-[#15803D] sm:col-span-2">
+                              {language === "en"
+                                ? "Progress follows the selected savings account balance. One account can only be linked to one active goal."
+                                : "Progress mengikuti saldo akun tabungan yang dipilih. Satu akun hanya bisa tertaut ke satu goal aktif."}
+                            </p>
+                            <input className="input" name="deadline" type="date" defaultValue={editingGoal?.deadline ? String(editingGoal.deadline).slice(0, 10) : ""} />
+                            <button className="btn-primary">
+                              {goalFormMode === "edit" ? (language === "en" ? "Save goal" : "Simpan goal") : (language === "en" ? "Add goal" : "Tambah goal")}
+                            </button>
+                          </form>
+                        </div>
+                      )}
+                      {goalAction && (
+                        <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                          <div className="mb-4">
+                            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">
+                              {goalAction.type === "contribution"
+                                ? (language === "en" ? "Add contribution" : "Tambah kontribusi")
+                                : goalAction.type === "adjustment"
+                                  ? "Adjust Goal"
+                                  : "Contribution History"}
+                            </p>
+                            <h3 className="mt-1 text-base font-semibold text-slate-950">{goalAction.goal.name}</h3>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {language === "en" ? "Progress is calculated from completed contributions." : "Progress dihitung dari kontribusi yang selesai."}
+                            </p>
+                          </div>
+
+                          {goalAction.type !== "history" && (
+                            <form className="mb-4 grid gap-2 sm:grid-cols-2" onSubmit={submitGoalContribution}>
+                              <input
+                                className="input"
+                                name="amount"
+                                inputMode="numeric"
+                                placeholder={goalAction.type === "adjustment" ? (language === "en" ? "Amount, e.g. -500000" : "Nominal, contoh -500000") : (language === "en" ? "Amount" : "Nominal")}
+                                required
+                              />
+                              <input className="input" name="contributionDate" type="date" defaultValue={isoDateInput()} />
+                              <select className="input" name="contributorUserId" defaultValue={currentUser.id}>
+                                {(relationshipOverviewData.relationship.members ?? []).filter((member) => member.status === "accepted").map((member) => (
+                                  <option key={member.userId} value={member.userId}>{member.fullName}</option>
+                                ))}
+                              </select>
+                              {goalAction.type === "contribution" ? (
+                                <select className="input" name="sourceType" defaultValue="manual">
+                                  <option value="manual">Manual</option>
+                                  <option value="income_allocation">{language === "en" ? "Income allocation" : "Alokasi pemasukan"}</option>
+                                  <option value="scheduled">{language === "en" ? "Scheduled" : "Terjadwal"}</option>
+                                  <option value="shared_wallet">{language === "en" ? "Shared wallet" : "Dompet bersama"}</option>
+                                </select>
+                              ) : (
+                                <input className="input" name="adjustmentReason" placeholder={language === "en" ? "Reason is required" : "Alasan wajib diisi"} required />
+                              )}
+                              <input className="input sm:col-span-2" name="notes" placeholder={language === "en" ? "Notes" : "Catatan"} />
+                              <button className="btn-primary sm:col-span-2">
+                                <Plus size={16} />
+                                {goalAction.type === "adjustment"
+                                  ? (language === "en" ? "Save adjustment" : "Simpan adjustment")
+                                  : (language === "en" ? "Save contribution" : "Simpan kontribusi")}
+                              </button>
+                            </form>
+                          )}
+
+                          <div className="space-y-2">
+                            {goalContributionLoading && <SocialSkeleton />}
+                            {!goalContributionLoading && goalContributions.length === 0 && (
+                              <EmptyState text={language === "en" ? "No contribution history yet." : "Belum ada histori kontribusi."} />
+                            )}
+                            {!goalContributionLoading && goalContributions.map((row) => {
+                              const amount = Number(row.amount);
+                              return (
+                                <div key={row.id} className="flex items-start gap-3 rounded-2xl border border-slate-100 p-3">
+                                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${amount >= 0 ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-700"}`}>
+                                    {amount >= 0 ? <Plus size={16} /> : <CircleMinus size={16} />}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className={`text-sm font-semibold ${amount >= 0 ? "text-[#16A34A]" : "text-rose-700"}`}>
+                                        {amount >= 0 ? "+" : "-"}{rupiah(Math.abs(amount))}
+                                      </p>
+                                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">{row.status}</span>
+                                    </div>
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                      {localDate(row.contributionDate)} - {row.sourceType.replace(/_/g, " ")} - {row.contributorName ?? "-"}
+                                    </p>
+                                    {(row.notes || row.adjustmentReason) && (
+                                      <p className="mt-1 text-[11px] leading-4 text-slate-500">{row.adjustmentReason ?? row.notes}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                  <div className="rounded-[22px] bg-white p-2 shadow-soft lg:rounded-lg">
+                    <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[#F8FAFC] p-1">
+                      {[
+                        { id: "goals" as const, label: language === "en" ? "Shared goals" : "Shared goals" },
+                        { id: "timeline" as const, label: language === "en" ? "Insight & timeline" : "Insight & timeline" }
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${relationshipDetailTab === item.id ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`}
+                          onClick={() => setRelationshipDetailTab(item.id)}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {relationshipDetailTab === "goals" && (
+                    <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                      <SectionHeader
+                        title={language === "en" ? "Shared goals" : "Tujuan bersama"}
+                        caption={language === "en" ? "Track goals without exposing private details." : "Pantau target tanpa membuka detail private."}
+                        action={(
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-full bg-[#16A34A] px-3 py-1.5 text-xs font-semibold text-white"
+                            onClick={() => {
+                              setGoalFormMode("add");
+                              setEditingGoal(null);
+                              setGoalAction(null);
+                            }}
+                          >
+                            <Plus size={14} /> {language === "en" ? "Add goal" : "Tambah goal"}
+                          </button>
+                        )}
+                      />
+                      <div className="space-y-2">
+                        {relationshipOverviewData.goals.length === 0 && <EmptyState text={language === "en" ? "No shared goal yet." : "Belum ada tujuan bersama."} />}
+                        {relationshipOverviewData.goals.map((goal) => (
+                          <div key={goal.id} className="rounded-2xl border border-slate-100 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-950">{goal.name}</p>
+                                <p className="mt-1 text-xs text-slate-500">{rupiah(goal.currentAmount)} / {rupiah(goal.targetAmount)}</p>
+                              </div>
+                              <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-[#16A34A]">{Number(goal.progress).toFixed(0)}%</span>
+                            </div>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                              <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${Math.min(Number(goal.progress), 100)}%` }} />
+                            </div>
+                            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                              <span>{language === "en" ? "Remaining" : "Sisa"} {rupiah(goal.remainingAmount)}</span>
+                              {goal.monthlyRequired && <span>{rupiah(goal.monthlyRequired)}/{language === "en" ? "month" : "bulan"}</span>}
+                            </div>
+                            <div className="mt-3 rounded-xl bg-[#F8FAFC] px-3 py-2 text-[11px] font-semibold text-slate-600">
+                              {language === "en" ? "Linked" : "Tertaut"}: {goal.linkedAccountName ?? "-"}
+                              {goal.linkedAccountOwnerName && goal.linkedAccountOwnerName !== currentUser.fullName ? ` ${language === "en" ? "owned by" : "milik"} ${goal.linkedAccountOwnerName}` : ""}
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
+                              <button
+                                type="button"
+                                className="rounded-xl bg-emerald-50 px-2 py-2 text-[11px] font-semibold text-[#16A34A]"
+                                onClick={() => {
+                                  setGoalFormMode("edit");
+                                  setEditingGoal(goal);
+                                  setGoalAction(null);
+                                }}
+                              >
+                                Edit
+                              </button>
+                              {goal.trackingMode !== "linked_account" && (
+                                <button type="button" className="rounded-xl bg-amber-50 px-2 py-2 text-[11px] font-semibold text-amber-700" onClick={() => openGoalHistory(goal, "contribution")}>
+                                  {language === "en" ? "Add" : "Tambah"}
+                                </button>
+                              )}
+                              <button type="button" className={`${goal.trackingMode === "linked_account" ? "col-span-2" : ""} rounded-xl bg-slate-50 px-2 py-2 text-[11px] font-semibold text-slate-600`} onClick={() => openGoalHistory(goal, "history")}>
+                                History
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {relationshipDetailTab === "timeline" && (
+                    <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                      <SectionHeader title={language === "en" ? "Insights & timeline" : "Insight & timeline"} caption={language === "en" ? "Private transactions are never shown here." : "Transaksi private tidak ditampilkan di sini."} />
+                      <label className="mb-3 block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">
+                          {language === "en" ? "Goal filter" : "Filter goal"}
+                        </span>
+                        <select
+                          className="input"
+                          value={relationshipGoalFilterId}
+                          onChange={(event) => setRelationshipGoalFilterId(event.target.value)}
+                        >
+                          <option value="">{language === "en" ? "All goals" : "Semua goal"}</option>
+                          {relationshipOverviewData.goals.map((goal) => (
+                            <option key={goal.id} value={goal.id}>{goal.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="space-y-2">
+                        {filteredRelationshipGoal && (
+                          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-950">{filteredRelationshipGoal.name}</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {rupiah(filteredRelationshipGoal.currentAmount)} / {rupiah(filteredRelationshipGoal.targetAmount)}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[#16A34A]">
+                                {Number(filteredRelationshipGoal.progress).toFixed(0)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        {filteredRelationshipInsights.length === 0 && filteredRelationshipTimeline.length === 0 && (
+                          <EmptyState text={language === "en" ? "No insight or timeline for this filter yet." : "Belum ada insight atau timeline untuk filter ini."} />
+                        )}
+                        {filteredRelationshipInsights.map((insight) => (
+                          <div key={insight.type} className="rounded-2xl bg-[#F8FAFC] p-3">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {insight.type === "cashflow_risk"
+                                ? (language === "en" ? "Cashflow needs attention" : "Arus kas perlu diperhatikan")
+                                : insight.type === "goal_needs_attention"
+                                  ? (language === "en" ? "Goal needs attention" : "Target perlu diperhatikan")
+                                  : insight.type === "saving_rate"
+                                    ? (language === "en" ? "Saving rate insight" : "Insight saving rate")
+                                    : (language === "en" ? "More data needed" : "Data belum cukup")}
+                              </p>
+                          </div>
+                        ))}
+                        {filteredRelationshipTimeline.map((event) => (
+                          <div key={event.id} className="flex items-start gap-3 rounded-2xl px-2 py-2">
+                            <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]"><Sparkles size={15} /></span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-slate-900">{event.eventType.replace(/_/g, " ")}</p>
+                              <p className="text-[10px] text-slate-500">{localDate(event.createdAt)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Relationship Finance</p>
+                    <h2 className="mt-1 text-lg font-semibold text-slate-950">{language === "en" ? "Plan the future together" : "Rencanakan masa depan bersama"}</h2>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {language === "en"
+                        ? "Manage shared goals, budget, assets, liabilities, and Finance Copilot insights with your partner."
+                        : "Kelola tujuan, budget, aset, kewajiban, dan insight Finance Copilot bersama partner."}
+                    </p>
+                  </div>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700"><HeartPulse size={21} /></span>
+                </div>
+                <button className="btn-primary mt-4 w-full" onClick={() => setShowCreateRelationship(true)}>
+                  <Plus size={16} /> {language === "en" ? "Create Relationship Finance" : "Buat Relationship Finance"}
+                </button>
+              </div>
+              {relationships.length === 0 ? (
+                <div className="rounded-[22px] border border-dashed border-slate-200 bg-white p-5 text-center shadow-soft lg:rounded-lg">
+                  <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]"><HeartPulse size={22} /></span>
+                  <p className="mt-3 text-sm font-semibold text-slate-950">{language === "en" ? "No workspace yet" : "Belum ada workspace"}</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    {language === "en" ? "Start by inviting an accepted friend." : "Mulai dengan mengundang teman yang sudah diterima."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {relationships.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="ripple-card flex w-full items-center gap-3 rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99] lg:rounded-lg"
+                      onClick={() => openRelationship(item).catch(() => setMessage(null))}
+                    >
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700"><HeartPulse size={20} /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-slate-950">{item.workspaceName}</span>
+                        <span className="mt-0.5 block truncate text-xs text-slate-500">{item.partnerName ?? "Partner"} - {item.status}</span>
+                      </span>
+                      <ChevronRight size={18} className="text-slate-300" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {!loading && tab === "friends" && (
         <div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
@@ -8170,7 +9763,7 @@ function SocialHubView({
                       <option value="" disabled>Pilih akun Anda</option>
                       {accounts.filter((account) => account.isActive && !account.isSharedWalletAccount).map((account) => (
                         <option key={account.id} value={account.id}>
-                          {account.name} · {rupiah(account.currentBalance)}
+                          {accountOptionLabel(account, { balance: true, language })}
                         </option>
                       ))}
                     </select>

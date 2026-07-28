@@ -4,13 +4,22 @@ export type StoredSession = Session & {
   lastActivityAt: number;
 };
 
-const SESSION_STORAGE_KEY = "finance-session";
-const SESSION_INACTIVITY_LIMIT_MS = 3 * 24 * 60 * 60 * 1000;
+export type StoredSessionStatus = "missing" | "valid" | "expired" | "invalid";
 
-export function isValidSession(value: unknown): value is StoredSession {
+export type StoredSessionResult = {
+  session: StoredSession | null;
+  status: StoredSessionStatus;
+  migrated: boolean;
+};
+
+const SESSION_STORAGE_KEY = "finance-session";
+export const SESSION_INACTIVITY_LIMIT_MS = 3 * 24 * 60 * 60 * 1000;
+export const SESSION_ACTIVITY_THROTTLE_MS = 30 * 1000;
+
+function isSessionPayload(value: unknown): value is Session {
   if (!value || typeof value !== "object") return false;
 
-  const session = value as Partial<StoredSession>;
+  const session = value as Partial<Session>;
   const user = session.user;
 
   return Boolean(
@@ -21,41 +30,76 @@ export function isValidSession(value: unknown): value is StoredSession {
     && typeof user.email === "string"
     && typeof session.accessToken === "string"
     && typeof session.refreshToken === "string"
-    && typeof session.lastActivityAt === "number"
   );
 }
 
-export function parseStoredSession(saved: string | null): StoredSession | null {
-  if (!saved) return null;
+export function isValidSession(value: unknown): value is StoredSession {
+  return isSessionPayload(value)
+    && typeof (value as Partial<StoredSession>).lastActivityAt === "number";
+}
+
+export function inspectStoredSession(
+  saved: string | null,
+  now = Date.now()
+): StoredSessionResult {
+  if (!saved) {
+    return { session: null, status: "missing", migrated: false };
+  }
 
   try {
     const parsed: unknown = JSON.parse(saved);
 
-    if (!isValidSession(parsed)) return null;
-
-    const inactiveDuration = Date.now() - parsed.lastActivityAt;
-
-    if (inactiveDuration >= SESSION_INACTIVITY_LIMIT_MS) {
-      return null;
+    if (!isSessionPayload(parsed)) {
+      return { session: null, status: "invalid", migrated: false };
     }
 
-    return parsed;
+    if (typeof (parsed as Partial<StoredSession>).lastActivityAt !== "number") {
+      return {
+        session: {
+          ...parsed,
+          lastActivityAt: now
+        },
+        status: "valid",
+        migrated: true
+      };
+    }
+
+    const storedSession = parsed as StoredSession;
+    const inactiveDuration = Math.max(0, now - storedSession.lastActivityAt);
+
+    if (inactiveDuration >= SESSION_INACTIVITY_LIMIT_MS) {
+      return { session: null, status: "expired", migrated: false };
+    }
+
+    return { session: storedSession, status: "valid", migrated: false };
   } catch {
-    return null;
+    return { session: null, status: "invalid", migrated: false };
   }
 }
 
-export function loadSavedSession(
-  storage: Pick<Storage, "getItem" | "removeItem">
-): StoredSession | null {
-  const saved = storage.getItem(SESSION_STORAGE_KEY);
-  const session = parseStoredSession(saved);
+export function parseStoredSession(saved: string | null): StoredSession | null {
+  return inspectStoredSession(saved).session;
+}
 
-  if (saved && !session) {
+export function loadSavedSessionResult(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">
+): StoredSessionResult {
+  const saved = storage.getItem(SESSION_STORAGE_KEY);
+  const result = inspectStoredSession(saved);
+
+  if (saved && !result.session) {
     storage.removeItem(SESSION_STORAGE_KEY);
+  } else if (result.session && result.migrated) {
+    storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result.session));
   }
 
-  return session;
+  return result;
+}
+
+export function loadSavedSession(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">
+): StoredSession | null {
+  return loadSavedSessionResult(storage).session;
 }
 
 export function saveSession(
@@ -76,25 +120,35 @@ export function saveSession(
 }
 
 export function updateSessionActivity(
-  storage: Pick<Storage, "getItem" | "setItem">
-): void {
+  storage: Pick<Storage, "getItem" | "setItem">,
+  now = Date.now()
+): StoredSession | null {
   const saved = storage.getItem(SESSION_STORAGE_KEY);
 
-  if (!saved) return;
+  if (!saved) return null;
 
   try {
     const parsed = JSON.parse(saved) as StoredSession;
 
-    if (!isValidSession(parsed)) return;
+    if (!isValidSession(parsed)) return null;
 
-    parsed.lastActivityAt = Date.now();
+    if (now - parsed.lastActivityAt < SESSION_ACTIVITY_THROTTLE_MS) {
+      return parsed;
+    }
+
+    const updatedSession = {
+      ...parsed,
+      lastActivityAt: now
+    };
 
     storage.setItem(
       SESSION_STORAGE_KEY,
-      JSON.stringify(parsed)
+      JSON.stringify(updatedSession)
     );
+
+    return updatedSession;
   } catch {
-    // Biarkan loadSavedSession membersihkan session yang rusak
+    return null;
   }
 }
 

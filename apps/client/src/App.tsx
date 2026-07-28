@@ -62,17 +62,18 @@ import heic2any from "heic2any";
 import QRCode from "qrcode";
 import jsQR from "jsqr";
 import { ApiError, apiFetch, downloadUrl, type Session } from "./lib/api";
-import { type StoredSession } from "../../client/src/lib/session";
 import { resolveAsyncContentState } from "./lib/asyncContentState";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "./lib/format";
 import {
   ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS,
+  clearStoredSession,
   isAccessTokenExpired,
   isValidSession,
-  loadSavedSession,
+  loadSavedSessionResult,
   saveSession,
   updateSessionActivity,
-  SESSION_ACTIVITY_WINDOW_MS
+  SESSION_ACTIVITY_WINDOW_MS,
+  type StoredSession
 } from "./lib/session";
 import { installUiTranslation } from "./lib/uiTranslation";
 import { WalletAccountEditModal } from "./components/SharedWalletEditModals";
@@ -307,8 +308,9 @@ const mobileNavigation: Array<{ id: View; label: string; icon: LucideIcon }> = [
 ];
 
 function App() {
+  const [initialSession] = useState(() => loadSavedSessionResult(localStorage));
   const [session, setSession] = useState<StoredSession | null>(
-    () => loadSavedSession(localStorage)
+    initialSession.session
   );
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
@@ -321,7 +323,7 @@ function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
-  const [coreLoading, setCoreLoading] = useState(() => isValidSession(loadSavedSession(localStorage)));
+  const [coreLoading, setCoreLoading] = useState(() => Boolean(initialSession.session));
 
   const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
   const [socialSummaryData, setSocialSummaryData] = useState<SocialSummary | null>(null);
@@ -367,6 +369,8 @@ function App() {
   //#endregion
 
   const clearSession = (message?: string) => {
+    clearStoredSession(localStorage);
+    sessionRef.current = null;
     sessionInitializedRef.current = null;
     setSession(null);
     setCoreLoading(false);
@@ -403,6 +407,7 @@ function App() {
     window.history.replaceState({}, "", window.location.pathname);
     window.scrollTo({ top: 0, behavior: "auto" });
     sessionExpiredAlertShown.current = false;
+    sessionRef.current = storedSession;
     setSession(storedSession);
     reportDebug("accept_session_applied", { view: "dashboard" });
   };
@@ -418,13 +423,18 @@ function App() {
         method: "POST",
         body: JSON.stringify({ refreshToken: activeSession.refreshToken })
       });
+      const currentSession = sessionRef.current;
+      if (!currentSession || currentSession.refreshToken !== activeSession.refreshToken) {
+        throw new Error("Sesi sudah berubah");
+      }
       const nextSession: StoredSession = {
         user: refreshed.user,
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken,
-        lastActivityAt: Date.now()
+        lastActivityAt: currentSession.lastActivityAt
       };
       if (!isValidSession(nextSession)) throw new Error("Sesi tidak lengkap");
+      sessionRef.current = nextSession;
       setSession(nextSession);
       localStorage.setItem(
         "finance-session",
@@ -455,6 +465,14 @@ function App() {
     window.scrollTo({ top: 0, behavior: "auto" });
     window.alert(message);
   };
+
+  useEffect(() => {
+    if (initialSession.status !== "expired" && initialSession.status !== "invalid") {
+      return;
+    }
+
+    expireSession();
+  }, []);
 
   const request = async <T,>(path: string, options: RequestInit = {}) => {
     const method = String(options.method ?? "GET").toUpperCase();
@@ -638,7 +656,24 @@ function App() {
   useEffect(() => {
     if (!session?.refreshToken) return;
 
-    
+    const markActivity = () => {
+      const updatedSession = updateSessionActivity(localStorage);
+      if (updatedSession) {
+        sessionRef.current = updatedSession;
+      }
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      "pointerdown",
+      "keydown",
+      "touchstart",
+      "scroll"
+    ];
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, markActivity, { passive: true });
+    });
+
     const keepSessionAlive = () => {
       const activeSession = sessionRef.current;
 
@@ -662,18 +697,29 @@ function App() {
 
     const handleVisibility = () => {
       if (document.visibilityState !== "visible") return;
+      markActivity();
+      const activeSession = sessionRef.current;
+      if (!activeSession?.accessToken || !isAccessTokenExpired(activeSession.accessToken)) return;
+      keepSessionAlive();
+    };
+
+    const handleFocus = () => {
+      markActivity();
       const activeSession = sessionRef.current;
       if (!activeSession?.accessToken || !isAccessTokenExpired(activeSession.accessToken)) return;
       keepSessionAlive();
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("focus", handleVisibility);
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       window.clearInterval(intervalId);
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, markActivity);
+      });
       document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
     };
   }, [session?.refreshToken]);
 

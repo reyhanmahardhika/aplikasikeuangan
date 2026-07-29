@@ -1,4 +1,4 @@
-﻿-- Migration: Add account collaborators (pocket collaboration)
+-- Migration: Add account collaborators (pocket collaboration)
 -- Description: Allow users to invite others to collaborate on their pockets
 
 CREATE TABLE IF NOT EXISTS account_collaborators (

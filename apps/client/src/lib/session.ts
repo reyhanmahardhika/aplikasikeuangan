@@ -1,4 +1,4 @@
-import type { Session } from "./api";
+﻿import type { Session } from "./api";
 
 export type StoredSession = Session & {
   lastActivityAt: number;
@@ -12,11 +12,19 @@ export type StoredSessionResult = {
   migrated: boolean;
 };
 
+// Session storage keys - use both localStorage and sessionStorage as fallback
 const SESSION_STORAGE_KEY = "finance-session";
-// Session hanya expired jika tidak ada aktivitas selama 30 hari (bukan 3 hari)
-// Ini memberikan waktu yang cukup untuk user yang tidak membuka app dalam beberapa minggu
-export const SESSION_INACTIVITY_LIMIT_MS = 30 * 24 * 60 * 60 * 1000;
-export const SESSION_ACTIVITY_THROTTLE_MS = 30 * 1000;
+const SESSION_STORAGE_KEY_BACKUP = "finance-session-backup";
+
+// iOS PWA: Extended inactivity limit to 7 days (was 30 days)
+// This handles the case where iOS clears localStorage when PWA is backgrounded
+export const SESSION_INACTIVITY_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
+// Throttle activity updates to once per minute (was 30 seconds)
+export const SESSION_ACTIVITY_THROTTLE_MS = 60 * 1000;
+
+// iOS PWA: Session activity window extended to 24 hours (was 15 minutes)
+// This prevents premature session expiry when app is backgrounded
+export const SESSION_ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function isSessionPayload(value: unknown): value is Session {
   if (!value || typeof value !== "object") return false;
@@ -40,7 +48,54 @@ export function isValidSession(value: unknown): value is StoredSession {
     && typeof (value as Partial<StoredSession>).lastActivityAt === "number";
 }
 
-export function inspectStoredSession(
+/**
+ * Try to load session from multiple storage sources (localStorage -> sessionStorage -> IndexedDB)
+ * This provides resilience against iOS PWA localStorage clearing
+ */
+async function loadSessionFromStorage(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  now = Date.now()
+): Promise<StoredSessionResult> {
+  // Try primary localStorage first
+  const saved = storage.getItem(SESSION_STORAGE_KEY);
+  if (saved) {
+    const result = inspectStoredSession(saved, now);
+    if (result.session) return result;
+  }
+
+  // Try backup in sessionStorage (survives some iOS PWA backgrounding)
+  const backupSaved = storage.getItem(SESSION_STORAGE_KEY_BACKUP);
+  if (backupSaved) {
+    const result = inspectStoredSession(backupSaved, now);
+    if (result.session) {
+      // Restore to primary storage
+      storage.setItem(SESSION_STORAGE_KEY, backupSaved);
+      return result;
+    }
+  }
+
+  // Try IndexedDB as last resort (most persistent on iOS PWA)
+  if (typeof window !== "undefined" && "indexedDB" in window) {
+    try {
+      const idbSession = await getSessionFromIndexedDB();
+      if (idbSession) {
+        const result = inspectStoredSession(JSON.stringify(idbSession), now);
+        if (result.session) {
+          // Restore to both storages
+          storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(idbSession));
+          storage.setItem(SESSION_STORAGE_KEY_BACKUP, JSON.stringify(idbSession));
+          return result;
+        }
+      }
+    } catch {
+      // Ignore IndexedDB errors
+    }
+  }
+
+  return { session: null, status: "missing", migrated: false };
+}
+
+function inspectStoredSession(
   saved: string | null,
   now = Date.now()
 ): StoredSessionResult {
@@ -83,25 +138,17 @@ export function parseStoredSession(saved: string | null): StoredSession | null {
   return inspectStoredSession(saved).session;
 }
 
-export function loadSavedSessionResult(
+export async function loadSavedSessionResult(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">
-): StoredSessionResult {
-  const saved = storage.getItem(SESSION_STORAGE_KEY);
-  const result = inspectStoredSession(saved);
-
-  if (saved && !result.session) {
-    storage.removeItem(SESSION_STORAGE_KEY);
-  } else if (result.session && result.migrated) {
-    storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(result.session));
-  }
-
-  return result;
+): Promise<StoredSessionResult> {
+  return loadSessionFromStorage(storage);
 }
 
-export function loadSavedSession(
+export async function loadSavedSession(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">
-): StoredSession | null {
-  return loadSavedSessionResult(storage).session;
+): Promise<StoredSession | null> {
+  const result = await loadSavedSessionResult(storage);
+  return result.session;
 }
 
 export function saveSession(
@@ -113,10 +160,22 @@ export function saveSession(
     lastActivityAt: Date.now()
   };
 
-  storage.setItem(
-    SESSION_STORAGE_KEY,
-    JSON.stringify(storedSession)
-  );
+  const json = JSON.stringify(storedSession);
+  
+  // Save to primary
+  storage.setItem(SESSION_STORAGE_KEY, json);
+  
+  // Also save to backup
+  try {
+    storage.setItem(SESSION_STORAGE_KEY_BACKUP, json);
+  } catch {
+    // Ignore quota errors
+  }
+
+  // Also persist to IndexedDB for maximum resilience
+  if (typeof window !== "undefined") {
+    saveSessionToIndexedDB(storedSession).catch(() => {});
+  }
 
   return storedSession;
 }
@@ -143,10 +202,18 @@ export function updateSessionActivity(
       lastActivityAt: now
     };
 
-    storage.setItem(
-      SESSION_STORAGE_KEY,
-      JSON.stringify(updatedSession)
-    );
+    const json = JSON.stringify(updatedSession);
+    storage.setItem(SESSION_STORAGE_KEY, json);
+    
+    // Update backup
+    try {
+      storage.setItem(SESSION_STORAGE_KEY_BACKUP, json);
+    } catch {}
+
+    // Update IndexedDB
+    if (typeof window !== "undefined") {
+      saveSessionToIndexedDB(updatedSession).catch(() => {});
+    }
 
     return updatedSession;
   } catch {
@@ -158,11 +225,70 @@ export function clearStoredSession(
   storage: Pick<Storage, "removeItem">
 ): void {
   storage.removeItem(SESSION_STORAGE_KEY);
+  storage.removeItem(SESSION_STORAGE_KEY_BACKUP);
+  
+  // Clear IndexedDB
+  if (typeof window !== "undefined") {
+    clearSessionFromIndexedDB().catch(() => {});
+  }
+}
+
+// IndexedDB helpers for iOS PWA resilience
+const IDB_DB_NAME = "finance-ai-session";
+const IDB_STORE_NAME = "sessions";
+const IDB_KEY = "current-session";
+
+function openIDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(IDB_DB_NAME, 1);
+    
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(IDB_STORE_NAME)) {
+        db.createObjectStore(IDB_STORE_NAME);
+      }
+    };
+  });
+}
+
+async function saveSessionToIndexedDB(session: StoredSession): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_NAME, "readwrite");
+    const store = tx.objectStore(IDB_STORE_NAME);
+    const request = store.put(session, IDB_KEY);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getSessionFromIndexedDB(): Promise<StoredSession | null> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_NAME, "readonly");
+    const store = tx.objectStore(IDB_STORE_NAME);
+    const request = store.get(IDB_KEY);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function clearSessionFromIndexedDB(): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE_NAME, "readwrite");
+    const store = tx.objectStore(IDB_STORE_NAME);
+    const request = store.delete(IDB_KEY);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
 }
 
 export const ACCESS_TOKEN_REFRESH_BUFFER_MS = 60_000;
 export const ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS = 10 * 60 * 1000;
-export const SESSION_ACTIVITY_WINDOW_MS = 15 * 60 * 1000;
 
 function decodeAccessTokenPayload(
   accessToken: string

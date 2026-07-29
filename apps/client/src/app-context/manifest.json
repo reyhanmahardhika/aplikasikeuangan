@@ -1,0 +1,653 @@
+{
+  "source": "apps\\client\\src\\App.tsx",
+  "generatedAt": "2026-07-29T08:35:36.846Z",
+  "sourceLines": 11806,
+  "chunks": [
+    {
+      "file": "00-bootstrap.tsx",
+      "title": "Imports, global declarations, shared types, constants",
+      "declarations": [
+        "View",
+        "AppLanguage",
+        "ChildFrameState",
+        "NoticePayload",
+        "queueDebugLog",
+        "Account",
+        "Category",
+        "Transaction",
+        "Schedule",
+        "TransactionDetail",
+        "DashboardSummary",
+        "SocialSummary",
+        "AssistantContext",
+        "HeaderNotification",
+        "ManualDraft",
+        "ParsedManualTransaction",
+        "AiTrackedField",
+        "InstallPromptEvent",
+        "successMessageFor",
+        "moneyInputValue",
+        "dateFilterIso",
+        "currentMonthDateBounds"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 1,
+          "endLine": 353
+        }
+      ]
+    },
+    {
+      "file": "01-app-shell.tsx",
+      "title": "Main App state, session, navigation, layout",
+      "declarations": [
+        "App"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 354,
+          "endLine": 1792
+        }
+      ]
+    },
+    {
+      "file": "02-navigation-notifications.tsx",
+      "title": "Navigation, top bar, bottom bar, notifications",
+      "declarations": [
+        "MobileTopBar",
+        "NotificationBadge",
+        "AssistantContextSheet",
+        "NotificationCenter",
+        "greetingLabel",
+        "MobileBottomNav",
+        "AddActionSheet",
+        "MobileNavButton",
+        "mobileNavLabel",
+        "appNavigationLabel"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 1793,
+          "endLine": 1858
+        },
+        {
+          "startLine": 1859,
+          "endLine": 1866
+        },
+        {
+          "startLine": 1867,
+          "endLine": 1983
+        },
+        {
+          "startLine": 1984,
+          "endLine": 2095
+        },
+        {
+          "startLine": 2096,
+          "endLine": 2112
+        },
+        {
+          "startLine": 2113,
+          "endLine": 2166
+        },
+        {
+          "startLine": 2167,
+          "endLine": 2242
+        },
+        {
+          "startLine": 2243,
+          "endLine": 2272
+        },
+        {
+          "startLine": 2273,
+          "endLine": 2286
+        },
+        {
+          "startLine": 2287,
+          "endLine": 2291
+        }
+      ]
+    },
+    {
+      "file": "03-auth.tsx",
+      "title": "Authentication UI and auth helpers",
+      "declarations": [
+        "loadAuthScript",
+        "AuthView",
+        "GoogleLogo"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 2292,
+          "endLine": 2313
+        },
+        {
+          "startLine": 2314,
+          "endLine": 2603
+        },
+        {
+          "startLine": 2604,
+          "endLine": 2614
+        }
+      ]
+    },
+    {
+      "file": "04-dashboard.tsx",
+      "title": "Dashboard widgets and dashboard helpers",
+      "declarations": [
+        "handleMoneyInput",
+        "ExpenseDonut",
+        "DashboardMetric",
+        "MiniCashFlowChart",
+        "SummaryCard",
+        "quickAmount",
+        "transactionQuickExamples"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 2617,
+          "endLine": 2620
+        },
+        {
+          "startLine": 2621,
+          "endLine": 2897
+        },
+        {
+          "startLine": 2898,
+          "endLine": 2932
+        },
+        {
+          "startLine": 2933,
+          "endLine": 2959
+        },
+        {
+          "startLine": 2960,
+          "endLine": 2988
+        },
+        {
+          "startLine": 2989,
+          "endLine": 3000
+        },
+        {
+          "startLine": 3001,
+          "endLine": 3066
+        }
+      ]
+    },
+    {
+      "file": "05-transactions.tsx",
+      "title": "Manual transaction, receipt, detail, and history",
+      "declarations": [
+        "ManualTransactionView",
+        "TransactionDetailView",
+        "ReceiptView",
+        "DateFilterPicker",
+        "HistoryView"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 3067,
+          "endLine": 3783
+        },
+        {
+          "startLine": 3784,
+          "endLine": 4035
+        },
+        {
+          "startLine": 4036,
+          "endLine": 4275
+        },
+        {
+          "startLine": 4276,
+          "endLine": 4422
+        },
+        {
+          "startLine": 4423,
+          "endLine": 4781
+        }
+      ]
+    },
+    {
+      "file": "06-accounts-manage.tsx",
+      "title": "Pocket/account helpers, manage screen, schedules, and accounts",
+      "declarations": [
+        "moneyValue",
+        "accountTypeLabel",
+        "accountSharedLabel",
+        "accountOptionLabel",
+        "accountTypeIcon",
+        "loadPocketVisuals",
+        "savePocketVisuals",
+        "splitAccountNumberHolder",
+        "getDefaultPocketLogo",
+        "budgetTone",
+        "SectionHeader",
+        "ManageView",
+        "scheduleTone",
+        "SchedulesView",
+        "AccountsView"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 4796,
+          "endLine": 4799
+        },
+        {
+          "startLine": 4800,
+          "endLine": 4810
+        },
+        {
+          "startLine": 4811,
+          "endLine": 4816
+        },
+        {
+          "startLine": 4817,
+          "endLine": 4822
+        },
+        {
+          "startLine": 4823,
+          "endLine": 4833
+        },
+        {
+          "startLine": 4887,
+          "endLine": 4894
+        },
+        {
+          "startLine": 4895,
+          "endLine": 4898
+        },
+        {
+          "startLine": 4899,
+          "endLine": 4903
+        },
+        {
+          "startLine": 4904,
+          "endLine": 4916
+        },
+        {
+          "startLine": 4917,
+          "endLine": 4922
+        },
+        {
+          "startLine": 4923,
+          "endLine": 4934
+        },
+        {
+          "startLine": 4935,
+          "endLine": 5139
+        },
+        {
+          "startLine": 5140,
+          "endLine": 5145
+        },
+        {
+          "startLine": 5146,
+          "endLine": 5360
+        },
+        {
+          "startLine": 5361,
+          "endLine": 6441
+        }
+      ]
+    },
+    {
+      "file": "07-categories-budgets.tsx",
+      "title": "Categories and budgets",
+      "declarations": [
+        "CategoriesView",
+        "CategoryGroup",
+        "LegacyCategoriesView",
+        "BudgetsView",
+        "LegacyBudgetsView"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 6442,
+          "endLine": 6598
+        },
+        {
+          "startLine": 6599,
+          "endLine": 6638
+        },
+        {
+          "startLine": 6639,
+          "endLine": 6676
+        },
+        {
+          "startLine": 6677,
+          "endLine": 6859
+        },
+        {
+          "startLine": 6860,
+          "endLine": 6911
+        }
+      ]
+    },
+    {
+      "file": "08-reports.tsx",
+      "title": "Reports and report insights",
+      "declarations": [
+        "monthYearLabel",
+        "ReportsView",
+        "ReportInsightCard",
+        "CashFlowInsightList",
+        "CategoryInsightList",
+        "MonthlyInsightList"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 6916,
+          "endLine": 6919
+        },
+        {
+          "startLine": 6920,
+          "endLine": 7076
+        },
+        {
+          "startLine": 7077,
+          "endLine": 7109
+        },
+        {
+          "startLine": 7110,
+          "endLine": 7148
+        },
+        {
+          "startLine": 7149,
+          "endLine": 7181
+        },
+        {
+          "startLine": 7182,
+          "endLine": 7241
+        }
+      ]
+    },
+    {
+      "file": "09-assistant.tsx",
+      "title": "Finance assistant",
+      "declarations": [
+        "AssistantView"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 7256,
+          "endLine": 7520
+        }
+      ]
+    },
+    {
+      "file": "10-social.tsx",
+      "title": "Social, friends, shared wallet, and relationship finance",
+      "declarations": [
+        "SocialMetric",
+        "SocialSkeleton",
+        "SocialFriendPicker",
+        "WalletMembersManageModal",
+        "SocialFriendsPanel",
+        "SocialHubView"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 7765,
+          "endLine": 7791
+        },
+        {
+          "startLine": 7792,
+          "endLine": 7804
+        },
+        {
+          "startLine": 7805,
+          "endLine": 7922
+        },
+        {
+          "startLine": 7923,
+          "endLine": 8089
+        },
+        {
+          "startLine": 8090,
+          "endLine": 8349
+        },
+        {
+          "startLine": 8350,
+          "endLine": 11130
+        }
+      ]
+    },
+    {
+      "file": "11-profile.tsx",
+      "title": "Profile",
+      "declarations": [
+        "ProfileView"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 11131,
+          "endLine": 11363
+        }
+      ]
+    },
+    {
+      "file": "12-shared-ui-utils.tsx",
+      "title": "Shared fields, transaction list, states, QR scanner, and utilities",
+      "declarations": [
+        "AiFieldBadge",
+        "Field",
+        "storedStringSet",
+        "urlBase64ToUint8Array",
+        "transactionDateKey",
+        "transactionDateLabel",
+        "groupTransactionsByDate",
+        "transactionTitle",
+        "transactionCategoryIcon",
+        "transactionIconClass",
+        "TransactionHistoryItem",
+        "TransactionList",
+        "LegacyTransactionList",
+        "LoadingState",
+        "DataErrorState",
+        "EmptyState",
+        "QrScanner"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 11364,
+          "endLine": 11392
+        },
+        {
+          "startLine": 11393,
+          "endLine": 11404
+        },
+        {
+          "startLine": 11405,
+          "endLine": 11413
+        },
+        {
+          "startLine": 11414,
+          "endLine": 11422
+        },
+        {
+          "startLine": 11423,
+          "endLine": 11428
+        },
+        {
+          "startLine": 11429,
+          "endLine": 11440
+        },
+        {
+          "startLine": 11441,
+          "endLine": 11459
+        },
+        {
+          "startLine": 11460,
+          "endLine": 11463
+        },
+        {
+          "startLine": 11464,
+          "endLine": 11485
+        },
+        {
+          "startLine": 11486,
+          "endLine": 11494
+        },
+        {
+          "startLine": 11495,
+          "endLine": 11641
+        },
+        {
+          "startLine": 11642,
+          "endLine": 11652
+        },
+        {
+          "startLine": 11653,
+          "endLine": 11681
+        },
+        {
+          "startLine": 11682,
+          "endLine": 11689
+        },
+        {
+          "startLine": 11690,
+          "endLine": 11709
+        },
+        {
+          "startLine": 11710,
+          "endLine": 11714
+        },
+        {
+          "startLine": 11715,
+          "endLine": 11806
+        }
+      ]
+    },
+    {
+      "file": "99-unclassified.tsx",
+      "title": "Declarations not yet assigned to a feature",
+      "declarations": [
+        "categoryPalette",
+        "ManageTab",
+        "BudgetRow",
+        "pocketBankOptions",
+        "pocketEWalletOptions",
+        "pocketEMoneyOptions",
+        "pocketCardColors",
+        "pocketVisualStorageKey",
+        "PocketVisual",
+        "CashFlowReportRow",
+        "CategoryReportRow",
+        "MonthlyReportRow",
+        "AssistantMessage",
+        "SocialFriend",
+        "SocialGroup",
+        "SocialWallet",
+        "RelationshipFinanceListItem",
+        "RelationshipGoal",
+        "RelationshipGoalContribution",
+        "RelationshipOverview",
+        "WalletReminder",
+        "SocialActivity",
+        "GroupDetail",
+        "WalletDetail"
+      ],
+      "sourceRanges": [
+        {
+          "startLine": 2615,
+          "endLine": 2616
+        },
+        {
+          "startLine": 4782,
+          "endLine": 4782
+        },
+        {
+          "startLine": 4783,
+          "endLine": 4795
+        },
+        {
+          "startLine": 4834,
+          "endLine": 4854
+        },
+        {
+          "startLine": 4855,
+          "endLine": 4867
+        },
+        {
+          "startLine": 4868,
+          "endLine": 4878
+        },
+        {
+          "startLine": 4879,
+          "endLine": 4879
+        },
+        {
+          "startLine": 4880,
+          "endLine": 4881
+        },
+        {
+          "startLine": 4882,
+          "endLine": 4886
+        },
+        {
+          "startLine": 6912,
+          "endLine": 6912
+        },
+        {
+          "startLine": 6913,
+          "endLine": 6913
+        },
+        {
+          "startLine": 6914,
+          "endLine": 6915
+        },
+        {
+          "startLine": 7242,
+          "endLine": 7255
+        },
+        {
+          "startLine": 7521,
+          "endLine": 7530
+        },
+        {
+          "startLine": 7531,
+          "endLine": 7540
+        },
+        {
+          "startLine": 7541,
+          "endLine": 7562
+        },
+        {
+          "startLine": 7563,
+          "endLine": 7579
+        },
+        {
+          "startLine": 7580,
+          "endLine": 7601
+        },
+        {
+          "startLine": 7602,
+          "endLine": 7619
+        },
+        {
+          "startLine": 7620,
+          "endLine": 7660
+        },
+        {
+          "startLine": 7661,
+          "endLine": 7673
+        },
+        {
+          "startLine": 7674,
+          "endLine": 7684
+        },
+        {
+          "startLine": 7685,
+          "endLine": 7701
+        },
+        {
+          "startLine": 7702,
+          "endLine": 7764
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "24 declarations were written to 99-unclassified.tsx"
+  ]
+}

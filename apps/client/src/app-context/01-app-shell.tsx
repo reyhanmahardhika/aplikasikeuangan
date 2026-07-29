@@ -1,41 +1,8 @@
-﻿﻿import { useEffect, useRef, useState } from "react";
-import { ArrowDownLeft, ArrowLeft, ArrowUp, Bell, Loader2, LogOut, Wallet } from "lucide-react";
-import { ApiError, apiFetch, type Session } from "./lib/api";
-import { localDate, rupiah } from "./lib/format";
-import {
-  ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS,
-  clearStoredSession,
-  getAccessTokenSubject,
-  isAccessTokenExpired,
-  isValidSession,
-  loadSavedSessionResult,
-  saveSession,
-  updateSessionActivity,
-  SESSION_ACTIVITY_WINDOW_MS,
-  type StoredSession
-} from "./lib/session";
-import { installUiTranslation } from "./lib/uiTranslation";
-import type { Account, AppLanguage, AssistantContext, Category, ChildFrameState, DashboardSummary, HeaderNotification, InstallPromptEvent, NoticePayload, RelationshipFinanceListItem, Schedule, SocialSummary, TransactionDetail, View } from "./types/app";
-import { mobileNavigation, navigation } from "./config/navigation";
-import { successMessageFor } from "./lib/appHelpers";
-import { MobileTopBar, NotificationBadge } from "./components/layout/MobileTopBar";
-import { NotificationCenter } from "./components/notifications/NotificationCenter";
-import { AccountsView, AddActionSheet, appNavigationLabel, AssistantContextSheet, AssistantView, AuthView, BudgetsView, CategoriesView, DashboardView, DataErrorState, HistoryView, LoadingState, ManageView, ManualTransactionView, MobileBottomNav, ProfileView, queueDebugLog, ReportsView, SocialHubView, storedStringSet, TransactionDetailView, urlBase64ToUint8Array } from "./components/app/AppSections";
-
-
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
-          renderButton: (element: HTMLElement, options: Record<string, unknown>) => void;
-        };
-      };
-    };
-  }
-}
-
+/**
+ * AI context chunk: Main App state, session, navigation, layout
+ * Generated from: App.tsx
+ * Read-only snapshot. Do not import this file into the application.
+ */
 function App() {
   const [initialSession] = useState(() => loadSavedSessionResult(localStorage));
   const [session, setSession] = useState<StoredSession | null>(
@@ -1474,6 +1441,3 @@ function App() {
     </div>
   );
 }
-
-
-export default App;

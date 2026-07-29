@@ -37,10 +37,8 @@ declare global {
 }
 
 function App() {
-  const [initialSession] = useState(() => loadSavedSessionResult(localStorage));
-  const [session, setSession] = useState<StoredSession | null>(
-    initialSession.session
-  );
+  const [session, setSession] = useState<StoredSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as View | null;
@@ -52,7 +50,7 @@ function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
-  const [coreLoading, setCoreLoading] = useState(() => Boolean(initialSession.session));
+  const [coreLoading, setCoreLoading] = useState(false);
   const [coreLoaded, setCoreLoaded] = useState(false);
   const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
   const [socialSummaryData, setSocialSummaryData] = useState<SocialSummary | null>(null);
@@ -310,11 +308,44 @@ function App() {
   };
 
   useEffect(() => {
-    if (initialSession.status !== "expired" && initialSession.status !== "invalid") {
-      return;
-    }
+    let cancelled = false;
 
-    expireSession();
+    const initializeStoredSession = async () => {
+      try {
+        const result = await loadSavedSessionResult(localStorage);
+
+        if (cancelled) return;
+
+        if (result.status === "expired" || result.status === "invalid") {
+          clearStoredSession(localStorage);
+          sessionRef.current = null;
+          setSession(null);
+          setCoreLoading(false);
+          return;
+        }
+
+        sessionRef.current = result.session;
+        setSession(result.session);
+        setCoreLoading(Boolean(result.session));
+      } catch (error) {
+        if (cancelled) return;
+
+        console.error("Gagal membaca session:", error);
+        sessionRef.current = null;
+        setSession(null);
+        setCoreLoading(false);
+      } finally {
+        if (!cancelled) {
+          setSessionLoading(false);
+        }
+      }
+    };
+
+    void initializeStoredSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const request = async <T,>(path: string, options: RequestInit = {}) => {
@@ -1107,6 +1138,10 @@ function App() {
       window.removeEventListener("touchcancel", handleTouchCancel);
     };
   }, [backSwipeSettling, editing, notificationsOpen, selectedTransaction, view]);
+
+  if (sessionLoading) {
+    return <LoadingState />;
+  }
 
   const activeSession = isValidSession(session) ? session : null;
   if (!activeSession) {

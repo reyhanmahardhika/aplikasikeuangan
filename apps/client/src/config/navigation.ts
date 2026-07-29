@@ -1,6 +1,5 @@
 /* Generated from App.tsx. Review before commit. */
 
-import type { View } from "./types/app";
 import type { LucideIcon } from "lucide-react";
 import { Bot, CircleDollarSign, Home, LayoutDashboard, LineChart, Plus, ReceiptText, Settings, Tags, Users, Wallet } from "lucide-react";
 import type { View } from "../types/app";

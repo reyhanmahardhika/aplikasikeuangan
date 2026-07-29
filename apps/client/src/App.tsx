@@ -523,10 +523,16 @@ function App() {
     if (!activeSession?.refreshToken) throw new Error("Refresh token tidak tersedia");
 
     refreshPromiseRef.current = (async () => {
+      console.debug('[Auth] Refreshing access token...', {
+        hasRefreshToken: !!activeSession.refreshToken,
+        lastActivityAt: activeSession.lastActivityAt,
+        userId: activeSession.user.id
+      });
       const refreshed = await apiFetch<Session>("/auth/refresh-token", undefined, {
         method: "POST",
         body: JSON.stringify({ refreshToken: activeSession.refreshToken })
       });
+      console.debug('[Auth] Token refreshed successfully');
       const currentSession = sessionRef.current;
       if (!currentSession || currentSession.refreshToken !== activeSession.refreshToken) {
         throw new Error("Sesi sudah berubah");
@@ -559,7 +565,21 @@ function App() {
     const tokenSubject = getAccessTokenSubject(activeSession.accessToken);
     const tokenBelongsToSessionUser = tokenSubject === activeSession.user.id;
     if (tokenBelongsToSessionUser && !isAccessTokenExpired(activeSession.accessToken)) return;
-    await refreshAccessToken();
+    let retries = 1;
+    while (true) {
+      try {
+        await refreshAccessToken();
+        return;
+      } catch (err) {
+        if (retries > 0 && err instanceof ApiError && err.status === 401) {
+          console.warn('[Auth] Refresh failed, retrying...', { retries });
+          retries--;
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+        throw err;
+      }
+    }
   };
 
   const expireSession = (message = "Sesi Anda sudah selesai. Silakan login kembali.") => {
@@ -11659,4 +11679,7 @@ function QrScanner({
 
 
 export default App;
+
+
+
 

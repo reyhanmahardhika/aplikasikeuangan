@@ -1,0 +1,67 @@
+﻿*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@ const refreshAccessToken = async () => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const activeSession = sessionRef.current;
+    if (!activeSession?.refreshToken) throw new Error("Refresh token tidak tersedia");
+
+    refreshPromiseRef.current = (async () => {
++      console.debug('[Auth] Refreshing access token...', { 
++        hasRefreshToken: !!activeSession.refreshToken,
++        lastActivityAt: activeSession.lastActivityAt,
++        userId: activeSession.user.id
++      });
+      const refreshed = await apiFetch<Session>("/auth/refresh-token", undefined, {
+        method: "POST",
+        body: JSON.stringify({ refreshToken: activeSession.refreshToken })
+      });
++      console.debug('[Auth] Token refreshed successfully');
+      const currentSession = sessionRef.current;
+      if (!currentSession || currentSession.refreshToken !== activeSession.refreshToken) {
+        throw new Error("Sesi sudah berubah");
+      }
+      const nextSession: StoredSession = {
+        user: refreshed.user,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        lastActivityAt: currentSession.lastActivityAt
+      };
+      if (!isValidSession(nextSession)) throw new Error("Sesi tidak lengkap");
+      sessionRef.current = nextSession;
+      setSession(nextSession);
+      localStorage.setItem(
+        "finance-session",
+        JSON.stringify(nextSession)
+      );
+      return nextSession.accessToken;
+    })();
+    try {
+      return await refreshPromiseRef.current;
+    } finally {
+      refreshPromiseRef.current = null;
+    }
+  };
+
+  const ensureFreshAccessToken = async () => {
+    const activeSession = sessionRef.current;
+    if (!activeSession?.refreshToken) return;
+    const tokenSubject = getAccessTokenSubject(activeSession.accessToken);
+    const tokenBelongsToSessionUser = tokenSubject === activeSession.user.id;
+    if (tokenBelongsToSessionUser && !isAccessTokenExpired(activeSession.accessToken)) return;
++    let retries = 1;
++    while (true) {
++      try {
++        await refreshAccessToken();
++        return;
++      } catch (err) {
++        if (retries > 0 && err instanceof ApiError && err.status === 401) {
++          console.warn('[Auth] Refresh failed, retrying...', { retries });
++          retries--;
++          await new Promise(r => setTimeout(r, 500));
++          continue;
++        }
++        throw err;
++      }
++    }
+  };
+*** End Patch

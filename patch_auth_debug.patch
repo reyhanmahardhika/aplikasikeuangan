@@ -1,0 +1,48 @@
+﻿diff --git a/apps/client/src/App.tsx b/apps/client/src/App.tsx
+--- a/apps/client/src/App.tsx
++++ b/apps/client/src/App.tsx
+@@ -520,6 +520,12 @@ function App() {
+   const refreshAccessToken = async () => {
+     if (refreshPromiseRef.current) return refreshPromiseRef.current;
+     const activeSession = sessionRef.current;
+     if (!activeSession?.refreshToken) throw new Error("Refresh token tidak tersedia");
+ 
+     refreshPromiseRef.current = (async () => {
++      console.debug('[Auth] Refreshing access token...', {
++        hasRefreshToken: !!activeSession.refreshToken,
++        lastActivityAt: activeSession.lastActivityAt,
++        userId: activeSession.user.id
++      });
+       const refreshed = await apiFetch<Session>("/auth/refresh-token", undefined, {
+         method: "POST",
+         body: JSON.stringify({ refreshToken: activeSession.refreshToken })
+@@ -528,6 +534,7 @@ function App() {
+       });
++      console.debug('[Auth] Token refreshed successfully');
+       const currentSession = sessionRef.current;
+       if (!currentSession || currentSession.refreshToken !== activeSession.refreshToken) {
+         throw new Error("Sesi sudah berubah");
+@@ -556,6 +563,16 @@ function App() {
+   const ensureFreshAccessToken = async () => {
+     const activeSession = sessionRef.current;
+     if (!activeSession?.refreshToken) return;
+     const tokenSubject = getAccessTokenSubject(activeSession.accessToken);
+     const tokenBelongsToSessionUser = tokenSubject === activeSession.user.id;
+     if (tokenBelongsToSessionUser && !isAccessTokenExpired(activeSession.accessToken)) return;
++    let retries = 1;
++    while (true) {
++      try {
++        await refreshAccessToken();
++        return;
++      } catch (err) {
++        if (retries > 0 && err instanceof ApiError && err.status === 401) {
++          console.warn('[Auth] Refresh failed, retrying...', { retries });
++          retries--;
++          await new Promise(r => setTimeout(r, 500));
++          continue;
++        }
++        throw err;
++      }
++    }
+     await refreshAccessToken();
+   };

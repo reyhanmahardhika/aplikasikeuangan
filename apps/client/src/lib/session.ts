@@ -13,7 +13,9 @@ export type StoredSessionResult = {
 };
 
 const SESSION_STORAGE_KEY = "finance-session";
-export const SESSION_INACTIVITY_LIMIT_MS = 3 * 24 * 60 * 60 * 1000;
+// Session hanya expired jika tidak ada aktivitas selama 30 hari (bukan 3 hari)
+// Ini memberikan waktu yang cukup untuk user yang tidak membuka app dalam beberapa minggu
+export const SESSION_INACTIVITY_LIMIT_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_ACTIVITY_THROTTLE_MS = 30 * 1000;
 
 function isSessionPayload(value: unknown): value is Session {

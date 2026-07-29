@@ -1,4 +1,4 @@
-﻿import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+﻿﻿import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ArrowDownLeft,
   ArrowLeft,
@@ -156,6 +156,10 @@ type Account = {
   canEdit?: boolean;
   allowNegative: boolean;
   isActive: boolean;
+  targetBalance?: string | null;
+  autoBudgetingEnabled?: boolean;
+  logo?: string | null;
+  background?: string | null;
 };
 
 type Category = {
@@ -404,6 +408,7 @@ function App() {
   const coreLoadedRef = useRef(false);
   const sessionExpiredAlertShown = useRef(false);
   const sessionRef = useRef(session);
+  const sessionRecoveryAttempted = useRef(false);
   const sessionInitializedRef = useRef<string | null>(null);
   const profileReturnViewRef = useRef<View>("dashboard");
   const childFrameActiveRef = useRef(false);
@@ -528,29 +533,52 @@ function App() {
         lastActivityAt: activeSession.lastActivityAt,
         userId: activeSession.user.id
       });
-      const refreshed = await apiFetch<Session>("/auth/refresh-token", undefined, {
-        method: "POST",
-        body: JSON.stringify({ refreshToken: activeSession.refreshToken })
-      });
-      console.debug('[Auth] Token refreshed successfully');
-      const currentSession = sessionRef.current;
-      if (!currentSession || currentSession.refreshToken !== activeSession.refreshToken) {
-        throw new Error("Sesi sudah berubah");
+      
+      let retries = 2;
+      let lastError: Error | null = null;
+      
+      while (retries >= 0) {
+        try {
+          const refreshed = await apiFetch<Session>("/auth/refresh-token", undefined, {
+            method: "POST",
+            body: JSON.stringify({ refreshToken: activeSession.refreshToken })
+          });
+          
+          console.debug('[Auth] Token refreshed successfully');
+          const currentSession = sessionRef.current;
+          if (!currentSession || currentSession.refreshToken !== activeSession.refreshToken) {
+            throw new Error("Sesi sudah berubah");
+          }
+          const nextSession: StoredSession = {
+            user: refreshed.user,
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken ?? activeSession.refreshToken, // Fallback jika server tidak kirim refresh token baru
+            lastActivityAt: currentSession.lastActivityAt
+          };
+          if (!isValidSession(nextSession)) throw new Error("Sesi tidak lengkap");
+          sessionRef.current = nextSession;
+          setSession(nextSession);
+          localStorage.setItem(
+            "finance-session",
+            JSON.stringify(nextSession)
+          );
+          return nextSession.accessToken;
+        } catch (error) {
+          lastError = error as Error;
+          if (error instanceof ApiError && error.status === 401) {
+            // Refresh token expired, tidak bisa retry
+            throw error;
+          }
+          // Network error atau server error, bisa retry
+          retries--;
+          if (retries >= 0) {
+            console.warn(`[Auth] Refresh failed, retrying... (${retries} attempts left)`, lastError);
+            await new Promise(r => setTimeout(r, 1000));
+          }
+        }
       }
-      const nextSession: StoredSession = {
-        user: refreshed.user,
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        lastActivityAt: currentSession.lastActivityAt
-      };
-      if (!isValidSession(nextSession)) throw new Error("Sesi tidak lengkap");
-      sessionRef.current = nextSession;
-      setSession(nextSession);
-      localStorage.setItem(
-        "finance-session",
-        JSON.stringify(nextSession)
-      );
-      return nextSession.accessToken;
+      
+      throw lastError ?? new Error("Refresh token gagal");
     })();
     try {
       return await refreshPromiseRef.current;
@@ -582,14 +610,18 @@ function App() {
     }
   };
 
-  const expireSession = (message = "Sesi Anda sudah selesai. Silakan login kembali.") => {
+  const expireSession = (message = "Sesi Anda sudah berakhir. Silakan login kembali.") => {
     if (sessionExpiredAlertShown.current) return;
     sessionExpiredAlertShown.current = true;
+    sessionRecoveryAttempted.current = false;
     clearSession();
     setView("dashboard");
     window.history.replaceState({}, "", window.location.pathname);
     window.scrollTo({ top: 0, behavior: "auto" });
-    window.alert(message);
+    // Gunakan setTimeout agar tidak blocking UI
+    setTimeout(() => {
+      window.alert(message);
+    }, 100);
   };
 
   useEffect(() => {
@@ -817,7 +849,22 @@ function App() {
 
   const initializeSession = async () => {
     try {
-      await ensureFreshAccessToken();
+      // Session recovery: coba refresh token jika access token sudah expired
+      const activeSession = sessionRef.current;
+      if (activeSession?.refreshToken && isAccessTokenExpired(activeSession.accessToken)) {
+        console.debug('[Auth] Session recovery: access token expired, refreshing...');
+        try {
+          await refreshAccessToken();
+        } catch (refreshError) {
+          // Jika refresh gagal, session akan di-expire
+          if (refreshError instanceof ApiError && refreshError.status === 401) {
+            console.warn('[Auth] Session recovery failed: refresh token expired');
+            expireSession("Sesi Anda sudah berakhir. Silakan login kembali.");
+            return;
+          }
+          throw refreshError;
+        }
+      }
 
       if (controller.signal.aborted) {
         return;
@@ -830,7 +877,7 @@ function App() {
       }
 
       if (error instanceof ApiError && error.status === 401) {
-        expireSession();
+        expireSession("Sesi Anda sudah berakhir. Silakan login kembali.");
         return;
       }
 
@@ -852,6 +899,40 @@ function App() {
   };
 }, [session?.user?.id]);
 
+  // Auto-refresh token saat app dibuka kembali (visibility change)
+  useEffect(() => {
+    if (!session?.refreshToken) return;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== "visible") return;
+      
+      const activeSession = sessionRef.current;
+      if (!activeSession?.refreshToken) return;
+
+      // Cek apakah access token sudah expired atau akan segera expired
+      if (isAccessTokenExpired(activeSession.accessToken)) {
+        try {
+          await refreshAccessToken();
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 401) {
+            expireSession();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    
+    // Juga refresh saat app mendapat focus
+    window.addEventListener("focus", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+    };
+  }, [session?.refreshToken]);
+
+  // Session activity tracking dan keep-alive
   useEffect(() => {
     if (!session?.refreshToken) return;
 
@@ -895,31 +976,11 @@ function App() {
 
     const intervalId = window.setInterval(keepSessionAlive, ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS);
 
-    const handleVisibility = () => {
-      if (document.visibilityState !== "visible") return;
-      markActivity();
-      const activeSession = sessionRef.current;
-      if (!activeSession?.accessToken || !isAccessTokenExpired(activeSession.accessToken)) return;
-      keepSessionAlive();
-    };
-
-    const handleFocus = () => {
-      markActivity();
-      const activeSession = sessionRef.current;
-      if (!activeSession?.accessToken || !isAccessTokenExpired(activeSession.accessToken)) return;
-      keepSessionAlive();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("focus", handleFocus);
-
     return () => {
       window.clearInterval(intervalId);
       activityEvents.forEach((eventName) => {
         window.removeEventListener(eventName, markActivity);
       });
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", handleFocus);
     };
   }, [session?.refreshToken]);
 
@@ -4840,6 +4901,19 @@ function splitAccountNumberHolder(value?: string | null) {
   return { number, holder };
 }
 
+function getDefaultPocketLogo(accountType: string): string {
+  switch (accountType) {
+    case "cash": return "💵";
+    case "bank": return "🏦";
+    case "e_wallet": return "📱";
+    case "other": return "💳";
+    case "credit_card": return "💳";
+    case "savings": return "🏦";
+    case "investment": return "📈";
+    default: return "💰";
+  }
+}
+
 function budgetTone(status: string) {
   if (status === "Aman") return "bg-emerald-50 text-[#16A34A]";
   if (status === "Peringatan") return "bg-amber-50 text-amber-700";
@@ -5309,7 +5383,7 @@ function AccountsView({
   const [pocketTab, setPocketTab] = useState<"mine" | "shared">("mine");
   const [pocketSearch, setPocketSearch] = useState("");
   const [pocketOrder, setPocketOrder] = useState<string[]>([]);
-  const [draggedPocketId, setDraggedPocketId] = useState<string | null>(null);
+  const draggedPocketIdRef = useRef<string | null>(null);
   const [selectedPocketId, setSelectedPocketId] = useState("");
   const [pocketTransactionSearch, setPocketTransactionSearch] = useState("");
   const [pocketTransactionType, setPocketTransactionType] = useState<"all" | "income" | "expense">("all");
@@ -5414,9 +5488,12 @@ function AccountsView({
     setPocketProviderDraft(editingAccount?.providerName ?? "");
     setPocketNumberDraft(accountNumberParts.number);
     setPocketHolderDraft(accountNumberParts.holder);
-    setPocketLogoDraft(savedType === "cash" ? "??" : savedType === "e_wallet" ? "??" : savedType === "other" ? "??" : "??");
-    setPocketBackgroundDraft("#16A34A");
-  }, [accountView, editingAccount?.id, editingAccount?.accountNumber, editingAccount?.accountType, editingAccount?.initialBalance, editingAccount?.name, editingAccount?.providerName]);
+    // Gunakan logo dan background dari server jika tersedia, jika tidak gunakan localStorage atau default
+    const visuals = loadPocketVisuals();
+    const accountVisual = editingAccount?.logo ? { logo: editingAccount.logo, background: editingAccount.background } : visuals[editingAccount?.id ?? ""];
+    setPocketLogoDraft(accountVisual?.logo || getDefaultPocketLogo(savedType || "bank"));
+    setPocketBackgroundDraft(accountVisual?.background || "#16A34A");
+  }, [accountView, editingAccount?.id, editingAccount?.accountNumber, editingAccount?.accountType, editingAccount?.initialBalance, editingAccount?.name, editingAccount?.providerName, editingAccount?.logo, editingAccount?.background]);
 
   const movePocket = (fromId: string, toId: string) => {
     if (!fromId || fromId === toId) return;
@@ -5482,19 +5559,21 @@ function AccountsView({
     setError(null);
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const selectedPocketType = String(form.get("pocketType") || pocketTypeDraft) as "cash" | "bank" | "e_wallet" | "e_money";
-    const accountNumber = String(form.get("accountNumber") || "").trim();
-    const accountHolderName = String(form.get("accountHolderName") || "").trim();
+    const selectedPocketType = pocketTypeDraft;
+    const accountNumber = pocketNumberDraft.trim();
+    const accountHolderName = pocketHolderDraft.trim();
     const accountNumberPayload = accountHolderName && selectedPocketType !== "e_money" ? `${accountNumber} � ${accountHolderName}` : accountNumber;
     try {
       const payload = {
-        name: String(form.get("name")).trim(),
+        name: pocketNameDraft.trim(),
         accountType: selectedPocketType === "e_money" ? "other" : selectedPocketType,
-        initialBalance: String(form.get("initialBalance")),
+        initialBalance: String(form.get("initialBalance") || pocketInitialBalanceDraft),
         currency: "IDR",
-        providerName: selectedPocketType === "cash" ? null : String(form.get("providerName") || "").trim() || null,
+        providerName: selectedPocketType === "cash" ? null : pocketProviderDraft.trim() || null,
         accountNumber: selectedPocketType === "cash" ? null : accountNumberPayload || null,
-        allowNegative: false
+        allowNegative: false,
+        logo: pocketLogoDraft || null,
+        background: pocketBackgroundDraft || null
       };
       const saved = await request<{ id: string }>(editingAccount ? `/accounts/${editingAccount.id}` : "/accounts", {
         method: editingAccount ? "PUT" : "POST",
@@ -5721,22 +5800,28 @@ function AccountsView({
           {visiblePockets.length === 0 ? (
             <EmptyState text={pocketTab === "mine" ? "Belum ada pocket. Tambahkan pocket pertama Anda." : "Belum ada pocket yang dibagikan ke Anda."} />
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               {visiblePockets.map((account) => {
                 const AccountIcon = accountTypeIcon(account.accountType);
                 const sharedLabel = accountSharedLabel(account, language);
+                // Ambil visual dari server, localStorage, atau gunakan warna default hijau
+                const visuals = loadPocketVisuals();
+                const accountVisual = account.logo ? { logo: account.logo, background: account.background } : visuals[account.id];
+                const cardBackground = accountVisual?.background || "#16A34A";
+                const cardLogo = accountVisual?.logo || getDefaultPocketLogo(account.accountType);
                 return (
                   <button
                     key={account.id}
                     type="button"
                     draggable={pocketTab === "mine"}
-                    onDragStart={() => setDraggedPocketId(account.id)}
+                    onDragStart={() => { draggedPocketIdRef.current = account.id; }}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={() => {
-                      movePocket(draggedPocketId ?? "", account.id);
-                      setDraggedPocketId(null);
+                      movePocket(draggedPocketIdRef.current ?? "", account.id);
+                      draggedPocketIdRef.current = null;
                     }}
-                    className="ripple-card min-h-[148px] rounded-[22px] border border-white/80 bg-white p-3 text-left shadow-soft transition active:scale-[0.99] lg:rounded-lg"
+                    className="ripple-card min-h-[180px] overflow-hidden rounded-[24px] p-4 text-left text-white shadow-lg transition active:scale-[0.99] lg:rounded-lg"
+                    style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }}
                     onClick={() => {
                       setSelectedPocketId(account.id);
                       setTargetBalanceDraft("");
@@ -5746,17 +5831,28 @@ function AccountsView({
                       setAccountView("pocket-detail");
                     }}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]">
-                        <AccountIcon size={18} />
-                      </span>
-                      <span className="text-[10px] font-semibold text-slate-300">{pocketTab === "mine" ? "Drag" : "Shared"}</span>
-                    </div>
-                    <p className="mt-3 truncate text-sm font-semibold text-slate-950">{account.name}</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-950">{rupiah(account.currentBalance)}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-1">
-                      <span className="rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{accountTypeLabel(account.accountType)}</span>
-                      {sharedLabel && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold text-[#16A34A]">{sharedLabel}</span>}
+                    <div className="absolute right-[-38px] top-[-38px] h-32 w-32 rounded-full bg-white/15" />
+                    <div className="relative z-10">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white/18 text-2xl ring-1 ring-white/25 backdrop-blur">
+                          {cardLogo.startsWith("data:") ? (
+                            <img src={cardLogo} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="text-2xl">{cardLogo}</span>
+                          )}
+                        </span>
+                        <span className="text-[10px] font-semibold text-white/70">{pocketTab === "mine" ? "Drag" : "Shared"}</span>
+                      </div>
+                      <div className="mt-7">
+                        <p className="truncate text-xl font-semibold">{account.name}</p>
+                        <p className="mt-1 text-xs font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` · ${account.providerName}` : ""}</p>
+                        <p className="mt-4 text-xs font-medium text-white/70">Saldo saat ini</p>
+                        <p className="mt-1 text-2xl font-semibold">{rupiah(account.currentBalance)}</p>
+                      </div>
+                      <div className="mt-4 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-full bg-white/14 px-2.5 py-1 text-[10px] font-semibold backdrop-blur">{accountTypeLabel(account.accountType)}</span>
+                        {sharedLabel && <span className="rounded-full bg-white/14 px-2.5 py-1 text-[9px] font-semibold backdrop-blur">{sharedLabel}</span>}
+                      </div>
                     </div>
                   </button>
                 );
@@ -5791,23 +5887,34 @@ function AccountsView({
               )}
             </div>
             <div className="mt-4 flex items-start gap-3">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]">
-                {(() => {
-                  const Icon = accountTypeIcon(selectedPocket.accountType);
-                  return <Icon size={22} />;
-                })()}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-lg font-semibold text-slate-950">{selectedPocket.name}</p>
-                <p className="mt-1 text-2xl font-semibold text-slate-950">{rupiah(selectedPocket.currentBalance)}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, selectedPocket.accountNumber].filter(Boolean).join(" � ")}
-                </p>
-              </div>
+              {(() => {
+                const visuals = loadPocketVisuals();
+                const accountVisual = selectedPocket.logo ? { logo: selectedPocket.logo, background: selectedPocket.background } : visuals[selectedPocket.id];
+                const cardBackground = accountVisual?.background || "#16A34A";
+                const cardLogo = accountVisual?.logo || getDefaultPocketLogo(selectedPocket.accountType);
+                return (
+                  <>
+                    <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }}>
+                      {cardLogo.startsWith("data:") ? (
+                        <img src={cardLogo} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-2xl">{cardLogo}</span>
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-lg font-semibold text-slate-950">{selectedPocket.name}</p>
+                      <p className="mt-1 text-2xl font-semibold text-slate-950">{rupiah(selectedPocket.currentBalance)}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, selectedPocket.accountNumber].filter(Boolean).join(" � ")}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]"
@@ -5842,18 +5949,36 @@ function AccountsView({
               onClick={() => onAddTransaction?.(selectedPocket.id)}
             >
               <ShoppingBag className="text-sky-700" size={18} />
-              <p className="mt-2 text-sm font-semibold">Make transaction</p>
+              <p className="mt-2 text-sm font-semibold">New transaction</p>
               <p className="mt-0.5 text-[11px] text-slate-500">Buy, pay, receive money</p>
             </button>
-            <button
-              type="button"
-              className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]"
-              onClick={() => setTargetBalanceDraft(targetBalanceDraft || moneyInputValue(selectedPocket.currentBalance))}
-            >
-              <TrendingUp className="text-violet-700" size={18} />
-              <p className="mt-2 text-sm font-semibold">Set target balance</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">Plan pocket balance</p>
-            </button>
+            {/* Tampilkan set target balance hanya jika pocket belum memiliki target balance */}
+            {!selectedPocket.targetBalance && (
+              <button
+                type="button"
+                className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]"
+                onClick={() => setTargetBalanceDraft(targetBalanceDraft || moneyInputValue(selectedPocket.currentBalance))}
+              >
+                <TrendingUp className="text-violet-700" size={18} />
+                <p className="mt-2 text-sm font-semibold">Set target balance</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">Plan pocket balance</p>
+              </button>
+            )}
+            {/* Tampilkan set auto-budgeting hanya jika user belum mengatur auto budgeting pada pocket ini */}
+            {!selectedPocket.autoBudgetingEnabled && (
+              <button
+                type="button"
+                className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]"
+                onClick={() => {
+                  // TODO: Buka modal untuk mengatur auto-budgeting
+                  console.log("Open auto-budgeting setup for pocket:", selectedPocket.id);
+                }}
+              >
+                <Settings className="text-amber-600" size={18} />
+                <p className="mt-2 text-sm font-semibold">Set auto-budgeting</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">Automate your budget</p>
+              </button>
+            )}
           </div>
 
           <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
@@ -6014,7 +6139,7 @@ function AccountsView({
                 setPocketProviderDraft("");
                 setPocketNumberDraft("");
                 setPocketHolderDraft("");
-                setPocketLogoDraft(nextType === "cash" ? "??" : nextType === "bank" ? "??" : nextType === "e_wallet" ? "??" : "??");
+                setPocketLogoDraft(getDefaultPocketLogo(nextType === "e_money" ? "other" : nextType));
               }}>
                 <option value="cash">Tunai</option>
                 <option value="bank">Rekening Bank</option>
@@ -11679,7 +11804,3 @@ function QrScanner({
 
 
 export default App;
-
-
-
-

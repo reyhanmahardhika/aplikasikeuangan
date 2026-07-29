@@ -224,18 +224,39 @@ export async function refreshAccessToken(refreshToken: string) {
   const tokenHash = hashToken(refreshToken);
   return withDbTransaction(async (client) => {
     const result = await client.query(
-      `SELECT rt.id, u.id AS user_id, u.full_name, u.email, u.username, u.phone, u.currency, u.nickname,
-              u.profile_title, u.avatar_url
-       FROM refresh_tokens rt
-       JOIN users u ON u.id = rt.user_id
-       WHERE rt.token_hash = $1 AND rt.revoked_at IS NULL AND rt.expires_at > now()
-       FOR UPDATE OF rt`,
+      `SELECT
+          rt.id AS refresh_token_id,
+          u.id AS id,
+          u.full_name,
+          u.email,
+          u.username,
+          u.phone,
+          u.currency,
+          u.nickname,
+          u.profile_title,
+          u.avatar_url
+      FROM refresh_tokens rt
+      JOIN users u ON u.id = rt.user_id
+      WHERE rt.token_hash = $1
+        AND rt.revoked_at IS NULL
+        AND rt.expires_at > now()
+      FOR UPDATE OF rt`,
       [tokenHash]
     );
+
     const row = result.rows[0];
-    if (!row) throw unauthorized("Sesi tidak aktif atau sudah berakhir");
-    await client.query("UPDATE refresh_tokens SET expires_at = $1 WHERE id = $2", [refreshExpiry(), row.id]);
+
+    if (!row) {
+      throw unauthorized("Sesi tidak aktif atau sudah berakhir");
+    }
+
+    await client.query(
+      "UPDATE refresh_tokens SET expires_at = $1 WHERE id = $2",
+      [refreshExpiry(), row.refresh_token_id]
+    );
+
     const user = publicUser(row);
+
     return {
       user,
       accessToken: signAccessToken(user),

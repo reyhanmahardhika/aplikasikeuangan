@@ -1567,11 +1567,11 @@ export function savePocketVisuals(visuals: Record<string, PocketVisual>) {
 }
 
 export function splitAccountNumberHolder(value?: string | null) {
-    const raw = String(value ?? "").trim();
+    const raw = cleanPocketMetadata(value);
     if (!raw) {
         return { number: "", holder: "" };
     }
-    const separators = [" · ", " • ", " - ", " Ã¯Â¿Â½ ", " ï¿½ "];
+    const separators = [" \u00B7 ", " \u2022 ", " - "];
     for (const separator of separators) {
         if (!raw.includes(separator))
             continue;
@@ -1584,17 +1584,29 @@ export function splitAccountNumberHolder(value?: string | null) {
     return { number: raw, holder: "" };
 }
 
+export function cleanPocketMetadata(value?: string | null) {
+    return String(value ?? "")
+        .replace(/\s*(?:\u00C2\u00B7|\u00C3\u201A\u00C2\u00B7|\u00EF\u00BF\u00BD|\u00C3\u00AF\u00C2\u00BF\u00C2\u00BD)\s*/g, " \u00B7 ")
+        .trim();
+}
+
 export function getDefaultPocketLogo(accountType: string): string {
     switch (accountType) {
-        case "cash": return "Ã°Å¸â€™Âµ";
-        case "bank": return "Ã°Å¸ÂÂ¦";
-        case "e_wallet": return "Ã°Å¸â€œÂ±";
-        case "other": return "Ã°Å¸â€™Â³";
-        case "credit_card": return "Ã°Å¸â€™Â³";
-        case "savings": return "Ã°Å¸ÂÂ¦";
-        case "investment": return "Ã°Å¸â€œË†";
-        default: return "Ã°Å¸â€™Â°";
+        case "cash": return "\u{1F4B5}";
+        case "bank": return "\u{1F3E6}";
+        case "e_wallet": return "\u{1F4F1}";
+        case "other": return "\u{1F4B3}";
+        case "credit_card": return "\u{1F4B3}";
+        case "savings": return "\u{1F3E6}";
+        case "investment": return "\u{1F4C8}";
+        default: return "\u{1F4B0}";
     }
+}
+
+export function resolvePocketLogo(logo: string | null | undefined, accountType: string) {
+    if (logo?.startsWith("data:image/") || (logo && pocketStickerOptions.includes(logo)))
+        return logo;
+    return getDefaultPocketLogo(accountType);
 }
 
 export function budgetTone(status: string) {
@@ -2485,7 +2497,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         // Gunakan logo dan background dari server jika tersedia, jika tidak gunakan localStorage atau default
         const visuals = loadPocketVisuals();
         const accountVisual = editingAccount?.logo ? { logo: editingAccount.logo, background: editingAccount.background } : visuals[editingAccount?.id ?? ""];
-        setPocketLogoDraft(accountVisual?.logo || getDefaultPocketLogo(savedType || "bank"));
+        setPocketLogoDraft(resolvePocketLogo(accountVisual?.logo, savedType || "bank"));
         setPocketBackgroundDraft(accountVisual?.background || "#16A34A");
         setShowPocketLogoMenu(false);
         setShowPocketStickerPicker(false);
@@ -2882,7 +2894,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     const visuals = loadPocketVisuals();
                     const accountVisual = account.logo ? { logo: account.logo, background: account.background } : visuals[account.id];
                     const cardBackground = accountVisual?.background || "#16A34A";
-                    const cardLogo = accountVisual?.logo || getDefaultPocketLogo(account.accountType);
+                    const cardLogo = resolvePocketLogo(accountVisual?.logo, account.accountType);
                     return (<button key={account.id} data-pocket-id={account.id} type="button" draggable={pocketTab === "mine"} onDragStart={() => { draggedPocketIdRef.current = account.id; }} onDragEnd={() => { draggedPocketIdRef.current = null; savePocketOrder(); }} onDragOver={(event) => event.preventDefault()} onDrop={() => {
                             movePocket(draggedPocketIdRef.current ?? "", account.id);
                             draggedPocketIdRef.current = null;
@@ -2926,7 +2938,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                       </div>
                       <div className="mt-0.5">
                         <p className="truncate text-base font-semibold">{account.name}</p>
-                        <p className="mt-0.5 text-[10px] font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` Ã‚Â· ${account.providerName}` : ""}</p>
+                        <p className="mt-0.5 text-[10px] font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` \u00B7 ${account.providerName}` : ""}</p>
                         <p className="mt-3 text-[10px] font-medium text-white/70">Saldo saat ini</p>
                         <p className="mt-0.5 text-lg font-semibold">{rupiah(account.currentBalance)}</p>
                       </div>
@@ -2962,7 +2974,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               {(() => {
                 const visuals = loadPocketVisuals();
                 const accountVisual = selectedPocket.logo ? { logo: selectedPocket.logo, background: selectedPocket.background } : visuals[selectedPocket.id];
-                const cardLogo = accountVisual?.logo || getDefaultPocketLogo(selectedPocket.accountType);
+                const cardLogo = resolvePocketLogo(accountVisual?.logo, selectedPocket.accountType);
                 return (<>
                     <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white/18 ring-1 ring-white/25 backdrop-blur">
                       {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="flex h-full w-full items-center justify-center text-[36px] leading-none">{cardLogo}</span>)}
@@ -2971,7 +2983,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                       <p className="truncate text-xl font-semibold text-white">{selectedPocket.name}</p>
                       <p className="mt-1 text-3xl font-semibold text-white">{rupiah(selectedPocket.currentBalance)}</p>
                       <p className="mt-1 text-xs text-white/75">
-                        {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, selectedPocket.accountNumber].filter(Boolean).join(" Â· ")}
+                        {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, cleanPocketMetadata(selectedPocket.accountNumber)].filter(Boolean).join(" \u00B7 ")}
                       </p>
                     </div>
                   </>);

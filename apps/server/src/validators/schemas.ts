@@ -157,8 +157,7 @@ export const assistantChatSchema = z.object({
   message: z.string().min(1).max(1000),
   language: z.enum(["en", "id"]).default("id"),
   context: z.object({
-    contextType: z.enum(["personal", "shared_wallet", "relationship_finance", "goal", "budget", "investment"]).default("personal"),
-    relationshipFinanceId: uuid.optional(),
+    contextType: z.enum(["personal", "shared_wallet", "goal", "budget", "investment"]).default("personal"),
     entityType: z.string().max(80).optional(),
     entityId: uuid.optional(),
     sourcePage: z.string().max(80).optional()

@@ -15,12 +15,12 @@ import {
   type StoredSession
 } from "./lib/session";
 import { installUiTranslation } from "./lib/uiTranslation";
-import type { Account, AppLanguage, AssistantContext, Category, ChildFrameState, DashboardSummary, HeaderNotification, InstallPromptEvent, NoticePayload, RelationshipFinanceListItem, Schedule, SocialSummary, TransactionDetail, View } from "./types/app";
+import type { Account, AppLanguage, AssistantContext, Category, ChildFrameState, DashboardSummary, HeaderNotification, InstallPromptEvent, NoticePayload, Schedule, SocialSummary, TransactionDetail, View } from "./types/app";
 import { mobileNavigation, navigation } from "./config/navigation";
 import { successMessageFor } from "./lib/appHelpers";
 import { MobileTopBar, NotificationBadge } from "./components/layout/MobileTopBar";
 import { NotificationCenter } from "./components/notifications/NotificationCenter";
-import { AccountsView, AddActionSheet, appNavigationLabel, AssistantContextSheet, AssistantView, AuthView, BudgetsView, CategoriesView, DashboardView, DataErrorState, HistoryView, LoadingState, ManageView, ManualTransactionView, MobileBottomNav, ProfileView, queueDebugLog, ReportsView, SocialHubView, storedStringSet, TransactionDetailView, urlBase64ToUint8Array } from "./components/app/AppSections";
+import { AccountsView, AddActionSheet, appNavigationLabel, AssistantView, AuthView, BudgetsView, CategoriesView, DashboardView, DataErrorState, HistoryView, LoadingState, ManageView, ManualTransactionView, MobileBottomNav, ProfileView, queueDebugLog, ReportsView, SocialHubView, storedStringSet, TransactionDetailView, urlBase64ToUint8Array } from "./components/app/AppSections";
 
 
 declare global {
@@ -66,6 +66,7 @@ function App() {
   const [historyFocusTransactionId, setHistoryFocusTransactionId] = useState<string | null>(null);
   const [historyAccountId, setHistoryAccountId] = useState("");
   const [historyFromDate, setHistoryFromDate] = useState("");
+  const [historyParentView, setHistoryParentView] = useState<View | null>(null);
   const [manualInitialType, setManualInitialType] = useState<"income" | "expense">("expense");
   const [manualInitialAccountId, setManualInitialAccountId] = useState("");
   const [manualResetKey, setManualResetKey] = useState(0);
@@ -73,10 +74,6 @@ function App() {
   const [accountsResetKey, setAccountsResetKey] = useState(0);
   const [addActionOpen, setAddActionOpen] = useState(false);
   const [assistantContext, setAssistantContext] = useState<AssistantContext | null>(null);
-  const [assistantSelectorOpen, setAssistantSelectorOpen] = useState(false);
-  const [assistantRelationshipOptions, setAssistantRelationshipOptions] = useState<RelationshipFinanceListItem[]>([]);
-  const [assistantRelationshipLoading, setAssistantRelationshipLoading] = useState(false);
-  const [assistantRelationshipId, setAssistantRelationshipId] = useState("");
   const [notice, setNotice] = useState<NoticePayload | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -405,43 +402,8 @@ function App() {
     }
   };
 
-  const openAssistantSelector = async () => {
-    setAssistantSelectorOpen(true);
-    setAssistantRelationshipLoading(true);
-    try {
-      const rows = await request<RelationshipFinanceListItem[]>("/relationship-finances");
-      const activeRows = rows.filter((item) => item.status === "active");
-      setAssistantRelationshipOptions(activeRows);
-      setAssistantRelationshipId(activeRows[0]?.id ?? "");
-    } catch (error) {
-      setAssistantRelationshipOptions([]);
-      setAssistantRelationshipId("");
-      setNotice(error instanceof Error ? error.message : "Relationship Finance gagal dimuat");
-    } finally {
-      setAssistantRelationshipLoading(false);
-    }
-  };
-
-  const openPersonalAssistant = () => {
+  const openAssistant = () => {
     setAssistantContext(null);
-    setAssistantSelectorOpen(false);
-    navigate("assistant");
-  };
-
-  const openRelationshipAssistant = () => {
-    if (!assistantRelationshipId) {
-      setNotice(language === "en" ? "Select an active Relationship Finance first." : "Pilih Relationship Finance aktif terlebih dahulu.");
-      return;
-    }
-    const selected = assistantRelationshipOptions.find((item) => item.id === assistantRelationshipId);
-    setAssistantContext({
-      contextType: "relationship_finance",
-      relationshipFinanceId: assistantRelationshipId,
-      sourcePage: "assistant_selector",
-      label: selected?.workspaceName,
-      partnerName: selected?.partnerName ?? null
-    });
-    setAssistantSelectorOpen(false);
     navigate("assistant");
   };
 
@@ -876,6 +838,11 @@ function App() {
   const navigate = (nextView: View, preserveHistoryAccount = false) => {
     if (nextView === "history" && !preserveHistoryAccount) {
       setHistoryAccountId("");
+      setHistoryFromDate("");
+      setHistoryParentView(null);
+    }
+    if (nextView !== "history" && nextView !== "transactionDetail") {
+      setHistoryParentView(null);
     }
     if (nextView === "manual" || view === "manual" || nextView !== "transactionDetail") {
       setEditing(null);
@@ -915,6 +882,13 @@ function App() {
     navigate("manual");
   };
 
+  const openPocketTransactions = (accountId = "", fromDate?: string) => {
+    setHistoryParentView("accounts");
+    setHistoryAccountId(accountId);
+    setHistoryFromDate(fromDate ?? "");
+    navigate("history", true);
+  };
+
   const startAccountTransfer = () => {
     setAddActionOpen(false);
     setEditing(null);
@@ -950,6 +924,9 @@ function App() {
     appNavigationLabel(view, navigation.find((item) => item.id === view)?.label, language) ??
     appNavigationLabel(view, mobileNavigation.find((item) => item.id === view)?.label, language) ??
     "Detail transaksi";
+  const activeNavigationView = (view === "history" || view === "transactionDetail") && historyParentView === "accounts"
+    ? "accounts"
+    : view;
   const backSwipeProgress = Math.min(1, backSwipeOffset / Math.max(window.innerWidth, 320));
 
   const goBackFromChildFrame = () => {
@@ -1163,15 +1140,16 @@ function App() {
         <nav className="space-y-1 p-3">
           {navigation.map((item) => {
             const Icon = item.icon;
-            const active = view === item.id;
+            const active = activeNavigationView === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => {
                   if (item.id === "assistant") {
-                    openAssistantSelector().catch((error) => setNotice(error instanceof Error ? error.message : "Kopilot gagal dibuka"));
+                    openAssistant();
                     return;
                   }
+                  if (item.id === "history") setHistoryParentView(null);
                   if (item.id === "accounts") setAccountsInitialView("list");
                   navigate(item.id);
                 }}
@@ -1326,7 +1304,7 @@ function App() {
               error={coreLoadError}
               language={language}
               onAdd={openAddActionSheet}
-              onAssistant={openAssistantSelector}
+              onAssistant={openAssistant}
               onRetry={() => {
                 refreshCore().catch((error) => {
                   setNotice(error instanceof Error ? error.message : "Gagal memuat data");
@@ -1404,9 +1382,7 @@ function App() {
               language={language}
               onAddTransaction={startPocketTransaction}
               onOpenTransactions={(accountId, fromDate) => {
-                setHistoryAccountId(accountId);
-                setHistoryFromDate(fromDate ?? "");
-                navigate("history", true);
+                openPocketTransactions(accountId, fromDate);
               }}
             />
           )}
@@ -1440,10 +1416,6 @@ function App() {
               language={language}
               onChanged={refreshCore}
               onChildFrameStateChange={applyChildFrameState}
-              onOpenAssistantContext={(context) => {
-                setAssistantContext(context);
-                navigate("assistant");
-              }}
             />
           )}
           {view === "profile" && (
@@ -1462,14 +1434,16 @@ function App() {
 
         <MobileBottomNav
           view={view}
+          activeView={activeNavigationView}
           language={language}
           isScrolling={isScrolling}
           onAdd={openAddActionSheet}
           onNavigate={(nextView) => {
             if (nextView === "assistant") {
-              openAssistantSelector().catch((error) => setNotice(error instanceof Error ? error.message : "Kopilot gagal dibuka"));
+              openAssistant();
               return;
             }
+            if (nextView === "history") setHistoryParentView(null);
             if (nextView === "accounts") setAccountsInitialView("list");
             navigate(nextView);
           }}
@@ -1480,18 +1454,6 @@ function App() {
             onClose={() => setAddActionOpen(false)}
             onTransaction={() => startAddTransaction("expense")}
             onTransfer={startAccountTransfer}
-          />
-        )}
-        {assistantSelectorOpen && (
-          <AssistantContextSheet
-            language={language}
-            relationships={assistantRelationshipOptions}
-            selectedRelationshipId={assistantRelationshipId}
-            loading={assistantRelationshipLoading}
-            onSelectRelationship={setAssistantRelationshipId}
-            onClose={() => setAssistantSelectorOpen(false)}
-            onPersonal={openPersonalAssistant}
-            onRelationship={openRelationshipAssistant}
           />
         )}
         {showScrollTop && view !== "assistant" && (

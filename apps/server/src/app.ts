@@ -21,7 +21,6 @@ import { socialRoutes } from "./routes/socialRoutes.js";
 import { notificationRoutes } from "./routes/notificationRoutes.js";
 import { walletManagementRoutes } from "./routes/walletManagementRoutes.js";
 import { accountCollaboratorRoutes } from "./routes/accountCollaboratorRoutes.js";
-import { relationshipFinanceRoutes } from "./routes/relationshipFinanceRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -110,6 +109,7 @@ export function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/accounts", accountRoutes);
+  app.use("/api/accounts", accountCollaboratorRoutes);
   app.use("/api/transactions", transactionRoutes);
   app.use("/api/receipts", receiptRoutes);
   app.use("/api/categories", categoryRoutes);
@@ -120,7 +120,6 @@ export function createApp() {
   app.use("/api/assistant", assistantRoutes);
   app.use("/api/social", socialRoutes);
   app.use("/api/social", walletManagementRoutes);
-  app.use("/api/relationship-finances", relationshipFinanceRoutes);
   app.use("/api/notifications", notificationRoutes);
 
   app.use(errorMiddleware);

@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS relationship_goal_contributions CASCADE;
+DROP TABLE IF EXISTS relationship_budgets CASCADE;
+DROP TABLE IF EXISTS relationship_assets CASCADE;
+DROP TABLE IF EXISTS relationship_liabilities CASCADE;
+DROP TABLE IF EXISTS relationship_agreements CASCADE;
+DROP TABLE IF EXISTS relationship_timeline_events CASCADE;
+DROP TABLE IF EXISTS relationship_insights CASCADE;
+DROP TABLE IF EXISTS relationship_goals CASCADE;
+DROP TABLE IF EXISTS relationship_finance_privacy_settings CASCADE;
+DROP TABLE IF EXISTS relationship_finance_invitations CASCADE;
+DROP TABLE IF EXISTS relationship_finance_members CASCADE;
+DROP TABLE IF EXISTS relationship_finances CASCADE;

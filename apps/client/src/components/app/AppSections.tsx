@@ -5,9 +5,8 @@
  */
 
 import { ApiError, apiFetch, downloadUrl } from "../../lib/api";
-import type { Account, AiTrackedField, AppLanguage, AssistantContext, AssistantMessage, BudgetRow, CashFlowReportRow, Category, CategoryReportRow, ChildFrameState, DashboardSummary, GroupDetail, ManageTab, ManualDraft, MonthlyReportRow, ParsedManualTransaction, PocketVisual, RelationshipFinanceListItem, RelationshipGoal, RelationshipGoalContribution, RelationshipOverview, Schedule, SocialActivity, SocialFriend, SocialGroup, SocialSummary, SocialWallet, Transaction, TransactionDetail, View, WalletDetail, WalletReminder } from "../../types/app";
+import type { Account, AiTrackedField, AppLanguage, AssistantContext, AssistantMessage, BudgetRow, CashFlowReportRow, Category, CategoryReportRow, ChildFrameState, DashboardSummary, GroupDetail, ManageTab, ManualDraft, MonthlyReportRow, ParsedManualTransaction, PocketVisual, Schedule, SocialActivity, SocialFriend, SocialGroup, SocialSummary, SocialWallet, Transaction, TransactionDetail, View, WalletDetail, WalletReminder } from "../../types/app";
 import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, HeartPulse, Landmark, Lightbulb, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
-import { mobileNavigation } from "../../config/navigation";
 import type { Session } from "../../lib/api";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "../../lib/format";
@@ -18,833 +17,15 @@ import QRCode from "qrcode";
 import jsQR from "jsqr";
 import { WalletAccountEditModal } from "../SharedWalletEditModals";
 import type { PointerEvent as ReactPointerEvent } from "react";
-
-export let debugLogTimer: number | null = null;
-
-export let debugLogPayload: {
-    event: string;
-    data: unknown;
-} | null = null;
-
-export function queueDebugLog(event: string, data: unknown) {
-    if (!import.meta.env.DEV || event.toLowerCase().includes("scroll"))
-        return;
-    debugLogPayload = { event, data };
-    if (debugLogTimer)
-        window.clearTimeout(debugLogTimer);
-    debugLogTimer = window.setTimeout(() => {
-        const payload = debugLogPayload;
-        debugLogPayload = null;
-        debugLogTimer = null;
-        if (!payload)
-            return;
-        void fetch(downloadUrl("/__debug/log"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionId: "login-error", event: payload.event, data: payload.data })
-        }).catch(() => undefined);
-    }, 350);
-}
-
-export function AssistantContextSheet({ language, relationships, selectedRelationshipId, loading, onSelectRelationship, onClose, onPersonal, onRelationship }: {
-    language: AppLanguage;
-    relationships: RelationshipFinanceListItem[];
-    selectedRelationshipId: string;
-    loading: boolean;
-    onSelectRelationship: (id: string) => void;
-    onClose: () => void;
-    onPersonal: () => void;
-    onRelationship: () => void;
-}) {
-    const isEnglish = language === "en";
-    return (<>
-      <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label={isEnglish ? "Close Copilot options" : "Tutup pilihan Kopilot"} onClick={onClose}/>
-      <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[24px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Finance Copilot</p>
-            <h2 className="mt-1 text-base font-semibold text-slate-950">
-              {isEnglish ? "Choose Copilot context" : "Pilih konteks Kopilot"}
-            </h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isEnglish
-            ? "Use personal Copilot or analyze a shared relationship workspace."
-            : "Gunakan Kopilot pribadi atau analisis workspace Relationship Finance."}
-            </p>
-          </div>
-          <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={onClose}>
-            <X size={17}/>
-          </button>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          <button type="button" className="flex w-full items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-left transition active:scale-[0.99]" onClick={onPersonal}>
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#16A34A]">
-              <Bot size={20}/>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Personal Copilot" : "Kopilot pribadi"}</span>
-              <span className="mt-0.5 block text-xs text-slate-500">{isEnglish ? "Balances, budgets, bills, and personal transactions." : "Saldo, budget, tagihan, dan transaksi pribadi."}</span>
-            </span>
-            <ChevronRight size={18} className="text-slate-300"/>
-          </button>
-
-          {loading ? (<div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-[#F8FAFC] p-3 text-left">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#16A34A]">
-                <Loader2 size={18} className="animate-spin"/>
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Relationship Copilot" : "Kopilot Relationship"}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">{isEnglish ? "Loading workspaces..." : "Memuat workspace..."}</span>
-              </span>
-            </div>) : relationships.length === 0 ? (<div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-[#F8FAFC] p-3 text-left opacity-60">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
-                <HeartPulse size={20}/>
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Relationship Copilot" : "Kopilot Relationship"}</span>
-                <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                  {isEnglish ? "No active Relationship Finance workspace yet." : "Belum ada workspace Relationship Finance yang aktif."}
-                </span>
-              </span>
-            </div>) : (<button type="button" className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-left transition hover:bg-emerald-50/50 active:scale-[0.99]" onClick={onRelationship}>
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
-                <HeartPulse size={20}/>
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Relationship Copilot" : "Kopilot Relationship"}</span>
-                <select className="mt-1 w-full rounded-xl border border-slate-100 bg-[#F8FAFC] px-2 py-1.5 text-xs font-semibold text-slate-600 outline-none" value={selectedRelationshipId} onChange={(event) => onSelectRelationship(event.target.value)} onClick={(event) => event.stopPropagation()}>
-                  {relationships.map((item) => (<option key={item.id} value={item.id}>
-                      {item.workspaceName}{item.partnerName ? ` - ${item.partnerName}` : ""}
-                    </option>))}
-                </select>
-              </span>
-              <ChevronRight size={18} className="text-slate-300"/>
-            </button>)}
-        </div>
-      </section>
-    </>);
-}
-
-export function MobileBottomNav({ view, language, isScrolling, onAdd, onNavigate }: {
-    view: View;
-    language: AppLanguage;
-    isScrolling: boolean;
-    onAdd: () => void;
-    onNavigate: (view: View) => void;
-}) {
-    const plusActive = view === "manual";
-    const isActive = (item: {
-        id: View;
-    }) => item.id === "accounts"
-        ? view === "accounts"
-        : item.id === "manage"
-            ? view === "manage" || view === "categories" || view === "budgets"
-            : view === item.id;
-    return (<nav className={`mobile-bottom-nav ${isScrolling ? "mobile-bottom-nav-scrolling" : ""} lg:hidden`} aria-label={language === "en" ? "Main navigation" : "Navigasi utama"}>
-      <div className="mobile-bottom-nav-shell">
-        <div className="mobile-bottom-nav-surface" aria-hidden="true"/>
-        <div className="mobile-bottom-nav-menus">
-          <div className="mobile-bottom-nav-side grid grid-cols-2">
-            {mobileNavigation.slice(0, 2).map((item) => (<MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate}/>))}
-          </div>
-          <div className="mobile-bottom-nav-side grid grid-cols-2">
-            {mobileNavigation.slice(2).map((item) => (<MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate}/>))}
-          </div>
-        </div>
-        <button className={`mobile-fab ${plusActive ? "mobile-fab-active" : ""}`} aria-label={language === "en" ? "Add transaction" : "Tambah transaksi"} title={language === "en" ? "Add transaction" : "Tambah transaksi"} aria-current={plusActive ? "page" : undefined} onClick={onAdd}>
-          <Plus size={31} strokeWidth={3}/>
-        </button>
-      </div>
-    </nav>);
-}
-
-export function AddActionSheet({ language, onClose, onTransaction, onTransfer }: {
-    language: AppLanguage;
-    onClose: () => void;
-    onTransaction: () => void;
-    onTransfer: () => void;
-}) {
-    const copy = language === "en" ? {
-        title: "Add financial activity",
-        subtitle: "Choose what you want to record.",
-        transaction: "Income / expense transaction",
-        transactionCaption: "Record salary, sales, shopping, food, bills, or daily spending.",
-        transfer: "Transfer between accounts",
-        transferCaption: "Move balance between cash, bank, or e-wallet accounts."
-    } : {
-        title: "Tambah aktivitas keuangan",
-        subtitle: "Pilih dulu yang ingin dicatat.",
-        transaction: "Transaksi pemasukan/pengeluaran",
-        transactionCaption: "Catat gaji, penjualan, belanja, makan, tagihan, atau pengeluaran harian.",
-        transfer: "Transfer antar akun",
-        transferCaption: "Pindahkan saldo antar tunai, bank, atau e-wallet."
-    };
-    const actions = [
-        { label: copy.transaction, caption: copy.transactionCaption, icon: ReceiptText, tone: "bg-emerald-50 text-[#16A34A]", onClick: onTransaction },
-        { label: copy.transfer, caption: copy.transferCaption, icon: ArrowLeftRight, tone: "bg-sky-50 text-sky-600", onClick: onTransfer }
-    ];
-    return (<>
-      <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label={language === "en" ? "Close add menu" : "Tutup menu tambah"} onClick={onClose}/>
-      <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-slate-950">{copy.title}</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">{copy.subtitle}</p>
-          </div>
-          <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={onClose}>
-            <X size={17}/>
-          </button>
-        </div>
-        <div className="mt-4 space-y-2">
-          {actions.map((action) => {
-            const Icon = action.icon;
-            return (<button key={action.label} type="button" className="ripple-card flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-left shadow-sm transition active:scale-[0.99]" onClick={action.onClick}>
-                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${action.tone}`}>
-                  <Icon size={20}/>
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold text-slate-950">{action.label}</span>
-                  <span className="mt-0.5 block text-xs leading-5 text-slate-500">{action.caption}</span>
-                </span>
-                <ChevronRight size={18} className="text-slate-300"/>
-              </button>);
-        })}
-        </div>
-      </section>
-    </>);
-}
-
-export function MobileNavButton({ item, language, active, onNavigate }: {
-    item: {
-        id: View;
-        label: string;
-        icon: LucideIcon;
-    };
-    language: AppLanguage;
-    active: boolean;
-    onNavigate: (view: View) => void;
-}) {
-    const Icon = item.icon;
-    return (<button className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-[10px] font-semibold transition ${active ? "text-[#16A34A]" : "text-slate-400"}`} onClick={() => onNavigate(item.id)} aria-current={active ? "page" : undefined}>
-      <span className={`flex h-7 w-8 items-center justify-center rounded-xl transition ${active ? "bg-emerald-50" : "bg-transparent"}`}>
-        <Icon size={18} strokeWidth={active ? 2.5 : 1.9}/>
-      </span>
-      <span className="max-w-full truncate">{mobileNavLabel(item.id, item.label, language)}</span>
-    </button>);
-}
-
-export function mobileNavLabel(view: View, fallback: string, language: AppLanguage) {
-    if (language === "id")
-        return fallback;
-    const labels: Partial<Record<View, string>> = {
-        dashboard: "Home",
-        accounts: "Pocket",
-        history: "Transactions",
-        assistant: "Copilot",
-        reports: "Insights",
-        social: "Social",
-        manage: "Settings"
-    };
-    return labels[view] ?? fallback;
-}
-
-export function appNavigationLabel(view: View, fallback: string | undefined, language: AppLanguage) {
-    if (view === "assistant")
-        return language === "en" ? "Finance Copilot" : "Kopilot Keuangan";
-    return fallback;
-}
-
-export function loadAuthScript(id: string, src: string) {
-    return new Promise<void>((resolve, reject) => {
-        const existing = document.getElementById(id) as HTMLScriptElement | null;
-        if (existing) {
-            if (existing.dataset.loaded === "true")
-                resolve();
-            else
-                existing.addEventListener("load", () => resolve(), { once: true });
-            return;
-        }
-        const script = document.createElement("script");
-        script.id = id;
-        script.src = src;
-        script.async = true;
-        script.defer = true;
-        script.addEventListener("load", () => {
-            script.dataset.loaded = "true";
-            resolve();
-        });
-        script.addEventListener("error", () => reject(new Error("Provider login gagal dimuat")));
-        document.head.appendChild(script);
-    });
-}
-
-export function AuthView({ onSignedIn, onInstall, showInstall }: {
-    onSignedIn: (session: Session) => void;
-    onInstall: () => Promise<void>;
-    showInstall: boolean;
-}) {
-    const [mode, setMode] = useState<"login" | "register">("login");
-    const [otpStep, setOtpStep] = useState(false);
-    const [otpEmail, setOtpEmail] = useState("");
-    const [resetStep, setResetStep] = useState(false);
-    const [resetEmail, setResetEmail] = useState("");
-    const [loading, setLoading] = useState(false);
-    const [socialLoading, setSocialLoading] = useState<"google" | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const googleButtonRef = useRef<HTMLDivElement>(null);
-    const [googleClientId, setGoogleClientId] = useState<string | null>((import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || null);
-    const [googleButtonReady, setGoogleButtonReady] = useState(false);
-    const completeSocialLogin = async (provider: "google", idToken: string, fullName?: string) => {
-        setSocialLoading(provider);
-        setError(null);
-        try {
-            const session = await apiFetch<Session>("/auth/social", undefined, {
-                method: "POST",
-                body: JSON.stringify({ provider, idToken, fullName: fullName || null })
-            });
-            queueDebugLog("auth_social_response", {
-                provider,
-                keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
-                hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
-                userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
-                    ? Object.keys((session as any).user)
-                    : null
-            });
-            onSignedIn(session);
-        }
-        catch (err) {
-            setError(err instanceof Error ? err.message : `Login ${provider} gagal`);
-        }
-        finally {
-            setSocialLoading(null);
-        }
-    };
-    useEffect(() => {
-        if (googleClientId)
-            return;
-        let active = true;
-        apiFetch<{
-            googleClientId: string | null;
-        }>("/auth/providers")
-            .then((result) => {
-            if (!active)
-                return;
-            setGoogleClientId(result.googleClientId?.trim() || null);
-        })
-            .catch(() => undefined);
-        return () => { active = false; };
-    }, [googleClientId]);
-    useEffect(() => {
-        if (!googleClientId || !googleButtonRef.current)
-            return;
-        let active = true;
-        setGoogleButtonReady(false);
-        loadAuthScript("google-identity-script", "https://accounts.google.com/gsi/client")
-            .then(() => {
-            if (!active || !window.google || !googleButtonRef.current)
-                return;
-            window.google.accounts.id.initialize({
-                client_id: googleClientId,
-                callback: (response) => completeSocialLogin("google", response.credential)
-            });
-            googleButtonRef.current.innerHTML = "";
-            window.google.accounts.id.renderButton(googleButtonRef.current, {
-                type: "standard",
-                theme: "outline",
-                size: "large",
-                text: mode === "login" ? "signin_with" : "signup_with",
-                shape: "rectangular",
-                width: 260
-            });
-            setGoogleButtonReady(true);
-        })
-            .catch((err) => active && setError(err.message));
-        return () => { active = false; };
-    }, [googleClientId, mode]);
-    const submit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        setLoading(true);
-        setError(null);
-        const form = new FormData(event.currentTarget);
-        try {
-            if (mode === "login" && resetStep) {
-                const payload = {
-                    email: String(form.get("email")),
-                    otp: String(form.get("resetOtp")),
-                    newPassword: String(form.get("newPassword"))
-                };
-                const result = await apiFetch<{
-                    reset: boolean;
-                }>("/auth/forgot-password/verify", undefined, {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                });
-                if (result.reset) {
-                    setResetStep(false);
-                    setMode("login");
-                    setError("Password berhasil diubah. Silakan login kembali.");
-                }
-                return;
-            }
-            if (mode === "register" && !otpStep) {
-                const payload = {
-                    fullName: String(form.get("fullName")),
-                    email: String(form.get("email")),
-                    password: String(form.get("password")),
-                    currency: "IDR"
-                };
-                const result = await apiFetch<{
-                    requiresOtp?: boolean;
-                    email?: string;
-                    message?: string;
-                }>("/auth/register", undefined, {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                });
-                if (result.requiresOtp) {
-                    setOtpEmail(result.email ?? payload.email);
-                    setOtpStep(true);
-                    setError(result.message ?? "Kode OTP telah dikirim ke email Anda.");
-                    return;
-                }
-                if ((result as Session)?.accessToken && (result as Session)?.user) {
-                    onSignedIn(result as Session);
-                    return;
-                }
-                throw new Error("Registrasi gagal");
-            }
-            if (mode === "register" && otpStep) {
-                const payload = {
-                    email: String(form.get("email")) || otpEmail,
-                    otp: String(form.get("otp"))
-                };
-                const session = await apiFetch<Session>("/auth/register/verify", undefined, {
-                    method: "POST",
-                    body: JSON.stringify(payload)
-                });
-                onSignedIn(session);
-                return;
-            }
-            const payload = { email: String(form.get("email")), password: String(form.get("password")) };
-            const session = await apiFetch<Session>("/auth/login", undefined, {
-                method: "POST",
-                body: JSON.stringify(payload)
-            });
-            queueDebugLog("auth_email_response", {
-                mode,
-                keys: session && typeof session === "object" ? Object.keys(session as Record<string, unknown>) : null,
-                hasLastActivityAt: Boolean((session as any)?.lastActivityAt),
-                userKeys: session && typeof session === "object" && (session as any).user && typeof (session as any).user === "object"
-                    ? Object.keys((session as any).user)
-                    : null
-            });
-            onSignedIn(session);
-        }
-        catch (err) {
-            setError(err instanceof Error ? err.message : "Gagal masuk");
-        }
-        finally {
-            setLoading(false);
-        }
-    };
-    return (<div className="flex min-h-screen items-center justify-center bg-[#F8FAFC] px-4 py-8">
-      <main className="w-full max-w-md overflow-hidden rounded-[26px] border border-white bg-white shadow-[0_24px_70px_rgba(15,23,42,0.12)] lg:rounded-lg">
-        <header className="border-b border-emerald-100 bg-emerald-50/70 px-6 py-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#16A34A] text-white shadow-[0_12px_26px_rgba(22,163,74,0.24)] lg:rounded-md">
-            <Wallet size={23}/>
-          </span>
-          <h1 className="mt-3 text-xl font-semibold text-slate-950">Keuangan AI</h1>
-          <p className="mt-1 text-sm text-slate-500">{mode === "login" ? "Masuk untuk melanjutkan pencatatanmu." : "Buat akun dan mulai kelola keuanganmu."}</p>
-          {showInstall && (<button type="button" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#16A34A]" onClick={onInstall}>
-              <Download size={14}/> Pasang aplikasi
-            </button>)}
-        </header>
-
-        <section className="p-5 sm:p-6">
-          <div className="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-            <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("login"); setOtpStep(false); setResetStep(false); setError(null); }}>Masuk</button>
-            <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "register" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("register"); setOtpStep(false); setResetStep(false); setError(null); }}>Daftar</button>
-          </div>
-
-          <div className="space-y-2">
-            {googleClientId ? (<div className="relative mx-auto h-10 w-[260px] max-w-full overflow-hidden">
-                {!googleButtonReady && (<div className="absolute inset-0 flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700">
-                    <GoogleLogo className="h-4 w-4"/>
-                    {mode === "login" ? "Login dengan Google" : "Daftar dengan Google"}
-                  </div>)}
-                <div className={`absolute inset-0 flex items-center justify-center transition-opacity ${googleButtonReady ? "opacity-100" : "opacity-0"}`} ref={googleButtonRef}/>
-              </div>) : (<button type="button" className="mx-auto flex h-10 w-[260px] max-w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:bg-slate-50" onClick={() => setError("Login Google belum tersedia. Pastikan GOOGLE_CLIENT_ID di server atau VITE_GOOGLE_CLIENT_ID di client sudah terpasang lalu deploy ulang.")}>
-                <GoogleLogo className="h-4 w-4"/>
-                {mode === "login" ? "Login dengan Google" : "Daftar dengan Google"}
-              </button>)}
-          </div>
-
-          <div className="my-5 flex items-center gap-3 text-xs text-slate-400"><span className="h-px flex-1 bg-slate-200"/><span>atau gunakan email</span><span className="h-px flex-1 bg-slate-200"/></div>
-
-          <form className="space-y-3" onSubmit={submit}>
-            {mode === "register" && !otpStep && <Field label="Nama lengkap"><input className="input" name="fullName" autoComplete="name" required minLength={2}/></Field>}
-            <Field label="Email"><input className="input" name="email" type="email" autoComplete="email" required/></Field>
-            {mode === "login" && !resetStep && <Field label="Password"><input className="input" name="password" type="password" autoComplete="current-password" required minLength={8}/></Field>}
-            {mode === "register" && !otpStep && <Field label="Password"><input className="input" name="password" type="password" autoComplete="new-password" required minLength={8}/></Field>}
-            {mode === "login" && !resetStep && (<button type="button" className="text-left text-sm font-semibold text-[#16A34A]" onClick={() => {
-                setResetStep(true);
-                setResetEmail(String((document.querySelector('input[name="email"]') as HTMLInputElement | null)?.value ?? ""));
-                setError(null);
-            }}>
-                Lupa password?
-              </button>)}
-            {mode === "login" && resetStep && (<>
-                <Field label="Kode OTP">
-                  <input className="input tracking-[0.4em]" name="resetOtp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} minLength={6} required placeholder="000000"/>
-                </Field>
-                <Field label="Password baru">
-                  <input className="input" name="newPassword" type="password" autoComplete="new-password" required minLength={8}/>
-                </Field>
-                <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  Kode reset dikirim ke {resetEmail || "email Anda"}.
-                </p>
-                <button type="button" className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setResetStep(false); setError(null); }}>
-                  Kembali ke login
-                </button>
-              </>)}
-            {mode === "register" && otpStep && (<>
-                <Field label="Kode OTP">
-                  <input className="input tracking-[0.4em]" name="otp" inputMode="numeric" autoComplete="one-time-code" maxLength={6} minLength={6} required placeholder="000000"/>
-                </Field>
-                <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  Kode OTP dikirim ke {otpEmail || "email Anda"}.
-                </p>
-                <button type="button" className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => { setOtpStep(false); setError(null); }}>
-                  Ubah data registrasi
-                </button>
-              </>)}
-            {error && <p className={`rounded-xl px-3 py-2 text-sm ${(otpStep && mode === "register") || resetStep ? "border border-emerald-100 bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{error}</p>}
-            <button className="btn-primary w-full" disabled={loading || Boolean(socialLoading)}>
-              {loading ? <Loader2 className="animate-spin" size={16}/> : <CheckCircle2 size={16}/>}
-              {mode === "login" ? (resetStep ? "Verifikasi Reset" : "Masuk") : otpStep ? "Verifikasi OTP" : "Kirim OTP"}
-            </button>
-          </form>
-        </section>
-      </main>
-    </div>);
-}
-
-export function GoogleLogo(props: {
-    className?: string;
-}) {
-    return (<svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" className={props.className}>
-      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.6 32.7 29.2 36 24 36c-6.1 0-11.3-5-11.3-11s5.2-11 11.3-11c2.8 0 5.3 1 7.3 2.8l5.7-5.6C33.6 8.2 29 6 24 6 13.5 6 5 14.2 5 25s8.5 19 19 19 19-8.1 19-19c0-1.3-.1-2.3-.4-3.5z"/>
-      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.8 16 19 13 24 13c2.8 0 5.3 1 7.3 2.8l5.7-5.6C33.6 8.2 29 6 24 6c-7.2 0-13.4 4.1-17.7 10.7z"/>
-      <path fill="#4CAF50" d="M24 44c5 0 9.5-1.8 13-4.9l-6.1-5.1C29 35.2 26.7 36 24 36c-5.1 0-9.5-3.3-11.1-8.1l-6.5 5C10.6 39.8 16.9 44 24 44z"/>
-      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1.2 3.5-3.6 6.3-6.4 7.9l.1-.1 6.1 5.1C35.7 39.7 43 35 43 25c0-1.4-.1-2.3-.4-3.5z"/>
-    </svg>);
-}
-
-export const categoryPalette = ["#16c784", "#f6a90b", "#60a5fa", "#2dd4bf", "#8b5cf6", "#ec4899"];
-
-export function handleMoneyInput(event: FormEvent<HTMLInputElement>) {
-    event.currentTarget.value = formatRupiahInput(event.currentTarget.value);
-}
-
-export function ExpenseDonut({ dashboard }: {
-    dashboard: DashboardSummary;
-}) {
-    const rows = dashboard.expenseByCategory.slice(0, 5);
-    const total = Math.max(Number(dashboard.expenseThisMonth), 1);
-    let cursor = 0;
-    const segments = rows.map((row, index) => {
-        const size = (Number(row.total) / total) * 100;
-        const segment = `${categoryPalette[index % categoryPalette.length]} ${cursor}% ${Math.min(cursor + size, 100)}%`;
-        cursor += size;
-        return segment;
-    });
-    const donutBackground = segments.length ? `conic-gradient(${segments.join(", ")}, #eef2f7 ${cursor}% 100%)` : "#eef2f7";
-    return (<div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h3 className="font-bold">Ringkasan Pengeluaran</h3>
-          <p className="text-xs text-slate-500">Bulan ini</p>
-        </div>
-        <span className="text-xs font-semibold text-[#16A34A]">Top 5</span>
-      </div>
-      {rows.length === 0 ? (<EmptyState text="Kategori akan muncul setelah ada pengeluaran."/>) : (<div className="grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
-          <div className="relative mx-auto h-40 w-40 rounded-full" style={{ background: donutBackground }}>
-            <div className="absolute inset-9 flex flex-col items-center justify-center rounded-full bg-white text-center shadow-inner">
-              <span className="text-[11px] font-semibold text-slate-500">Total</span>
-              <span className="text-sm font-semibold">{rupiah(dashboard.expenseThisMonth)}</span>
-            </div>
-          </div>
-          <div className="space-y-2.5">
-            {rows.map((item, index) => {
-                const percent = Math.round((Number(item.total) / total) * 100);
-                return (<div key={item.category ?? index} className="flex items-center justify-between gap-3 text-sm">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: categoryPalette[index % categoryPalette.length] }}/>
-                    <span className="truncate text-slate-700">{item.category ?? "Tanpa kategori"}</span>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="font-bold text-slate-900">{percent}%</p>
-                    <p className="text-xs text-slate-400">{rupiah(item.total)}</p>
-                  </div>
-                </div>);
-            })}
-          </div>
-        </div>)}
-    </div>);
-}
-
-export function DashboardView({ dashboard, loading, error, language, onAdd, onAssistant, onRetry }: {
-    dashboard: DashboardSummary | null;
-    loading: boolean;
-    error: string | null;
-    language: AppLanguage;
-    onAdd: () => void;
-    onAssistant: () => void;
-    onRetry: () => void;
-}) {
-    const state = resolveAsyncContentState({ loading, error, data: dashboard });
-    if (state === "loading")
-        return <LoadingState />;
-    if (state === "error")
-        return <DataErrorState message={error ?? "Data dashboard gagal dimuat"} onRetry={onRetry}/>;
-    if (state === "empty" || !dashboard)
-        return <EmptyState text="Ringkasan dashboard belum tersedia."/>;
-    const income = Number(dashboard.incomeThisMonth);
-    const expense = Number(dashboard.expenseThisMonth);
-    const balance = Number(dashboard.balance);
-    const net = income - expense;
-    const expenseRatio = Math.round((expense / Math.max(income, 1)) * 100);
-    const ratioLabel = expenseRatio > 999 ? ">999%" : `${expenseRatio}%`;
-    const topCategory = dashboard.expenseByCategory[0];
-    const alertCount = dashboard.budgetAlerts.length;
-    const jakartaToday = jakartaDateParts();
-    const monthLabel = new Intl.DateTimeFormat("id-ID", { timeZone: APP_TIME_ZONE, month: "long", year: "numeric" }).format(new Date());
-    const averageExpense = expense / Math.max(jakartaToday.day, 1);
-    const runwayDays = averageExpense > 0 ? Math.max(Math.floor(balance / averageExpense), 0) : null;
-    const healthLabel = expenseRatio <= 50 ? "Sehat" : expenseRatio <= 80 ? "Aman" : expenseRatio <= 100 ? "Waspada" : "Ketat";
-    const healthClass = expenseRatio <= 80
-        ? "bg-emerald-50 text-[#16A34A]"
-        : expenseRatio <= 100
-            ? "bg-amber-50 text-amber-700"
-            : "bg-rose-50 text-rose-700";
-    const insight = dashboard.insight ?? {
-        currentWeekExpense: "0",
-        previousWeekExpense: "0",
-        weekChangePercent: null,
-        scheduledUntilMonthEnd: "0",
-        availableUntilMonthEnd: dashboard.balance
-    };
-    const weekChange = insight.weekChangePercent;
-    const currentWeekExpense = Number(insight.currentWeekExpense);
-    const availableUntilMonthEnd = Number(insight.availableUntilMonthEnd);
-    const weeklyInsightText = language === "en"
-        ? weekChange !== null
-            ? `Your spending this week is ${weekChange >= 0 ? "up" : "down"} ${Math.abs(weekChange)}%.`
-            : currentWeekExpense > 0
-                ? `You have spent ${rupiah(currentWeekExpense)} this week.`
-                : "No expenses have been recorded this week."
-        : weekChange !== null
-            ? `Pengeluaranmu minggu ini ${weekChange >= 0 ? "naik" : "turun"} ${Math.abs(weekChange)}%.`
-            : currentWeekExpense > 0
-                ? `Pengeluaranmu minggu ini ${rupiah(currentWeekExpense)}.`
-                : "Belum ada pengeluaran yang tercatat minggu ini.";
-    const availabilityInsightText = language === "en"
-        ? availableUntilMonthEnd >= 0
-            ? `${rupiah(availableUntilMonthEnd)} remains after scheduled payments through month-end.`
-            : `Scheduled payments exceed your current balance by ${rupiah(Math.abs(availableUntilMonthEnd))}.`
-        : availableUntilMonthEnd >= 0
-            ? `Masih tersedia ${rupiah(availableUntilMonthEnd)} setelah jadwal pembayaran hingga akhir bulan.`
-            : `Jadwal pembayaran melebihi saldo saat ini sebesar ${rupiah(Math.abs(availableUntilMonthEnd))}.`;
-    return (<div className="space-y-3 lg:space-y-5">
-      <section className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="relative overflow-hidden rounded-[26px] bg-[#16A34A] p-4 text-white shadow-[0_18px_42px_rgba(22,163,74,0.24)] lg:rounded-lg lg:p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase text-white/65">Saldo aktif</p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-normal sm:text-3xl">{rupiah(balance)}</h2>
-              <p className="mt-1 text-xs font-semibold text-white/70">Update dari semua akun aktif</p>
-            </div>
-            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${healthClass}`}>
-              {healthLabel}
-            </span>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-              <p className="text-[11px] font-semibold text-white/65">Net bulan ini</p>
-              <p className={`mt-0.5 text-sm font-semibold ${net >= 0 ? "text-emerald-100" : "text-rose-100"}`}>
-                {net >= 0 ? "+" : "-"}{rupiah(Math.abs(net))}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md">
-              <p className="text-[11px] font-semibold text-white/65">Rata-rata keluar</p>
-              <p className="mt-0.5 text-sm font-semibold">{rupiah(averageExpense)}/hari</p>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-xs font-semibold text-[#15803D] shadow-sm transition hover:bg-emerald-50 lg:rounded-md" onClick={onAdd}>
-              <Plus size={15}/> Tambah transaksi
-            </button>
-          </div>
-        </div>
-
-        <button type="button" className="group flex min-h-[160px] w-full flex-col justify-between rounded-[26px] border border-emerald-100 bg-white p-4 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-emerald-200 lg:rounded-lg" onClick={onAssistant}>
-          <span>
-            <span className="flex items-center gap-2">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]">
-                <Lightbulb size={17}/>
-              </span>
-              <span className="text-[11px] font-semibold uppercase text-[#16A34A]">
-                {language === "en" ? "Today's insight" : "Insight hari ini"}
-              </span>
-            </span>
-            <span className="mt-3 block text-sm font-semibold leading-5 text-slate-950">{weeklyInsightText}</span>
-            <span className={`mt-1 block text-xs leading-5 ${availableUntilMonthEnd < 0 ? "text-rose-600" : "text-slate-500"}`}>
-              {availabilityInsightText}
-            </span>
-          </span>
-          <span className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-            <span className="text-xs font-medium text-slate-600">
-              {language === "en" ? "What would you like to do?" : "Apa yang ingin kamu lakukan?"}
-            </span>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]">
-              {language === "en" ? "Open Copilot" : "Buka Kopilot"}
-              <ChevronRight size={15} className="transition group-hover:translate-x-0.5"/>
-            </span>
-          </span>
-        </button>
-      </section>
-
-      <section className="grid gap-3 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="overflow-hidden rounded-[26px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase text-slate-400">{monthLabel}</p>
-              <h3 className="text-sm font-semibold text-slate-950">Ringkasan bulan ini</h3>
-            </div>
-            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${healthClass}`}>{ratioLabel}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4">
-            <DashboardMetric label="Masuk" value={rupiah(income)} helper="Pemasukan" tone="income" icon={<ArrowDownLeft size={16}/>}/>
-            <DashboardMetric label="Keluar" value={rupiah(expense)} helper="Pengeluaran" tone="expense" icon={<ArrowUpRight size={16}/>}/>
-            <DashboardMetric label="Net" value={`${net >= 0 ? "+" : "-"}${rupiah(Math.abs(net))}`} helper="Masuk - keluar" tone={net >= 0 ? "income" : "expense"} icon={<LineChart size={16}/>}/>
-            <DashboardMetric label="Daya tahan" value={runwayDays !== null ? `${runwayDays} hari` : "Aman"} helper="Estimasi saldo" tone="neutral" icon={<Wallet size={16}/>}/>
-          </div>
-          <div className="px-4 py-3">
-            <div className="mb-2 flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-500">Rasio pengeluaran</span>
-              <span className="font-semibold text-slate-900">{ratioLabel}</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-              <div className={`h-full rounded-full ${expenseRatio <= 80 ? "bg-[#16A34A]" : expenseRatio <= 100 ? "bg-amber-400" : "bg-rose-500"}`} style={{ width: `${Math.min(expenseRatio, 100)}%` }}/>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-1">
-          <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
-            <p className="text-[11px] font-bold text-slate-400">Kategori teratas</p>
-            <p className="mt-1 truncate text-sm font-semibold text-slate-950">{topCategory?.category ?? "Belum ada"}</p>
-            <p className="mt-1 text-xs font-semibold text-slate-500">{topCategory ? rupiah(topCategory.total) : "Belum ada pengeluaran"}</p>
-          </div>
-          <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
-            <p className="text-[11px] font-bold text-slate-400">Anggaran</p>
-            <p className={`mt-1 text-sm font-semibold ${alertCount > 0 ? "text-amber-700" : "text-[#16A34A]"}`}>
-              {alertCount > 0 ? `${alertCount} perlu dicek` : "Terkendali"}
-            </p>
-            <p className="mt-1 truncate text-xs font-semibold text-slate-500">
-              {alertCount > 0 ? `${dashboard.budgetAlerts[0].category} ${dashboard.budgetAlerts[0].usagePercent}%` : "Tidak ada peringatan"}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-3 lg:gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200 lg:p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-950">Arus kas harian</h3>
-              <p className="text-xs font-semibold text-slate-500">Aktivitas bulan berjalan</p>
-            </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-              <span className="h-2 w-2 rounded-full bg-[#16A34A]"/> Masuk
-              <span className="ml-1 h-2 w-2 rounded-full bg-rose-400"/> Keluar
-            </span>
-          </div>
-          <MiniCashFlowChart daily={dashboard.daily}/>
-        </div>
-        <div className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200 lg:p-5">
-          <ExpenseDonut dashboard={dashboard}/>
-        </div>
-      </section>
-
-      <section className="grid gap-3 lg:gap-5 xl:grid-cols-2">
-        <div className="card p-4 lg:p-5">
-          <h3 className="mb-4 text-sm font-semibold text-slate-950">Aktivitas terbaru</h3>
-          <TransactionList rows={dashboard.lastTransactions}/>
-        </div>
-        <div className="card p-4 lg:p-5">
-          <h3 className="mb-4 text-sm font-semibold text-slate-950">Notifikasi anggaran</h3>
-          {dashboard.budgetAlerts.length === 0 ? <EmptyState text="Tidak ada peringatan anggaran."/> : (<div className="space-y-3">
-              {dashboard.budgetAlerts.map((alert) => (<div key={alert.id} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  {alert.category} mencapai {alert.usagePercent}% penggunaan.
-                </div>))}
-            </div>)}
-        </div>
-      </section>
-    </div>);
-}
-
-export function DashboardMetric({ label, value, helper, tone, icon }: {
-    label: string;
-    value: string;
-    helper: string;
-    tone: "income" | "expense" | "neutral";
-    icon: JSX.Element;
-}) {
-    const tones = {
-        income: "bg-emerald-50 text-[#16A34A]",
-        expense: "bg-rose-50 text-rose-600",
-        neutral: "bg-sky-50 text-sky-700"
-    };
-    return (<div className="bg-white p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[11px] font-bold text-slate-400">{label}</p>
-          <p className="mt-1 truncate text-sm font-semibold text-slate-950">{value}</p>
-        </div>
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl lg:rounded-md ${tones[tone]}`}>
-          {icon}
-        </span>
-      </div>
-      <p className="mt-1 truncate text-[11px] font-semibold text-slate-500">{helper}</p>
-    </div>);
-}
-
-export function MiniCashFlowChart({ daily }: {
-    daily: DashboardSummary["daily"];
-}) {
-    const rows = daily.slice(-10);
-    const maxDaily = Math.max(...rows.map((item) => Number(item.income) + Number(item.expense)), 1);
-    if (rows.length === 0) {
-        return <EmptyState text="Belum ada transaksi bulan ini."/>;
-    }
-    return (<div className="flex h-40 items-end gap-2">
-      {rows.map((item) => {
-            const incomeHeight = Math.max((Number(item.income) / maxDaily) * 100, Number(item.income) > 0 ? 5 : 0);
-            const expenseHeight = Math.max((Number(item.expense) / maxDaily) * 100, Number(item.expense) > 0 ? 5 : 0);
-            return (<div key={item.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-            <div className="flex h-28 w-full items-end justify-center gap-1 rounded-xl bg-slate-50 px-1.5 pb-1.5">
-              <div className="w-2 rounded-full bg-[#16A34A]" style={{ height: `${incomeHeight}%` }}/>
-              <div className="w-2 rounded-full bg-rose-400" style={{ height: `${expenseHeight}%` }}/>
-            </div>
-            <span className="text-[10px] font-bold text-slate-400">{jakartaDateParts(item.date).day || "-"}</span>
-          </div>);
-        })}
-    </div>);
-}
+import { AuthView, GoogleLogo, loadAuthScript } from "./AppAuth";
+import { queueDebugLog } from "./AppChrome";
+import { categoryPalette, DashboardMetric, DashboardView, ExpenseDonut, handleMoneyInput, MiniCashFlowChart } from "./AppDashboard";
+import { DataErrorState, EmptyState, Field, LoadingState } from "./AppPrimitives";
+export { AddActionSheet, appNavigationLabel, MobileBottomNav, MobileNavButton, mobileNavLabel } from "./AppChrome";
+export { AuthView, GoogleLogo, loadAuthScript } from "./AppAuth";
+export { categoryPalette, DashboardMetric, DashboardView, ExpenseDonut, handleMoneyInput, MiniCashFlowChart } from "./AppDashboard";
+export { DataErrorState, EmptyState, Field, LoadingState } from "./AppPrimitives";
+export { queueDebugLog } from "./AppChrome";
 
 export function SummaryCard({ label, value, tone, icon, className = "" }: {
     label: string;
@@ -923,7 +104,7 @@ export function transactionQuickExamples(transactions: Transaction[], language: 
             subject = "KRL";
             action = language === "en" ? "ride" : "naik";
         }
-        else if (/kopi|coffee|cafe|caf�/.test(context)) {
+        else if (/kopi|coffee|cafe|cafÃ¯Â¿Â½/.test(context)) {
             subject = merchant && !/kopi|coffee/i.test(merchant)
                 ? `${language === "en" ? "coffee at" : "kopi di"} ${merchant}`
                 : merchant || (language === "en" ? "coffee" : "kopi");
@@ -1028,8 +209,8 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         placeholder: "Contoh: beli kopi 15rb cash",
         analyze: "Analisis Transaksi",
         analyzing: "Menganalisis transaksi...",
-        steps: ["Membaca nominal", "Menentukan kategori", "Menentukan akun", "Menentukan metode pembayaran"],
-        addAccountFirst: "Tambahkan akun dulu sebelum menyimpan transaksi.",
+        steps: ["Membaca nominal", "Menentukan kategori", "Menentukan pocket", "Menentukan metode pembayaran"],
+        addAccountFirst: "Tambahkan pocket dulu sebelum menyimpan transaksi.",
         confirmation: "Konfirmasi",
         confirmTitle: "Konfirmasi Hasil AI",
         confirmSubtitle: "Periksa kembali hasil AI sebelum menyimpan transaksi.",
@@ -1038,7 +219,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         expense: "Pengeluaran",
         date: "Tanggal",
         amount: "Nominal",
-        account: "Akun",
+        account: "Pocket",
         currentBalance: "Saldo saat ini",
         category: "Kategori",
         uncategorized: "Tanpa kategori",
@@ -1397,7 +578,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         })}
               </select>
               {accounts.some((account) => account.isSharedWalletAccount || account.canEdit === false) && (<p className="mt-1.5 text-[10px] text-amber-700">
-                  Akun bertanda �Dipakai dompet bersama� atau �Account bersama� tidak dapat digunakan untuk transaksi pribadi.
+                  Pocket bertanda "Dipakai dompet bersama" atau "Pocket bersama" tidak dapat digunakan untuk transaksi pribadi.
                 </p>)}
               {selectedAccount && (<div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
                   <span className="inline-flex items-center gap-1">
@@ -1446,7 +627,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
             <Field label={language === "en" ? "Who can view this transaction" : "Siapa yang dapat melihat transaksi ini"}>
               <select className="input" value={visibility} onChange={(event) => setVisibility(event.target.value as TransactionDetail["visibility"])}>
-                <option value="private">{language === "en" ? "Private � only you" : "Privat � hanya Anda"}</option>
+                <option value="private">{language === "en" ? "Private Ã¯Â¿Â½ only you" : "Privat Ã¯Â¿Â½ hanya Anda"}</option>
                 <option value="selected_friends">{language === "en" ? "Selected friends" : "Teman pilihan"}</option>
                 <option value="everyone_involved">{language === "en" ? "Everyone involved" : "Semua pihak terlibat"}</option>
               </select>
@@ -1463,7 +644,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             <p className="mt-2 text-[11px] text-slate-500">
               {language === "en"
             ? "Account balances, budgets, and other transactions remain private."
-            : "Saldo akun, rekening, budget, dan transaksi lainnya tetap privat."}
+            : "Saldo pocket, rekening, budget, dan transaksi lainnya tetap privat."}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
@@ -1615,7 +796,7 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
     }, [transaction.receiptId, token]);
     const detailRows = [
         ["Tanggal", localDate(transaction.transactionDate)],
-        ["Akun", transaction.accountName ?? "-"],
+        ["Pocket", transaction.accountName ?? "-"],
         ["Metode", transaction.paymentMethod ?? "-"],
         ["Kategori", transaction.categoryName ?? "Tanpa kategori"],
         ["Sumber", transaction.sourceType ?? "Manual"],
@@ -1898,7 +1079,7 @@ export function ReceiptView({ accounts, categories, request, onDone }: {
             <Field label="Confidence">
               <input className="input" value={`${Math.round((parsed.confidenceScore ?? 0) * 100)}%`} readOnly/>
             </Field>
-            <Field label="Akun pembayaran">
+            <Field label="Pocket pembayaran">
               <select className="input" name="accountId" required>
                 {accounts.map((account) => (<option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>))}
               </select>
@@ -2260,9 +1441,9 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
         </div>
 
         <label className="mt-3 block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Akun</span>
-          <select className="input" value={accountId} onChange={(event) => setAccountId(event.target.value)} aria-label="Filter berdasarkan akun">
-            <option value="">Semua akun</option>
+          <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Pocket</span>
+          <select className="input" value={accountId} onChange={(event) => setAccountId(event.target.value)} aria-label="Filter berdasarkan pocket">
+            <option value="">Semua pocket</option>
             {accounts.map((account) => (<option key={account.id} value={account.id}>{accountOptionLabel(account, { language })}</option>))}
           </select>
         </label>
@@ -2359,8 +1540,6 @@ export function accountTypeLabel(type: string) {
 }
 
 export function accountSharedLabel(account: Account, language: AppLanguage = "id") {
-    if (account.isRelationshipGoalAccount)
-        return language === "en" ? "shared account" : "account bersama";
     if (account.isSharedWalletAccount)
         return language === "en" ? "shared wallet" : "dompet bersama";
     return "";
@@ -2432,6 +1611,7 @@ export const pocketEMoneyOptions = [
 ];
 
 export const pocketCardColors = ["#16A34A", "#0F766E", "#111827", "#2563EB", "#7C3AED", "#E11D48"];
+export const pocketStickerOptions = ["😎", "💳", "💸", "🏦", "🪙", "🛍️", "☕", "🚕", "🎯", "📈", "🌟", "🎉"];
 
 export const pocketVisualStorageKey = "finance-ai-pocket-visuals";
 
@@ -2449,20 +1629,33 @@ export function savePocketVisuals(visuals: Record<string, PocketVisual>) {
 }
 
 export function splitAccountNumberHolder(value?: string | null) {
-    const [number = "", holder = ""] = String(value ?? "").split(" � ");
-    return { number, holder };
+    const raw = String(value ?? "").trim();
+    if (!raw) {
+        return { number: "", holder: "" };
+    }
+    const separators = [" · ", " • ", " - ", " Ã¯Â¿Â½ ", " ï¿½ "];
+    for (const separator of separators) {
+        if (!raw.includes(separator))
+            continue;
+        const [number = "", ...holderParts] = raw.split(separator);
+        return {
+            number: number.trim(),
+            holder: holderParts.join(separator).trim()
+        };
+    }
+    return { number: raw, holder: "" };
 }
 
 export function getDefaultPocketLogo(accountType: string): string {
     switch (accountType) {
-        case "cash": return "💵";
-        case "bank": return "🏦";
-        case "e_wallet": return "📱";
-        case "other": return "💳";
-        case "credit_card": return "💳";
-        case "savings": return "🏦";
-        case "investment": return "📈";
-        default: return "💰";
+        case "cash": return "Ã°Å¸â€™Âµ";
+        case "bank": return "Ã°Å¸ÂÂ¦";
+        case "e_wallet": return "Ã°Å¸â€œÂ±";
+        case "other": return "Ã°Å¸â€™Â³";
+        case "credit_card": return "Ã°Å¸â€™Â³";
+        case "savings": return "Ã°Å¸ÂÂ¦";
+        case "investment": return "Ã°Å¸â€œË†";
+        default: return "Ã°Å¸â€™Â°";
     }
 }
 
@@ -2522,7 +1715,6 @@ export function ManageView({ accounts, categories, language, request, onNavigate
         meta: string;
         tone: string;
     }> = [
-        { id: "accounts", label: isEnglish ? "Accounts" : "Akun", icon: CreditCard, count: `${accounts.length} ${isEnglish ? "accounts" : "akun"}`, meta: isEnglish ? "Bank, cash, and e-wallet" : "Rekening, tunai, dan e-wallet", tone: "bg-sky-50 text-sky-700" },
         { id: "categories", label: isEnglish ? "Categories" : "Kategori", icon: Tags, count: `${categories.length} ${isEnglish ? "categories" : "kategori"}`, meta: isEnglish ? "Income and expense groups" : "Kelompok pemasukan dan pengeluaran", tone: "bg-violet-50 text-violet-700" },
         { id: "budgets", label: isEnglish ? "Budgets" : "Budget", icon: CircleDollarSign, count: `${budgetCount} ${isEnglish ? "active" : "aktif"}`, meta: isEnglish ? "Monthly spending limits" : "Batas pengeluaran bulanan", tone: "bg-emerald-50 text-[#16A34A]" },
         { id: "schedules", label: isEnglish ? "Schedules" : "Jadwal", icon: Bell, count: `${scheduleCount} ${isEnglish ? "reminders" : "pengingat"}`, meta: isEnglish ? "Recurring payments and transactions" : "Pembayaran dan transaksi rutin", tone: "bg-amber-50 text-amber-700" }
@@ -2572,9 +1764,8 @@ export function ManageView({ accounts, categories, language, request, onNavigate
         </div>
 
         {activeTab === "budgets" && (<BudgetsView key={`budgets-${viewVersion}`} categories={categories} request={request} onChanged={onChanged} initialView={quickCreate === "budgets" ? "form" : "list"}/>)}
-        {activeTab === "accounts" && (<AccountsView key={`accounts-${viewVersion}`} accounts={accounts} request={request} onChanged={onChanged} onOpenTransactions={onOpenAccountTransactions} initialView={quickCreate === "accounts" ? "account-form" : "list"} language={language}/>)}
         {activeTab === "categories" && (<CategoriesView key={`categories-${viewVersion}`} categories={categories} request={request} onChanged={onChanged} initialView={quickCreate === "categories" ? "form" : "list"}/>)}
-        {activeTab === "schedules" && (<SchedulesView key={`schedules-${viewVersion}`} accounts={accounts} categories={categories} request={request} onNavigate={onNavigate} onTransfer={() => openSection("accounts")} initialView={quickCreate === "schedules" ? "form" : "list"}/>)}
+        {activeTab === "schedules" && (<SchedulesView key={`schedules-${viewVersion}`} accounts={accounts} categories={categories} request={request} onNavigate={onNavigate} onTransfer={() => onNavigate("accounts")} initialView={quickCreate === "schedules" ? "form" : "list"}/>)}
       </section>);
     }
     return (<section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
@@ -2715,8 +1906,8 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
                   {schedule.scheduleType === "transfer" || schedule.scheduleType === "topup"
-                        ? `${schedule.accountName ?? "Akun"} ke ${schedule.destinationAccountName ?? "tujuan"}`
-                        : `${schedule.categoryName ?? "Transaksi"} dari ${schedule.accountName ?? "akun"}`}
+                        ? `${schedule.accountName ?? "Pocket"} ke ${schedule.destinationAccountName ?? "tujuan"}`
+                        : `${schedule.categoryName ?? "Transaksi"} dari ${schedule.accountName ?? "pocket"}`}
                 </p>
                 <div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
                   <button type="button" className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A] transition hover:bg-emerald-100" onClick={() => schedule.scheduleType === "transaction" ? onNavigate("manual") : onTransfer()}>
@@ -2768,13 +1959,13 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
             <input className="input" name="amount" inputMode="numeric" placeholder="Opsional" defaultValue={moneyInputValue(editingSchedule?.amount)} onInput={handleMoneyInput}/>
           </Field>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Akun sumber">
+            <Field label="Pocket sumber">
               <select className="input" name="accountId" defaultValue={editingSchedule?.accountId ?? ""}>
-                <option value="">Pilih akun</option>
+                <option value="">Pilih pocket</option>
                 {accounts.map((account) => <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>)}
               </select>
             </Field>
-            <Field label="Akun tujuan">
+            <Field label="Pocket tujuan">
               <select className="input" name="destinationAccountId" defaultValue={editingSchedule?.destinationAccountId ?? ""}>
                 <option value="">Opsional</option>
                 {accounts.map((account) => <option key={account.id} value={account.id}>{accountOptionLabel(account)}</option>)}
@@ -2816,13 +2007,15 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const [selectedPocketId, setSelectedPocketId] = useState("");
     const [pocketTransactionSearch, setPocketTransactionSearch] = useState("");
     const [pocketTransactionType, setPocketTransactionType] = useState<"all" | "income" | "expense">("all");
+    const [pocketTransactionRows, setPocketTransactionRows] = useState<Transaction[]>([]);
+    const [pocketTransactionLoading, setPocketTransactionLoading] = useState(false);
     const [targetBalanceDraft, setTargetBalanceDraft] = useState("");
     const [inviteQuery, setInviteQuery] = useState("");
     const [inviteSearchResults, setInviteSearchResults] = useState<Array<{
         id: string;
         fullName: string;
         username: string;
-        email: string;
+        email: string | null;
         avatarUrl: string | null;
         phone: string | null;
         relationshipStatus: string;
@@ -2835,8 +2028,26 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         email: string;
         avatarUrl: string | null;
     } | null>(null);
+    const [invitePermission, setInvitePermission] = useState<"member" | "viewer">("member");
     const [inviteSending, setInviteSending] = useState(false);
     const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+    const [pocketCollaborators, setPocketCollaborators] = useState<Array<{
+        user_id: string;
+        role: string;
+        status: string;
+        full_name: string;
+        email: string;
+        username: string;
+        avatar_url: string | null;
+    }>>([]);
+    const [pocketMemberPreviewMap, setPocketMemberPreviewMap] = useState<Record<string, Array<{
+        userId: string;
+        fullName: string;
+        avatarUrl: string | null;
+    }>>>({});
+    const pocketPreviewLoadingRef = useRef<Set<string>>(new Set());
+    const [showPocketMembersPopup, setShowPocketMembersPopup] = useState(false);
+    const [showPocketInviteModal, setShowPocketInviteModal] = useState(false);
     const [scanQrOpen, setScanQrOpen] = useState(false);
     const [qrScannerError, setQrScannerError] = useState<string | null>(null);
     const [hasTargetBalance, setHasTargetBalance] = useState(false);
@@ -2849,8 +2060,10 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const [pocketHolderDraft, setPocketHolderDraft] = useState("");
     const [pocketLogoDraft, setPocketLogoDraft] = useState("??");
     const [pocketBackgroundDraft, setPocketBackgroundDraft] = useState("#16A34A");
-    const pocketCameraInputRef = useRef<HTMLInputElement>(null);
     const pocketGalleryInputRef = useRef<HTMLInputElement>(null);
+    const [showPocketLogoMenu, setShowPocketLogoMenu] = useState(false);
+    const [showPocketStickerPicker, setShowPocketStickerPicker] = useState(false);
+    const [transferMode, setTransferMode] = useState<"general" | "out" | "in">("general");
     const [sourceAccountId, setSourceAccountId] = useState("");
     const [destinationAccountId, setDestinationAccountId] = useState("");
     const [transferAttachmentId, setTransferAttachmentId] = useState<string | null>(null);
@@ -2872,9 +2085,42 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const transferableAccounts = useMemo(() => accounts.filter((account) => !account.isSharedWalletAccount && account.canEdit !== false), [accounts]);
     const sourceAccount = accounts.find((account) => account.id === sourceAccountId);
     const destinationAccount = accounts.find((account) => account.id === destinationAccountId);
+    const transferFormCopy = useMemo(() => {
+        if (transferMode === "out") {
+            return {
+                title: "Transfer out",
+                caption: "Kirim saldo keluar dari pocket ini ke pocket tujuan.",
+                sourceLabel: "Dari pocket ini",
+                destinationLabel: "Ke pocket tujuan",
+                sourceCaption: "Saldo akan dipotong dari pocket asal.",
+                destinationCaption: "Pilih pocket penerima transfer.",
+                submitLabel: "Transfer keluar"
+            };
+        }
+        if (transferMode === "in") {
+            return {
+                title: "Transfer in",
+                caption: "Terima saldo dari pocket lain masuk ke pocket ini.",
+                sourceLabel: "Dari pocket asal",
+                destinationLabel: "Masuk ke pocket ini",
+                sourceCaption: "Pilih pocket sumber dana.",
+                destinationCaption: "Saldo akan masuk ke pocket tujuan ini.",
+                submitLabel: "Transfer masuk"
+            };
+        }
+        return {
+            title: "Transfer antar pocket",
+            caption: "Pindahkan uang antar pocket tanpa membuat pengeluaran.",
+            sourceLabel: "Pocket asal",
+            destinationLabel: "Pocket tujuan",
+            sourceCaption: "Pilih pocket sumber dana.",
+            destinationCaption: "Pilih pocket penerima transfer.",
+            submitLabel: "Transfer"
+        };
+    }, [transferMode]);
     const totalBalance = accounts.reduce((sum, account) => sum + (account.accountType === "credit_card" ? -moneyValue(account.currentBalance) : moneyValue(account.currentBalance)), 0);
-    const myPockets = accounts.filter((account) => account.canEdit !== false && !account.isSharedWalletAccount);
-    const sharedPockets = accounts.filter((account) => account.canEdit === false || account.isRelationshipGoalAccount || account.isSharedWalletAccount);
+    const myPockets = accounts.filter((account) => account.canEdit !== false);
+    const sharedPockets = accounts.filter((account) => account.canEdit === false);
     const visiblePocketSource = pocketTab === "mine" ? myPockets : sharedPockets;
     const orderedPocketSource = [...visiblePocketSource].sort((a, b) => {
         const aIndex = pocketOrder.indexOf(a.id);
@@ -2890,8 +2136,139 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const myPocketTotal = myPockets.reduce((sum, account) => sum + moneyValue(account.currentBalance), 0);
     const sharedPocketTotal = sharedPockets.reduce((sum, account) => sum + moneyValue(account.currentBalance), 0);
     const selectedPocket = accounts.find((account) => account.id === selectedPocketId) ?? null;
+    const filteredPocketTransactions = useMemo(() => {
+        const query = pocketTransactionSearch.trim().toLowerCase();
+        return pocketTransactionRows.filter((transaction) => {
+            if (pocketTransactionType !== "all" && transaction.transactionType !== pocketTransactionType) {
+                return false;
+            }
+            if (!query) {
+                return true;
+            }
+            return [
+                transaction.merchantName,
+                transaction.categoryName,
+                transaction.paymentMethod,
+                transaction.notes,
+                transaction.accountName
+            ].filter(Boolean).join(" ").toLowerCase().includes(query);
+        });
+    }, [pocketTransactionRows, pocketTransactionSearch, pocketTransactionType]);
+    const recentPocketTransactions = useMemo(() => filteredPocketTransactions.slice(0, 5), [filteredPocketTransactions]);
+    const pocketMembers = useMemo(() => {
+        if (!selectedPocket)
+            return [];
+        const owner = selectedPocket.ownerUserId ? {
+            userId: selectedPocket.ownerUserId,
+            fullName: selectedPocket.ownerName || selectedPocket.name,
+            username: "",
+            avatarUrl: null as string | null,
+            role: "owner",
+            status: "accepted"
+        } : null;
+        const acceptedCollaborators = pocketCollaborators
+            .filter((member) => member.status === "accepted" && member.user_id !== selectedPocket.ownerUserId)
+            .map((member) => ({
+            userId: member.user_id,
+            fullName: member.full_name,
+            username: member.username,
+            avatarUrl: member.avatar_url,
+            role: member.role,
+            status: member.status
+        }));
+        return owner ? [owner, ...acceptedCollaborators] : acceptedCollaborators;
+    }, [pocketCollaborators, selectedPocket]);
+    const loadPocketTransactions = async (accountId = selectedPocketId) => {
+        if (!accountId) {
+            setPocketTransactionRows([]);
+            setPocketTransactionLoading(false);
+            return;
+        }
+        setPocketTransactionLoading(true);
+        try {
+            const params = new URLSearchParams();
+            params.set("accountId", accountId);
+            params.set("limit", "100");
+            params.set("page", "1");
+            params.set("sort", "transaction_date");
+            params.set("direction", "desc");
+            const result = await request<{
+                data: Transaction[];
+            }>(`/transactions?${params.toString()}`);
+            setPocketTransactionRows(result.data);
+        }
+        catch {
+            setPocketTransactionRows([]);
+        }
+        finally {
+            setPocketTransactionLoading(false);
+        }
+    };
+    useEffect(() => {
+        if (accountView !== "pocket-detail" || !selectedPocketId) {
+            setPocketTransactionRows([]);
+            setPocketTransactionLoading(false);
+            return;
+        }
+        loadPocketTransactions(selectedPocketId).catch(() => undefined);
+    }, [accountView, selectedPocketId]);
+    useEffect(() => {
+        const previewTargets = accounts.filter((account) => Boolean(account.ownerUserId));
+        const knownIds = new Set(previewTargets.map((account) => account.id));
+        setPocketMemberPreviewMap((current) => {
+            const filteredEntries = Object.entries(current).filter(([accountId]) => knownIds.has(accountId));
+            if (filteredEntries.length === Object.keys(current).length) {
+                return current;
+            }
+            return Object.fromEntries(filteredEntries);
+        });
+        previewTargets.forEach((account) => {
+            if (pocketMemberPreviewMap[account.id] || pocketPreviewLoadingRef.current.has(account.id))
+                return;
+            pocketPreviewLoadingRef.current.add(account.id);
+            request<Array<{
+                user_id: string;
+                role: string;
+                status: string;
+                full_name: string;
+                email: string;
+                username: string;
+                avatar_url: string | null;
+            }>>(`/accounts/${account.id}/collaborators`)
+                .then((rows) => {
+                const owner = account.ownerUserId ? [{
+                        userId: account.ownerUserId,
+                        fullName: account.ownerName || account.name,
+                        avatarUrl: null as string | null
+                    }] : [];
+                const acceptedMembers = rows
+                    .filter((member) => member.status === "accepted" && member.user_id !== account.ownerUserId)
+                    .map((member) => ({
+                    userId: member.user_id,
+                    fullName: member.full_name,
+                    avatarUrl: member.avatar_url
+                }));
+                setPocketMemberPreviewMap((current) => ({
+                    ...current,
+                    [account.id]: [...owner, ...acceptedMembers]
+                }));
+            })
+                .catch(() => {
+                setPocketMemberPreviewMap((current) => ({
+                    ...current,
+                    [account.id]: []
+                }));
+            })
+                .finally(() => {
+                pocketPreviewLoadingRef.current.delete(account.id);
+            });
+        });
+    }, [accounts, pocketMemberPreviewMap, request]);
     useEffect(() => {
         setAccountView(initialView);
+        if (initialView !== "transfer-form") {
+            setTransferMode("general");
+        }
     }, [initialView, resetKey]);
     useEffect(() => {
         setPocketOrder((current) => {
@@ -2912,7 +2289,185 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         setTransferAttachmentId(null);
         setTransferAttachmentName("");
         setTransferAttachmentMessage(null);
+        if (!selectedPocketId) {
+            setTransferMode("general");
+        }
     }, [accountView, resetKey]);
+    useEffect(() => {
+        if (accountView !== "pocket-detail" || !selectedPocketId || !selectedPocket) {
+            setPocketCollaborators([]);
+            setShowPocketMembersPopup(false);
+            return;
+        }
+        const previewMembers = pocketMemberPreviewMap[selectedPocketId] ?? [];
+        const shouldLoadCollaborators = selectedPocket.canEdit === false || previewMembers.length > 1;
+        if (!shouldLoadCollaborators) {
+            setPocketCollaborators([]);
+            setShowPocketMembersPopup(false);
+            return;
+        }
+        let active = true;
+        request<Array<{
+            user_id: string;
+            role: string;
+            status: string;
+            full_name: string;
+            email: string;
+            username: string;
+            avatar_url: string | null;
+        }>>(`/accounts/${selectedPocketId}/collaborators`)
+            .then((rows) => {
+            if (!active)
+                return;
+            setPocketCollaborators(rows);
+        })
+            .catch(() => {
+            if (!active)
+                return;
+            setPocketCollaborators([]);
+        });
+        return () => { active = false; };
+    }, [accountView, pocketMemberPreviewMap, request, selectedPocket, selectedPocketId]);
+    useEffect(() => {
+        if (!showPocketInviteModal) {
+            setInviteQuery("");
+            setInviteSearchResults([]);
+            setInviteSelectedUser(null);
+            setInvitePermission("member");
+            setInviteSuccess(null);
+            setInviteSearchLoading(false);
+            return;
+        }
+        const query = inviteQuery.trim();
+        if (query.length < 2) {
+            setInviteSearchResults([]);
+            setInviteSelectedUser(null);
+            setInviteSearchLoading(false);
+            return;
+        }
+        let active = true;
+        const timer = window.setTimeout(async () => {
+            setInviteSearchLoading(true);
+            try {
+                const results = await request<Array<{
+                    id: string;
+                    fullName: string;
+                    username: string;
+                    email: string | null;
+                    avatarUrl: string | null;
+                    phone: string | null;
+                    relationshipStatus: string;
+                }>>(`/social/people/search?q=${encodeURIComponent(query)}&exact=1`);
+                if (!active)
+                    return;
+                const normalizedQuery = query.toLowerCase();
+                const filtered = results.filter((person) => {
+                    const username = person.username.toLowerCase();
+                    const email = (person.email ?? "").toLowerCase();
+                    const phone = (person.phone ?? "").trim();
+                    return username === normalizedQuery || email === normalizedQuery || phone === query;
+                }).slice(0, 1);
+                setInviteSearchResults(filtered);
+                if (!filtered.some((person) => person.id === inviteSelectedUser?.id)) {
+                    setInviteSelectedUser(null);
+                }
+            }
+            catch {
+                if (!active)
+                    return;
+                setInviteSearchResults([]);
+                setInviteSelectedUser(null);
+            }
+            finally {
+                if (active)
+                    setInviteSearchLoading(false);
+            }
+        }, 260);
+        return () => {
+            active = false;
+            window.clearTimeout(timer);
+        };
+    }, [inviteQuery, inviteSelectedUser?.id, request, showPocketInviteModal]);
+    const submitPocketInvite = async () => {
+        if (!selectedPocketId || !inviteSelectedUser)
+            return;
+        setInviteSending(true);
+        setInviteSuccess(null);
+        try {
+            await request(`/accounts/${selectedPocketId}/collaborators`, {
+                method: "POST",
+                body: JSON.stringify({
+                    targetUserId: inviteSelectedUser.id,
+                    role: invitePermission
+                })
+            });
+            setInviteSuccess(invitePermission === "member"
+                ? "Undangan terkirim. User ini bisa menabung dan memakai saldo pocket."
+                : "Undangan terkirim. User ini hanya bisa menabung di pocket.");
+            const rows = await request<Array<{
+                user_id: string;
+                role: string;
+                status: string;
+                full_name: string;
+                email: string;
+                username: string;
+                avatar_url: string | null;
+            }>>(`/accounts/${selectedPocketId}/collaborators`);
+            setPocketCollaborators(rows);
+            setInviteQuery("");
+            setInviteSearchResults([]);
+            setInviteSelectedUser(null);
+            setInvitePermission("member");
+        }
+        catch (err) {
+            setInviteSuccess(err instanceof Error ? err.message : "Undangan gagal dikirim");
+        }
+        finally {
+            setInviteSending(false);
+        }
+    };
+    const handlePocketInviteScan = async (rawValue: string | null) => {
+        setScanQrOpen(false);
+        setQrScannerError(null);
+        const value = (rawValue ?? "").trim();
+        if (!value) {
+            setQrScannerError("Barcode tidak terbaca.");
+            return;
+        }
+        setInviteQuery(value.replace(/^finance-ai:user:/i, ""));
+        setInviteSearchLoading(true);
+        try {
+            const results = await request<Array<{
+                id: string;
+                fullName: string;
+                username: string;
+                email: string | null;
+                avatarUrl: string | null;
+                phone: string | null;
+                relationshipStatus: string;
+            }>>(`/social/people/search?q=${encodeURIComponent(value)}&exact=1`);
+            const match = results[0] ?? null;
+            setInviteSearchResults(match ? [match] : []);
+            setInviteSelectedUser(match ? {
+                id: match.id,
+                fullName: match.fullName,
+                username: match.username,
+                email: match.email ?? "",
+                avatarUrl: match.avatarUrl
+            } : null);
+            if (!match) {
+                setQrScannerError("User tidak ditemukan. Pastikan barcode milik user yang valid.");
+            }
+        }
+        catch (err) {
+            setInviteSearchResults([]);
+            setInviteSelectedUser(null);
+            setQrScannerError(err instanceof Error ? err.message : "Barcode belum bisa diproses.");
+        }
+        finally {
+            setInviteSearchLoading(false);
+        }
+    };
     useEffect(() => {
         if (accountView !== "account-form")
             return;
@@ -2929,6 +2484,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         const accountVisual = editingAccount?.logo ? { logo: editingAccount.logo, background: editingAccount.background } : visuals[editingAccount?.id ?? ""];
         setPocketLogoDraft(accountVisual?.logo || getDefaultPocketLogo(savedType || "bank"));
         setPocketBackgroundDraft(accountVisual?.background || "#16A34A");
+        setShowPocketLogoMenu(false);
+        setShowPocketStickerPicker(false);
     }, [accountView, editingAccount?.id, editingAccount?.accountNumber, editingAccount?.accountType, editingAccount?.initialBalance, editingAccount?.name, editingAccount?.providerName, editingAccount?.logo, editingAccount?.background]);
     const movePocket = (fromId: string, toId: string) => {
         if (!fromId || fromId === toId)
@@ -3004,7 +2561,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         const selectedPocketType = pocketTypeDraft;
         const accountNumber = pocketNumberDraft.trim();
         const accountHolderName = pocketHolderDraft.trim();
-        const accountNumberPayload = accountHolderName && selectedPocketType !== "e_money" ? `${accountNumber} � ${accountHolderName}` : accountNumber;
+        const accountNumberPayload = accountHolderName && selectedPocketType !== "e_money" ? `${accountNumber} · ${accountHolderName}` : accountNumber;
         try {
             const payload = {
                 name: pocketNameDraft.trim(),
@@ -3055,7 +2612,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             return;
         const formData = new FormData(form);
         const initialBalance = String(formData.get("initialBalance") || "0");
-        const confirmed = window.confirm(`Reset akun ${editingAccount.name}?\n\nSemua transaksi dan transfer terkait akun ini akan dihapus permanen. Saldo akun akan dimulai lagi dari saldo awal yang tertera.`);
+        const confirmed = window.confirm(`Reset pocket ${editingAccount.name}?\n\nSemua transaksi dan transfer terkait pocket ini akan dihapus permanen. Saldo pocket akan dimulai lagi dari saldo awal yang tertera.`);
         if (!confirmed)
             return;
         setResettingAccount(true);
@@ -3195,13 +2752,18 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     return (<div className="space-y-3">
       {accountView === "list" && (<section className="space-y-3">
           <div className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
-            <SectionHeader title="Pocket" caption={pocketTab === "mine" ? `${myPockets.length} pocket pribadi` : `${sharedPockets.length} shared pocket`} action={pocketTab === "mine" ? (<button type="button" className="inline-flex items-center gap-1 rounded-full bg-[#16A34A] px-3 py-1.5 text-xs font-semibold text-white" onClick={() => {
-                    setError(null);
-                    setEditingAccount(null);
-                    setAccountView("account-form");
-                }}>
-                  <Plus size={14}/> Add Pocket
-                </button>) : undefined}/>
+            <SectionHeader title="Pocket" caption={pocketTab === "mine" ? `${myPockets.length} pocket pribadi` : `${sharedPockets.length} shared pocket`} action={(<div className="flex items-center gap-2">
+                  <button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-100 bg-white text-[#16A34A] shadow-sm" onClick={() => onOpenTransactions("")} aria-label="View all transactions" title="View all transactions">
+                    <ReceiptText size={15}/>
+                  </button>
+                  {pocketTab === "mine" && (<button type="button" className="inline-flex items-center gap-1 rounded-full bg-[#16A34A] px-3 py-1.5 text-xs font-semibold text-white" onClick={() => {
+                setError(null);
+                setEditingAccount(null);
+                setAccountView("account-form");
+            }}>
+                      <Plus size={14}/> Add Pocket
+                    </button>)}
+                </div>)}/>
             <div className="grid grid-cols-2 gap-2 rounded-2xl bg-[#F8FAFC] p-1">
               {[
                 { id: "mine" as const, label: "My Pockets", total: myPocketTotal },
@@ -3224,6 +2786,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               {visiblePockets.map((account) => {
                     const AccountIcon = accountTypeIcon(account.accountType);
                     const sharedLabel = accountSharedLabel(account, language);
+                    const memberPreview = pocketMemberPreviewMap[account.id] ?? [];
+                    const hasMultipleMembers = memberPreview.length > 1;
                     // Ambil visual dari server, localStorage, atau gunakan warna default hijau
                     const visuals = loadPocketVisuals();
                     const accountVisual = account.logo ? { logo: account.logo, background: account.background } : visuals[account.id];
@@ -3246,18 +2810,31 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                         <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-white/18 text-lg ring-1 ring-white/25 backdrop-blur">
                           {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="text-lg">{cardLogo}</span>)}
                         </span>
-                        <span className="text-[10px] font-semibold text-white/70">{pocketTab === "mine" ? "Drag" : "Shared"}</span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="rounded-full bg-white/14 px-2 py-1 text-[9px] font-semibold text-white/75 backdrop-blur">
+                            {pocketTab === "mine" ? "Drag" : "Shared"}
+                          </span>
+                          {hasMultipleMembers && (<button type="button" className="inline-flex items-center rounded-full bg-white/12 px-1.5 py-1 backdrop-blur transition hover:bg-white/18 active:scale-[0.98]" onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedPocketId(account.id);
+                                    setShowPocketMembersPopup(true);
+                                }}>
+                              <div className="flex items-center -space-x-2">
+                                {memberPreview.slice(0, 3).map((member) => (<span key={member.userId} title={member.fullName} className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-900/35 bg-emerald-50 text-[9px] font-semibold text-[#16A34A] shadow-sm">
+                                    {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-full w-full object-cover"/> : member.fullName.slice(0, 1).toUpperCase()}
+                                  </span>))}
+                              </div>
+                              <span className="ml-2 text-[9px] font-semibold text-white/85">+{memberPreview.length - 1}</span>
+                            </button>)}
+                        </div>
                       </div>
                       <div className="mt-0.5">
                         <p className="truncate text-base font-semibold">{account.name}</p>
-                        <p className="mt-0.5 text-[10px] font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` · ${account.providerName}` : ""}</p>
-                        <p className="mt-1 text-[10px] font-medium text-white/70">Saldo saat ini</p>
+                        <p className="mt-0.5 text-[10px] font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` Ã‚Â· ${account.providerName}` : ""}</p>
+                        <p className="mt-3 text-[10px] font-medium text-white/70">Saldo saat ini</p>
                         <p className="mt-0.5 text-lg font-semibold">{rupiah(account.currentBalance)}</p>
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-full bg-white/14 px-2.5 py-1 text-[9px] font-semibold backdrop-blur">{accountTypeLabel(account.accountType)}</span>
-                        {sharedLabel && <span className="rounded-full bg-white/14 px-2.5 py-1 text-[9px] font-semibold backdrop-blur">{sharedLabel}</span>}
-                      </div>
+                      
                     </div>
                   </button>);
                 })}
@@ -3265,42 +2842,80 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         </section>)}
 
       {accountView === "pocket-detail" && selectedPocket && (<section className="space-y-3">
-          <div className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
-            <div className="flex items-center justify-between gap-3">
-              <button type="button" className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500" onClick={() => setAccountView("list")}>
+          <div className="relative overflow-hidden rounded-[26px] p-4 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${selectedPocket.background || loadPocketVisuals()[selectedPocket.id]?.background || "#16A34A"}, #064E3B)` }}>
+            <div className="absolute right-[-38px] top-[-38px] h-32 w-32 rounded-full bg-white/15"/>
+            <div className="relative z-10 flex items-start justify-between gap-3">
+              <button type="button" className="inline-flex items-center gap-2 rounded-full bg-white/14 px-3 py-2 text-xs font-semibold text-white/90 backdrop-blur" onClick={() => setAccountView("list")}>
                 <ArrowLeft size={15}/> Back to Pocket
               </button>
-              {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600" onClick={() => {
+              <div className="flex items-center gap-2">
+                {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white/90 backdrop-blur" onClick={() => {
+                    setShowPocketInviteModal(true);
+                }}>
+                    <UserPlus size={15}/>
+                  </button>)}
+                {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex items-center gap-1 rounded-full bg-white/14 px-2.5 py-2 text-[11px] font-semibold text-white/90 backdrop-blur" onClick={() => {
                     setEditingAccount(selectedPocket);
                     setAccountView("account-form");
                 }}>
-                  <Settings size={13}/> Edit
-                </button>)}
+                    <Settings size={13}/> Edit
+                  </button>)}
+              </div>
             </div>
-            <div className="mt-4 flex items-start gap-3">
+            <div className="relative z-10 mt-4 flex items-start gap-3">
               {(() => {
                 const visuals = loadPocketVisuals();
                 const accountVisual = selectedPocket.logo ? { logo: selectedPocket.logo, background: selectedPocket.background } : visuals[selectedPocket.id];
-                const cardBackground = accountVisual?.background || "#16A34A";
                 const cardLogo = accountVisual?.logo || getDefaultPocketLogo(selectedPocket.accountType);
                 return (<>
-                    <span className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }}>
-                      {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="text-2xl">{cardLogo}</span>)}
+                    <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-white/18 ring-1 ring-white/25 backdrop-blur">
+                      {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="flex h-full w-full items-center justify-center text-[36px] leading-none">{cardLogo}</span>)}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-lg font-semibold text-slate-950">{selectedPocket.name}</p>
-                      <p className="mt-1 text-2xl font-semibold text-slate-950">{rupiah(selectedPocket.currentBalance)}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, selectedPocket.accountNumber].filter(Boolean).join(" � ")}
+                      <p className="truncate text-xl font-semibold text-white">{selectedPocket.name}</p>
+                      <p className="mt-1 text-3xl font-semibold text-white">{rupiah(selectedPocket.currentBalance)}</p>
+                      <p className="mt-1 text-xs text-white/75">
+                        {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, selectedPocket.accountNumber].filter(Boolean).join(" Â· ")}
                       </p>
                     </div>
                   </>);
             })()}
             </div>
+            {pocketMembers.length > 1 && (<div className="relative z-10 mt-4 flex items-center justify-between gap-3">
+                <div className="flex items-center -space-x-2">
+                  {pocketMembers.slice(0, 4).map((member) => (<button key={member.userId} type="button" className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-50 text-[11px] font-semibold text-[#16A34A]" onClick={() => setShowPocketMembersPopup(true)}>
+                      {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-full w-full object-cover"/> : member.fullName.slice(0, 1).toUpperCase()}
+                    </button>))}
+                  {pocketMembers.length > 4 && (<button type="button" className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-white text-[10px] font-semibold text-slate-700" onClick={() => setShowPocketMembersPopup(true)}>
+                      +{pocketMembers.length - 4}
+                    </button>)}
+                </div>
+                <button type="button" className="rounded-full bg-white/14 px-3 py-1.5 text-[11px] font-semibold text-white/90 backdrop-blur" onClick={() => setShowPocketMembersPopup(true)}>
+                  {pocketMembers.length} user
+                </button>
+              </div>)}
+            {showPocketMembersPopup && (<div className="absolute inset-x-4 top-[calc(100%_-_8px)] z-20 rounded-[22px] border border-slate-100 bg-white p-3 text-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-semibold">Pocket users</p>
+                  <button type="button" className="text-slate-400" onClick={() => setShowPocketMembersPopup(false)}>
+                    <X size={16}/>
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {pocketMembers.map((member) => (<div key={member.userId} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                      {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-10 w-10 rounded-xl object-cover"/> : <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-sm font-semibold text-[#16A34A]">{member.fullName.slice(0, 1).toUpperCase()}</span>}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-950">{member.fullName}</p>
+                        <p className="truncate text-[11px] text-slate-500">{member.role}</p>
+                      </div>
+                    </div>))}
+                </div>
+              </div>)}
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             <button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" disabled={transferableAccounts.length < 2} onClick={() => {
+                setTransferMode("out");
                 setSourceAccountId(selectedPocket.id);
                 setDestinationAccountId(transferableAccounts.find((account) => account.id !== selectedPocket.id)?.id ?? "");
                 setAccountView("transfer-form");
@@ -3310,6 +2925,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               <p className="mt-0.5 text-[11px] text-slate-500">Send to another pocket</p>
             </button>
             <button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" disabled={transferableAccounts.length < 2} onClick={() => {
+                setTransferMode("in");
                 setDestinationAccountId(selectedPocket.id);
                 setSourceAccountId(transferableAccounts.find((account) => account.id !== selectedPocket.id)?.id ?? "");
                 setAccountView("transfer-form");
@@ -3341,7 +2957,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
           </div>
 
           <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-            <SectionHeader title="Transaction history" caption="Search and filter transactions in this pocket."/>
+            <SectionHeader title="Transaction history" caption="Search and filter transactions in this pocket." action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => loadPocketTransactions().catch(() => undefined)} disabled={pocketTransactionLoading}>
+                  {pocketTransactionLoading ? <Loader2 size={13} className="animate-spin"/> : <ArrowLeftRight size={13}/>} Refresh
+                </button>)}/>
             <div className="grid gap-2">
               <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
                 <Search size={16} className="text-slate-400"/>
@@ -3356,7 +2974,35 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     {item.label}
                   </button>))}
               </div>
-              <button type="button" className="btn-secondary w-full" onClick={() => onOpenTransactions(selectedPocket.id, selectedPocket.relationshipGoalCreatedAt?.slice(0, 10))}>
+              <div className="space-y-2">
+                {pocketTransactionLoading ? (<div className="rounded-2xl border border-slate-100 bg-[#F8FAFC] px-3 py-4 text-center text-xs font-medium text-slate-500">
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 size={14} className="animate-spin"/> Loading transactions...
+                    </span>
+                  </div>) : recentPocketTransactions.length > 0 ? (recentPocketTransactions.map((transaction) => {
+                    const isIncome = transaction.transactionType === "income";
+                    return (<div key={transaction.id} className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-[#F8FAFC] px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isIncome ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
+                              {isIncome ? <ArrowDownLeft size={15}/> : <ArrowUpRight size={15}/>}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-900">{transaction.merchantName || transaction.categoryName || "Untitled transaction"}</p>
+                              <p className="truncate text-[11px] text-slate-500">{[transaction.categoryName, transaction.paymentMethod, localDate(transaction.transactionDate)].filter(Boolean).join(" • ")}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-sm font-semibold ${isIncome ? "text-[#16A34A]" : "text-slate-900"}`}>{isIncome ? "+" : "-"}{rupiah(transaction.amount)}</p>
+                          <p className="mt-1 text-[11px] text-slate-400">{isIncome ? "Income" : "Expense"}</p>
+                        </div>
+                      </div>);
+                })) : (<div className="rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] px-3 py-4 text-center text-xs font-medium text-slate-500">
+                    No transactions found for this pocket.
+                  </div>)}
+              </div>
+              <button type="button" className="btn-secondary w-full" onClick={() => onOpenTransactions(selectedPocket.id)}>
                 <ReceiptText size={16}/> View all transaction history
               </button>
             </div>
@@ -3369,42 +3015,138 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               <button className="btn-primary mt-2 w-full" type="button">Save target</button>
             </div>)}
 
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-            <SectionHeader title="Invite user" caption="Share this pocket balance with selected users."/>
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-              <UserPlus size={16} className="text-slate-400"/>
-              <input className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-slate-400" value={inviteQuery} onChange={(event) => setInviteQuery(event.target.value)} placeholder="Email, username, or phone"/>
-              <button type="button" className="rounded-xl bg-[#16A34A] px-3 py-2 text-xs font-semibold text-white">Invite</button>
-            </div>
-            <button type="button" className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]">
-              <QrCode size={15}/> Show barcode
-            </button>
-          </div>
         </section>)}
+      {accountView === "pocket-detail" && selectedPocket && showPocketInviteModal && (<>
+          <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Close invite user" onClick={() => setShowPocketInviteModal(false)}/>
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">Invite user</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Cari 1 user dengan username, email, atau nomor telepon lengkap.</p>
+              </div>
+              <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowPocketInviteModal(false)}>
+                <X size={17}/>
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                <UserPlus size={16} className="text-slate-400"/>
+                <input className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-slate-400" value={inviteQuery} onChange={(event) => {
+                setInviteQuery(event.target.value);
+                setInviteSuccess(null);
+            }} placeholder="Username, email, atau phone"/>
+              </div>
+              <button type="button" className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
+                setQrScannerError(null);
+                setScanQrOpen(true);
+            }}>
+                <QrCode size={15}/> Scan barcode
+              </button>
+              {inviteSearchLoading && <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-[#166534]">Mencari user yang cocok...</div>}
+              {!inviteSearchLoading && inviteQuery.trim().length >= 2 && inviteSearchResults.length === 0 && !inviteSelectedUser && (<div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Tidak ditemukan, silakan isi username/email/phone secara lengkap.
+                </div>)}
+              {qrScannerError && <div className="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">{qrScannerError}</div>}
+              {!inviteSelectedUser && inviteSearchResults.length > 0 && (<div className="space-y-2">
+                  {inviteSearchResults.map((person) => (<button key={person.id} type="button" className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-emerald-200 hover:bg-emerald-50/60" onClick={() => {
+                    setInviteSelectedUser({
+                        id: person.id,
+                        fullName: person.fullName,
+                        username: person.username,
+                        email: person.email ?? "",
+                        avatarUrl: person.avatarUrl
+                    });
+                    setInviteSuccess(null);
+                }}>
+                      {person.avatarUrl ? <img src={person.avatarUrl} alt="" className="h-11 w-11 rounded-2xl object-cover"/> : <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-sm font-semibold text-[#16A34A]">{person.fullName.slice(0, 1).toUpperCase()}</span>}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-950">{person.fullName}</p>
+                        <p className="truncate text-xs text-slate-500">@{person.username}</p>
+                      </div>
+                      <ChevronRight size={16} className="text-slate-300"/>
+                    </button>))}
+                </div>)}
+              {inviteSelectedUser && (<div className="space-y-3 rounded-[22px] border border-emerald-100 bg-emerald-50/60 p-3">
+                  <div className="flex items-center gap-3">
+                    {inviteSelectedUser.avatarUrl ? <img src={inviteSelectedUser.avatarUrl} alt="" className="h-12 w-12 rounded-2xl object-cover"/> : <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-sm font-semibold text-[#16A34A]">{inviteSelectedUser.fullName.slice(0, 1).toUpperCase()}</span>}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-950">{inviteSelectedUser.fullName}</p>
+                      <p className="truncate text-xs text-slate-500">@{inviteSelectedUser.username}</p>
+                      <p className="truncate text-[11px] text-slate-400">{inviteSelectedUser.email}</p>
+                    </div>
+                    <button type="button" className="text-xs font-semibold text-slate-500" onClick={() => {
+                    setInviteSelectedUser(null);
+                    setInviteSuccess(null);
+                }}>
+                      Ganti
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Akses pocket</p>
+                    <button type="button" className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${invitePermission === "member" ? "border-emerald-200 bg-white shadow-sm" : "border-slate-200 bg-white/80"}`} onClick={() => setInvitePermission("member")}>
+                      <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-emerald-200">{invitePermission === "member" && <span className="h-2.5 w-2.5 rounded-full bg-[#16A34A]"/>}</span>
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-950">Bisa spend uang</span>
+                        <span className="block text-xs leading-5 text-slate-500">Bisa menabung, melihat saldo, dan mencatat transaksi pocket.</span>
+                      </span>
+                    </button>
+                    <button type="button" className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${invitePermission === "viewer" ? "border-emerald-200 bg-white shadow-sm" : "border-slate-200 bg-white/80"}`} onClick={() => setInvitePermission("viewer")}>
+                      <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-emerald-200">{invitePermission === "viewer" && <span className="h-2.5 w-2.5 rounded-full bg-[#16A34A]"/>}</span>
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-950">Hanya bisa nabung</span>
+                        <span className="block text-xs leading-5 text-slate-500">Bisa ikut setor saldo, tapi tidak bisa memakai saldo pocket untuk transaksi.</span>
+                      </span>
+                    </button>
+                  </div>
+                  <button type="button" className="btn-primary w-full" disabled={inviteSending} onClick={() => submitPocketInvite()}>
+                    {inviteSending ? <Loader2 size={16} className="animate-spin"/> : <UserPlus size={16}/>}
+                    {inviteSending ? "Mengirim undangan..." : "Invite user"}
+                  </button>
+                </div>)}
+              {inviteSuccess && <div className={`rounded-2xl px-3 py-2 text-xs ${inviteSuccess.toLowerCase().includes("gagal") ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-[#166534]"}`}>{inviteSuccess}</div>}
+            </div>
+          </section>
+        </>)}
+      {accountView === "pocket-detail" && scanQrOpen && <QrScanner onScan={handlePocketInviteScan} onClose={() => setScanQrOpen(false)} request={request} selectedPocketId={selectedPocketId}/>}
 
       {accountView === "account-form" && (<form key={editingAccount?.id ?? "new-pocket"} className="flex min-h-[calc(100vh-132px)] flex-col rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
           <SectionHeader title={editingAccount ? "Edit pocket" : "Add pocket"} caption="Atur identitas pocket, jenis penyimpanan, dan saldo awal." action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+                    const isEditingExistingPocket = Boolean(editingAccount);
                     setEditingAccount(null);
                     setError(null);
-                    setAccountView("list");
+                    setAccountView(isEditingExistingPocket ? "pocket-detail" : "list");
                 }}>
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
 
-          <input ref={pocketCameraInputRef} className="hidden" type="file" accept="image/*" capture="environment" onChange={handlePocketImage}/>
           <input ref={pocketGalleryInputRef} className="hidden" type="file" accept="image/*" onChange={handlePocketImage}/>
 
           <div className="flex-1 space-y-4">
             <div className="relative overflow-hidden rounded-[24px] p-4 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${pocketBackgroundDraft}, #064E3B)` }}>
               <div className="absolute right-[-38px] top-[-38px] h-32 w-32 rounded-full bg-white/15"/>
               <div className="relative z-10 flex items-start justify-between gap-3">
-                <button type="button" className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white/18 text-2xl ring-1 ring-white/25 backdrop-blur" onClick={() => {
-                const nextEmoji = window.prompt("Masukkan emoji untuk logo pocket", pocketLogoDraft.startsWith("data:") ? "??" : pocketLogoDraft);
-                if (nextEmoji)
-                    setPocketLogoDraft(nextEmoji.trim().slice(0, 4) || "??");
+                <div className="relative">
+                  <button type="button" className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white/18 ring-1 ring-white/25 backdrop-blur" onClick={() => {
+                setShowPocketStickerPicker(false);
+                setShowPocketLogoMenu((current) => !current);
             }} aria-label="Ubah logo pocket">
-                  {pocketLogoDraft.startsWith("data:") ? <img src={pocketLogoDraft} alt="" className="h-full w-full object-cover"/> : pocketLogoDraft}
-                </button>
+                    {pocketLogoDraft.startsWith("data:") ? <img src={pocketLogoDraft} alt="" className="h-full w-full object-cover"/> : <span className="flex h-full w-full items-center justify-center text-[34px] leading-none">{pocketLogoDraft}</span>}
+                  </button>
+                  {showPocketLogoMenu && (<div className="absolute left-0 top-16 z-20 w-36 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+                      <button type="button" className="flex w-full items-center rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => {
+                setShowPocketLogoMenu(false);
+                setShowPocketStickerPicker(true);
+            }}>
+                        Sticker
+                      </button>
+                      <button type="button" className="flex w-full items-center rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => {
+                setShowPocketLogoMenu(false);
+                pocketGalleryInputRef.current?.click();
+            }}>
+                        Upload
+                      </button>
+                    </div>)}
+                </div>
                 <div className="flex flex-wrap justify-end gap-1.5">
                   {pocketCardColors.map((color) => (<button key={color} type="button" className={`h-6 w-6 rounded-full border-2 ${pocketBackgroundDraft === color ? "border-white" : "border-white/40"}`} style={{ backgroundColor: color }} onClick={() => setPocketBackgroundDraft(color)} aria-label={`Pilih warna ${color}`}/>))}
                 </div>
@@ -3415,21 +3157,30 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 <p className="mt-4 text-xs font-medium text-white/70">Start balance</p>
                 <p className="mt-1 text-2xl font-semibold">{rupiah(moneyValue(pocketInitialBalanceDraft.replace(/\./g, "")))}</p>
               </div>
-              <div className="relative z-10 mt-4 grid grid-cols-3 gap-2">
-                <button type="button" className="rounded-2xl bg-white/14 px-2 py-2 text-[11px] font-semibold backdrop-blur" onClick={() => {
-                const nextEmoji = window.prompt("Masukkan emoji untuk logo pocket", pocketLogoDraft.startsWith("data:") ? "??" : pocketLogoDraft);
-                if (nextEmoji)
-                    setPocketLogoDraft(nextEmoji.trim().slice(0, 4) || "??");
-            }}>Emoji</button>
-                <button type="button" className="rounded-2xl bg-white/14 px-2 py-2 text-[11px] font-semibold backdrop-blur" onClick={() => pocketCameraInputRef.current?.click()}>
-                  <Camera className="mx-auto mb-0.5" size={14}/> Camera
-                </button>
-                <button type="button" className="rounded-2xl bg-white/14 px-2 py-2 text-[11px] font-semibold backdrop-blur" onClick={() => pocketGalleryInputRef.current?.click()}>
-                  <Upload className="mx-auto mb-0.5" size={14}/> Gallery
-                </button>
-              </div>
-              <p className="relative z-10 mt-3 text-[11px] font-medium text-white/70">Tap logo untuk mengganti ikon. Pilih warna untuk background kartu.</p>
+              <p className="relative z-10 mt-4 text-[11px] font-medium text-white/70">Tap logo untuk memilih sticker atau upload gambar. Pilih warna untuk background kartu.</p>
             </div>
+            {showPocketStickerPicker && (<>
+                <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Tutup pilihan sticker" onClick={() => setShowPocketStickerPicker(false)}/>
+                <div className="fixed inset-x-4 top-1/2 z-50 mx-auto w-full max-w-xs -translate-y-1/2 rounded-[24px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">Pilih sticker</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Pilih icon untuk logo pocket.</p>
+                    </div>
+                    <button type="button" className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowPocketStickerPicker(false)}>
+                      <X size={14}/>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {pocketStickerOptions.map((sticker) => (<button key={sticker} type="button" className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[30px] transition hover:bg-emerald-50 hover:border-emerald-100" onClick={() => {
+                setPocketLogoDraft(sticker);
+                setShowPocketStickerPicker(false);
+            }}>
+                        <span className="leading-none">{sticker}</span>
+                      </button>))}
+                  </div>
+                </div>
+              </>)}
 
             <Field label="Nama pocket">
               <input className="input" name="name" placeholder="Contoh: BCA utama" value={pocketNameDraft} onChange={(event) => setPocketNameDraft(event.target.value)} required/>
@@ -3485,47 +3236,32 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         </form>)}
 
       {accountView === "transfer-form" && (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={transfer}>
-          <SectionHeader title="Transfer antar akun" caption="Pindahkan uang antar akun tanpa membuat pengeluaran." action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+          <SectionHeader title={transferFormCopy.title} caption={transferFormCopy.caption} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
                     setError(null);
+                    setTransferMode("general");
                     setAccountView("list");
                 }}>
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
-          <div className="mb-3 rounded-[20px] border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-md">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#16A34A] shadow-sm">
-              <Sparkles size={12}/> AI Quick Add
-            </span>
-            <p className="mt-2 text-sm font-semibold text-slate-950">Ketik transfer dengan bahasa sehari-hari</p>
-            <textarea className="mt-2 min-h-20 w-full resize-none rounded-2xl border border-emerald-100 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 lg:rounded-md" value={transferText} onChange={(event) => {
-                setTransferText(event.target.value);
-                setTransferParsed(false);
-            }} placeholder="Contoh: transfer BCA ke GoPay 300rb fee 2.500" disabled={transferParseLoading}/>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {["transfer BCA ke GoPay 300rb", "tarik tunai BCA ke Tunai 500rb admin 6.500", "kirim Mandiri ke DANA 100rb"].map((example) => (<button key={example} type="button" className="rounded-full border border-emerald-100 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 transition hover:bg-emerald-50 hover:text-[#16A34A]" onClick={() => setTransferText(example)}>
-                  {example}
-                </button>))}
+          <div className="mb-4 rounded-[22px] border border-slate-100 bg-[#F8FAFC] p-3 lg:rounded-md">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <div className="rounded-2xl bg-white px-3 py-3 shadow-sm lg:rounded-md">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{transferFormCopy.sourceLabel}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-slate-950">{sourceAccount?.name ?? "-"}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{transferFormCopy.sourceCaption}</p>
+              </div>
+              <span className={`flex h-10 w-10 items-center justify-center rounded-full ${transferMode === "in" ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
+                {transferMode === "in" ? <ArrowDownLeft size={18}/> : <ArrowUpRight size={18}/>}
+              </span>
+              <div className="rounded-2xl bg-white px-3 py-3 shadow-sm lg:rounded-md">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{transferFormCopy.destinationLabel}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-slate-950">{destinationAccount?.name ?? "-"}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{transferFormCopy.destinationCaption}</p>
+              </div>
             </div>
-            {transferParseLoading && (<div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl border border-emerald-100 bg-white/80 p-3 text-[11px] font-semibold text-slate-600 lg:rounded-md">
-                {[
-                    "Membaca nominal",
-                    "Menentukan akun asal",
-                    "Menentukan akun tujuan",
-                    "Mengecek fee/admin"
-                ].map((step, index) => {
-                    const done = transferAnalysisStep >= index;
-                    return (<div key={step} className="flex items-center gap-2">
-                      {done ? (<CheckCircle2 className="text-[#16A34A]" size={14}/>) : (<Loader2 className="animate-spin text-slate-300" size={14}/>)}
-                      <span className={done ? "text-[#15803D]" : "text-slate-400"}>{step}</span>
-                    </div>);
-                })}
-              </div>)}
-            <button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(22,163,74,0.18)] transition hover:bg-[#15803D] disabled:opacity-60 lg:rounded-md" onClick={parseTransferQuickAdd} disabled={transferParseLoading || transferableAccounts.length < 2}>
-              {transferParseLoading ? <Loader2 className="animate-spin" size={16}/> : <Sparkles size={16}/>}
-              {transferParseLoading ? "Menganalisis transfer..." : "Analisis Transfer"}
-            </button>
           </div>
           <div ref={transferFormFieldsRef} className="space-y-3 scroll-mt-24">
-            <Field label="Dari akun" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language}/>}>
+            <Field label={transferFormCopy.sourceLabel}>
               <div>
                 <select className="input" name="sourceAccountId" value={sourceAccountId} onChange={(event) => {
                 const nextSourceId = event.target.value;
@@ -3547,7 +3283,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                   </div>)}
               </div>
             </Field>
-            <Field label="Ke akun" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language}/>}>
+            <Field label={transferFormCopy.destinationLabel}>
               <div>
                 <select className="input" name="destinationAccountId" value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)} required disabled={transferableAccounts.length < 2}>
                   {transferableAccounts.filter((account) => account.id !== sourceAccountId).map((account) => (<option key={account.id} value={account.id}>{accountOptionLabel(account, { balance: true })}</option>))}
@@ -3564,14 +3300,14 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               </div>
             </Field>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Nominal" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language}/>}>
+              <Field label="Nominal">
                 <input className="input" name="amount" inputMode="numeric" placeholder="100000" value={transferDraft.amount} onChange={(event) => setTransferDraft((current) => ({ ...current, amount: formatRupiahInput(event.target.value) }))} required/>
               </Field>
-              <Field label="Tanggal" hint={<AiFieldBadge status={transferParsed ? "ai" : null} language={language}/>}>
+              <Field label="Tanggal">
                 <input className="input" name="transferDate" type="date" value={transferDraft.transferDate} onChange={(event) => setTransferDraft((current) => ({ ...current, transferDate: event.target.value }))} required/>
               </Field>
             </div>
-            <Field label="Fee/admin" hint={<AiFieldBadge status={transferParsed && transferDraft.feeAmount ? "ai" : null} language={language}/>}>
+            <Field label="Fee/admin">
               <input className="input" name="feeAmount" inputMode="numeric" placeholder="Opsional, contoh: 2500" value={transferDraft.feeAmount} onChange={(event) => setTransferDraft((current) => ({ ...current, feeAmount: formatRupiahInput(event.target.value) }))}/>
             </Field>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:rounded-md">
@@ -3595,7 +3331,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 </p>)}
             </div>
             <input className="input" name="notes" placeholder="Catatan transfer (opsional)" value={transferDraft.notes} onChange={(event) => setTransferDraft((current) => ({ ...current, notes: event.target.value }))}/>
-            <button className="btn-primary w-full" disabled={transferableAccounts.length < 2 || transferAttachmentLoading || transferParseLoading}><ArrowLeftRight size={16}/> Transfer</button>
+            <button className="btn-primary w-full" disabled={transferableAccounts.length < 2 || transferAttachmentLoading || transferParseLoading}>
+              <ArrowLeftRight size={16}/> {transferFormCopy.submitLabel}
+            </button>
           </div>
         </form>)}
       {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
@@ -3776,7 +3514,7 @@ export function LegacyCategoriesView({ categories, request, onChanged }: {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {categories.map((category) => (<div key={category.id} className="card p-4">
             <p className="font-semibold">{category.name}</p>
-            <p className="mt-1 text-sm text-slate-500">{category.categoryType === "income" ? "Pemasukan" : "Pengeluaran"} {category.isDefault ? "· Default" : ""}</p>
+            <p className="mt-1 text-sm text-slate-500">{category.categoryType === "income" ? "Pemasukan" : "Pengeluaran"} {category.isDefault ? "Ã‚Â· Default" : ""}</p>
           </div>))}
       </section>
       <form className="card space-y-3 p-5" onSubmit={submit}>
@@ -4255,27 +3993,15 @@ export function AssistantView({ request, language, onNavigate, context }: {
     onNavigate: (view: View) => void;
     context?: AssistantContext | null;
 }) {
-    const relationshipMode = context?.contextType === "relationship_finance";
-    const relationshipLabel = context?.label
-        ?? (relationshipMode ? (language === "en" ? "Selected relationship" : "Relationship terpilih") : "");
-    const relationshipMeta = context?.partnerName
-        ? (language === "en" ? `With ${context.partnerName}` : `Dengan ${context.partnerName}`)
-        : (relationshipMode ? (language === "en" ? "Relationship Finance context" : "Konteks Relationship Finance") : "");
     const copy = language === "en" ? {
         greeting: "Hi, I can help you make financial decisions using the data recorded in this app.",
-        relationshipGreeting: "Hi, I can analyze your shared relationship workspace using only data both of you allowed.",
-        header: relationshipMode ? "Relationship Copilot" : "Finance Copilot",
-        subheader: relationshipMode ? "Ask about shared goals, cashflow, saving rate, or agreements" : "Ask about affordability, budgets, bills, balances, or shared debt",
+        header: "Finance Copilot",
+        subheader: "Ask about affordability, budgets, bills, balances, or shared debt",
         placeholder: "Example: Can I afford shoes for 1 million?",
         send: "Send",
         loading: "Checking your finances...",
         error: "The assistant is temporarily unavailable. Please try again.",
-        suggestions: relationshipMode ? [
-            "Is our shared finance healthy?",
-            "Is our main goal on track?",
-            "How much should we save each month?",
-            "Which budget should we improve?"
-        ] : [
+        suggestions: [
             "Can I afford shoes for 1 million?",
             "Check my finances this month",
             "Any bills due soon?",
@@ -4283,19 +4009,13 @@ export function AssistantView({ request, language, onNavigate, context }: {
         ]
     } : {
         greeting: "Hai, aku bisa membantu mengambil keputusan keuangan berdasarkan data yang tercatat di aplikasi ini.",
-        relationshipGreeting: "Hai, aku bisa menganalisis workspace keuangan bersama hanya dari data yang kalian izinkan.",
-        header: relationshipMode ? "Kopilot Relationship" : "Kopilot Keuangan",
-        subheader: relationshipMode ? "Tanya goal bersama, arus kas, saving rate, atau kesepakatan" : "Tanya kelayakan belanja, budget, tagihan, saldo, atau utang bersama",
+        header: "Kopilot Keuangan",
+        subheader: "Tanya kelayakan belanja, budget, tagihan, saldo, atau utang bersama",
         placeholder: "Contoh: Boleh beli sepatu 1 juta?",
         send: "Kirim",
         loading: "Memeriksa kondisi keuangan...",
         error: "Kopilot sedang tidak bisa menjawab. Coba lagi sebentar.",
-        suggestions: relationshipMode ? [
-            "Apakah keuangan bersama kami sehat?",
-            "Apakah target utama masih sesuai jadwal?",
-            "Berapa yang harus kami tabung tiap bulan?",
-            "Budget mana yang perlu diperbaiki?"
-        ] : [
+        suggestions: [
             "Boleh beli sepatu 1 juta?",
             "Cek kondisi keuangan bulan ini",
             "Ada tagihan yang segera jatuh tempo?",
@@ -4306,7 +4026,7 @@ export function AssistantView({ request, language, onNavigate, context }: {
     const [messages, setMessages] = useState<AssistantMessage[]>([
         {
             role: "assistant",
-            text: relationshipMode ? copy.relationshipGreeting : copy.greeting,
+            text: copy.greeting,
             suggestions: initialSuggestions
         }
     ]);
@@ -4315,10 +4035,10 @@ export function AssistantView({ request, language, onNavigate, context }: {
     useEffect(() => {
         setMessages([{
                 role: "assistant",
-                text: relationshipMode ? copy.relationshipGreeting : copy.greeting,
+                text: copy.greeting,
                 suggestions: copy.suggestions
             }]);
-    }, [language, relationshipMode, context?.relationshipFinanceId]);
+    }, [language]);
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }, [messages, loading]);
@@ -4384,11 +4104,6 @@ export function AssistantView({ request, language, onNavigate, context }: {
           <div className="min-w-0">
             <h2 className="text-base font-semibold leading-tight text-slate-950">{copy.header}</h2>
             <p className="mt-0.5 truncate text-xs text-slate-500">{copy.subheader}</p>
-            {relationshipMode && (<div className="mt-2 flex min-w-0 items-center gap-2 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-[#16A34A]">
-                <HeartPulse size={13}/>
-                <span className="truncate">{relationshipLabel}</span>
-                {relationshipMeta && <span className="hidden text-emerald-700/70 sm:inline">- {relationshipMeta}</span>}
-              </div>)}
           </div>
         </div>
       </div>
@@ -4660,7 +4375,7 @@ export function WalletMembersManageModal({ walletId, walletName, members, friend
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{member.fullName}</p>
                       <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                        @{member.username} � {member.status === "pending" ? "Menunggu" : "Aktif"}
+                        @{member.username} Ã¯Â¿Â½ {member.status === "pending" ? "Menunggu" : "Aktif"}
                       </p>
                     </div>
 
@@ -4807,7 +4522,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
       </div>
 
       <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
-        <SectionHeader title="Teman" caption={`${accepted.length} teman${outgoing.length ? ` � ${outgoing.length} menunggu` : ""}`}/>
+        <SectionHeader title="Teman" caption={`${accepted.length} teman${outgoing.length ? ` Ã¯Â¿Â½ ${outgoing.length} menunggu` : ""}`}/>
         {accepted.length === 0 ? (<div className="rounded-[18px] bg-[#F8FAFC] px-4 py-6 text-center">
             <div className="relative mx-auto h-20 w-28" aria-hidden="true">
               <span className="absolute left-3 top-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-[#16A34A]"><UserRound size={22}/></span>
@@ -4843,7 +4558,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm font-semibold text-[#111827]">{selectedFriend.fullName}</p>
-                <p className="text-xs text-[#6B7280]">@{selectedFriend.username} � {selectedFriend.commonGroups} grup bersama</p>
+                <p className="text-xs text-[#6B7280]">@{selectedFriend.username} Ã¯Â¿Â½ {selectedFriend.commonGroups} grup bersama</p>
               </div>
               <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-500" onClick={() => setSelectedFriend(null)}><X size={15}/></button>
             </div>
@@ -4853,7 +4568,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
             </p>
             <div className="mt-3 space-y-2">
               {selectedFriend.sharedTransactions?.map((row: any) => (<div key={row.id} className="flex justify-between gap-3 border-t border-[#E5E7EB] pt-2 text-xs">
-                  <span>{row.description} � {row.groupName}</span><span className="font-semibold">{rupiah(row.amount)}</span>
+                  <span>{row.description} Ã¯Â¿Â½ {row.groupName}</span><span className="font-semibold">{rupiah(row.amount)}</span>
                 </div>))}
             </div>
           </div>)}
@@ -4872,7 +4587,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
     </div>);
 }
 
-export function SocialHubView({ request, accounts, token, currentUser, summary, language, onChanged, onChildFrameStateChange, onOpenAssistantContext }: {
+export function SocialHubView({ request, accounts, token, currentUser, summary, language, onChanged, onChildFrameStateChange }: {
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
     accounts: Account[];
     token: string;
@@ -4881,27 +4596,11 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
     language: AppLanguage;
     onChanged: () => Promise<void>;
     onChildFrameStateChange?: (state: ChildFrameState) => void;
-    onOpenAssistantContext: (context: AssistantContext) => void;
 }) {
-    const [tab, setTab] = useState<"friends" | "groups" | "wallets" | "relationships" | "activity" | "privacy" | null>(null);
+    const [tab, setTab] = useState<"friends" | "groups" | "wallets" | "activity" | "privacy" | null>(null);
     const [friends, setFriends] = useState<SocialFriend[]>([]);
     const [groups, setGroups] = useState<SocialGroup[]>([]);
     const [wallets, setWallets] = useState<SocialWallet[]>([]);
-    const [relationships, setRelationships] = useState<RelationshipFinanceListItem[]>([]);
-    const [selectedRelationship, setSelectedRelationship] = useState<RelationshipFinanceListItem | null>(null);
-    const [relationshipOverviewData, setRelationshipOverviewData] = useState<RelationshipOverview | null>(null);
-    const [relationshipPartnerId, setRelationshipPartnerId] = useState("");
-    const [relationshipDetailTab, setRelationshipDetailTab] = useState<"goals" | "timeline">("goals");
-    const [relationshipGoalFilterId, setRelationshipGoalFilterId] = useState("");
-    const [showCreateRelationship, setShowCreateRelationship] = useState(false);
-    const [goalFormMode, setGoalFormMode] = useState<null | "add" | "edit">(null);
-    const [editingGoal, setEditingGoal] = useState<RelationshipGoal | null>(null);
-    const [goalAction, setGoalAction] = useState<null | {
-        goal: RelationshipGoal;
-        type: "contribution" | "adjustment" | "history";
-    }>(null);
-    const [goalContributions, setGoalContributions] = useState<RelationshipGoalContribution[]>([]);
-    const [goalContributionLoading, setGoalContributionLoading] = useState(false);
     const [activity, setActivity] = useState<SocialActivity[]>([]);
     const [activityLoadingMore, setActivityLoadingMore] = useState(false);
     const [activityHasMore, setActivityHasMore] = useState(true);
@@ -4994,11 +4693,9 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 request<SocialActivity[]>("/social/activity?limit=20&offset=0"),
                 request<typeof privacy>("/social/privacy")
             ]);
-            const nextRelationships = await request<RelationshipFinanceListItem[]>("/relationship-finances").catch(() => []);
             setFriends(nextFriends);
             setGroups(nextGroups);
             setWallets(nextWallets);
-            setRelationships(nextRelationships);
             setActivity(nextActivity);
             setActivityHasMore(nextActivity.length === 20);
             setPrivacy(nextPrivacy);
@@ -5017,16 +4714,9 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
         const resetSocialState = () => {
             setSelectedGroup(null);
             setSelectedWallet(null);
-            setSelectedRelationship(null);
-            setRelationshipOverviewData(null);
-            setRelationshipDetailTab("goals");
-            setRelationshipGoalFilterId("");
-            setGoalFormMode(null);
-            setEditingGoal(null);
             setSelectedFriend(null);
             setShowCreateGroup(false);
             setShowCreateWallet(false);
-            setShowCreateRelationship(false);
             setGroupMemberIds(new Set());
             setWalletMemberIds(new Set());
             setShowWalletReminderForm(false);
@@ -5047,21 +4737,6 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                         setShowWalletEntryForm(false);
                         return;
                     }
-                    if (goalFormMode || goalAction) {
-                        setGoalFormMode(null);
-                        setEditingGoal(null);
-                        setGoalAction(null);
-                        return;
-                    }
-                    if (selectedRelationship) {
-                        setSelectedRelationship(null);
-                        setRelationshipOverviewData(null);
-                        setRelationshipDetailTab("goals");
-                        setRelationshipGoalFilterId("");
-                        setGoalFormMode(null);
-                        setEditingGoal(null);
-                        return;
-                    }
                     if (showCreateGroup) {
                         setShowCreateGroup(false);
                         setGroupMemberIds(new Set());
@@ -5070,11 +4745,6 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                     if (showCreateWallet) {
                         setShowCreateWallet(false);
                         setWalletMemberIds(new Set());
-                        return;
-                    }
-                    if (showCreateRelationship) {
-                        setShowCreateRelationship(false);
-                        setRelationshipPartnerId("");
                         return;
                     }
                     if (selectedFriend) {
@@ -5090,10 +4760,8 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
         onChildFrameStateChange,
         selectedFriend,
         selectedGroup,
-        selectedRelationship,
         selectedWallet,
         showCreateGroup,
-        showCreateRelationship,
         showCreateWallet,
         showWalletEditModal,
         showWalletMembersModal,
@@ -5342,135 +5010,6 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
         setWalletEntryAttachmentMessage(null);
         setWalletEntryDate(isoDateInput());
     };
-    const openRelationship = async (item: RelationshipFinanceListItem) => {
-        setSelectedRelationship(item);
-        setShowCreateRelationship(false);
-        setRelationshipPartnerId("");
-        setRelationshipDetailTab("goals");
-        setRelationshipGoalFilterId("");
-        setGoalFormMode(null);
-        setEditingGoal(null);
-        setGoalAction(null);
-        if (item.status === "active") {
-            setRelationshipOverviewData(await request<RelationshipOverview>(`/relationship-finances/${item.id}/overview`));
-        }
-        else {
-            setRelationshipOverviewData(null);
-        }
-    };
-    const respondRelationship = async (item: RelationshipFinanceListItem, action: "accept" | "decline" | "cancel") => {
-        if (!item.invitationId)
-            return;
-        await runAction(async () => {
-            try {
-                await request(`/relationship-finances/${item.id}/invitations/${item.invitationId}/${action}`, { method: "POST" });
-            }
-            catch (error) {
-                if (error instanceof ApiError && error.status === 404) {
-                    await request(`/relationship-finances/invitations/${item.invitationId}/${action}`, { method: "POST" });
-                    return;
-                }
-                throw error;
-            }
-        }, action === "accept"
-            ? (language === "en" ? "Relationship Finance is active" : "Relationship Finance sudah aktif")
-            : (language === "en" ? "Invitation updated" : "Undangan diperbarui"));
-        setSelectedRelationship(null);
-        setRelationshipOverviewData(null);
-    };
-    const createRelationship = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const data = new FormData(event.currentTarget);
-        await runAction(() => request("/relationship-finances", {
-            method: "POST",
-            body: JSON.stringify({
-                partnerUserId: relationshipPartnerId,
-                workspaceName: String(data.get("workspaceName") ?? ""),
-                relationshipType: String(data.get("relationshipType") ?? "partner"),
-                privacy: {
-                    incomeVisibility: String(data.get("incomeVisibility") ?? "summary_only"),
-                    expenseVisibility: String(data.get("expenseVisibility") ?? "summary_only"),
-                    accountsVisibility: String(data.get("accountsVisibility") ?? "private"),
-                    transactionsVisibility: String(data.get("transactionsVisibility") ?? "private"),
-                    assetsVisibility: String(data.get("assetsVisibility") ?? "summary_only"),
-                    liabilitiesVisibility: String(data.get("liabilitiesVisibility") ?? "summary_only"),
-                    investmentsVisibility: "private",
-                    goalsVisibility: "shared"
-                }
-            })
-        }), language === "en" ? "Invitation sent" : "Undangan dikirim");
-        setShowCreateRelationship(false);
-        setRelationshipPartnerId("");
-    };
-    const submitRelationshipGoal = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        if (!selectedRelationship)
-            return;
-        const data = new FormData(event.currentTarget);
-        const trackingMode = String(data.get("trackingMode") ?? "linked_account") as "contribution" | "linked_account";
-        const isEdit = goalFormMode === "edit" && editingGoal;
-        await runAction(() => request(isEdit
-            ? `/relationship-finances/${selectedRelationship.id}/goals/${editingGoal.id}`
-            : `/relationship-finances/${selectedRelationship.id}/goals`, {
-            method: isEdit ? "PATCH" : "POST",
-            body: JSON.stringify({
-                name: String(data.get("name") ?? ""),
-                goalType: String(data.get("goalType") ?? "custom"),
-                targetAmount: String(data.get("targetAmount") ?? "0"),
-                deadline: String(data.get("deadline") || "") || null,
-                priority: String(data.get("priority") ?? "medium"),
-                description: String(data.get("description") || "") || null,
-                trackingMode,
-                linkedAccountId: trackingMode === "linked_account" ? String(data.get("linkedAccountId") || "") || null : null
-            })
-        }), isEdit
-            ? (language === "en" ? "Goal updated" : "Goal diperbarui")
-            : (language === "en" ? "Goal added" : "Goal ditambahkan"));
-        await openRelationship(selectedRelationship);
-        setGoalFormMode(null);
-        setEditingGoal(null);
-        event.currentTarget.reset();
-    };
-    const openGoalHistory = async (goal: RelationshipGoal, type: "history" | "contribution" | "adjustment") => {
-        setGoalAction({ goal, type });
-        setGoalFormMode(null);
-        setEditingGoal(null);
-        setGoalContributionLoading(true);
-        try {
-            const rows = await request<RelationshipGoalContribution[]>(`/relationship-finances/${selectedRelationship?.id}/goals/${goal.id}/contributions`);
-            setGoalContributions(rows);
-        }
-        catch {
-            setMessage(null);
-            setGoalContributions([]);
-        }
-        finally {
-            setGoalContributionLoading(false);
-        }
-    };
-    const submitGoalContribution = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        if (!selectedRelationship || !goalAction)
-            return;
-        const data = new FormData(event.currentTarget);
-        const isAdjustment = goalAction.type === "adjustment";
-        await runAction(() => request(`/relationship-finances/${selectedRelationship.id}/goals/${goalAction.goal.id}/${isAdjustment ? "adjustments" : "contributions"}`, {
-            method: "POST",
-            body: JSON.stringify({
-                amount: String(data.get("amount") ?? ""),
-                contributionDate: String(data.get("contributionDate") || "") || null,
-                contributorUserId: String(data.get("contributorUserId") || "") || currentUser.id,
-                sourceType: isAdjustment ? "adjustment" : String(data.get("sourceType") || "manual"),
-                notes: String(data.get("notes") || "") || null,
-                adjustmentReason: isAdjustment ? String(data.get("adjustmentReason") || "") : null,
-                status: "completed"
-            })
-        }), isAdjustment
-            ? (language === "en" ? "Goal adjusted" : "Goal disesuaikan")
-            : (language === "en" ? "Contribution added" : "Kontribusi ditambahkan"));
-        await openRelationship(selectedRelationship);
-        await openGoalHistory(goalAction.goal, "history");
-    };
     useEffect(() => {
         if (loading || walletDeepLinkHandled.current)
             return;
@@ -5518,21 +5057,6 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
         observer.observe(activitySentinelRef.current);
         return () => observer.disconnect();
     }, [tab, activity.length, activityHasMore, activityLoadingMore]);
-    const filteredRelationshipGoal = relationshipOverviewData?.goals.find((goal) => goal.id === relationshipGoalFilterId) ?? null;
-    const filteredRelationshipTimeline = relationshipOverviewData
-        ? relationshipGoalFilterId
-            ? relationshipOverviewData.timeline.filter((event) => {
-                const metadata = event.metadata ?? {};
-                const metadataGoalId = String(metadata.goalId ?? metadata.relationshipGoalId ?? "");
-                return event.entityId === relationshipGoalFilterId || metadataGoalId === relationshipGoalFilterId;
-            })
-            : relationshipOverviewData.timeline
-        : [];
-    const filteredRelationshipInsights = relationshipOverviewData
-        ? relationshipGoalFilterId
-            ? relationshipOverviewData.insights.filter((insight) => insight.type.includes("goal"))
-            : relationshipOverviewData.insights
-        : [];
     const tabs = [
         {
             id: "friends" as const,
@@ -5557,14 +5081,6 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             count: `${wallets.length} dompet`,
             meta: "Kelola kas dan saldo bersama",
             tone: "bg-violet-50 text-violet-700"
-        },
-        {
-            id: "relationships" as const,
-            label: language === "en" ? "Relationship Finance" : "Relationship Finance",
-            icon: HeartPulse,
-            count: `${relationships.filter((item) => item.status === "active").length} aktif`,
-            meta: language === "en" ? "Shared goals, budget, assets, and partner insights" : "Goal, budget, aset, dan insight bersama pasangan",
-            tone: "bg-rose-50 text-rose-700"
         },
         {
             id: "activity" as const,
@@ -5638,15 +5154,11 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                         setTab(item.id);
                         setSelectedGroup(null);
                         setSelectedWallet(null);
-                        setSelectedRelationship(null);
-                        setRelationshipOverviewData(null);
                         setSelectedFriend(null);
                         setShowCreateGroup(false);
                         setShowCreateWallet(false);
-                        setShowCreateRelationship(false);
                         setGroupMemberIds(new Set());
                         setWalletMemberIds(new Set());
-                        setRelationshipPartnerId("");
                     }}>
                     <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${item.tone}`}>
                       <Icon size={23} strokeWidth={2}/>
@@ -5687,20 +5199,16 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 </button>))}
             </div>
           </div>
-        </>) : !selectedGroup && !selectedWallet && !selectedRelationship && !showCreateGroup && !showCreateWallet && !showCreateRelationship ? (<div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+        </>) : !selectedGroup && !selectedWallet && !showCreateGroup && !showCreateWallet ? (<div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
           <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95" onClick={() => {
                 setTab(null);
                 setSelectedGroup(null);
                 setSelectedWallet(null);
-                setSelectedRelationship(null);
-                setRelationshipOverviewData(null);
                 setSelectedFriend(null);
                 setShowCreateGroup(false);
                 setShowCreateWallet(false);
-                setShowCreateRelationship(false);
                 setGroupMemberIds(new Set());
                 setWalletMemberIds(new Set());
-                setRelationshipPartnerId("");
             }}>
             <ArrowLeft size={16}/> Kembali ke Social
           </button>
@@ -5723,450 +5231,6 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
           {message}
         </div>)}
       {loading && tab !== null && <LoadingState />}
-
-      {!loading && tab === "relationships" && (<div className="space-y-3">
-          {showCreateRelationship ? (<form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={createRelationship}>
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <SectionHeader title={language === "en" ? "Create Relationship Finance" : "Buat Relationship Finance"} caption={language === "en" ? "Invite one accepted friend as your partner." : "Undang satu teman aktif sebagai partner."}/>
-                <button type="button" className="rounded-xl p-2 text-slate-500 hover:bg-slate-50" onClick={() => setShowCreateRelationship(false)}>
-                  <X size={18}/>
-                </button>
-              </div>
-              <div className="space-y-3">
-                <Field label={language === "en" ? "Partner" : "Partner"}>
-                  <select className="input" value={relationshipPartnerId} onChange={(event) => setRelationshipPartnerId(event.target.value)} required>
-                    <option value="">{language === "en" ? "Select friend" : "Pilih teman"}</option>
-                    {friends.filter((friend) => friend.status === "accepted").map((friend) => (<option key={friend.userId} value={friend.userId}>{friend.fullName} @{friend.username}</option>))}
-                  </select>
-                </Field>
-                <Field label={language === "en" ? "Workspace name" : "Nama workspace"}>
-                  <input className="input" name="workspaceName" placeholder={language === "en" ? "Example: Shared Finance" : "Contoh: Keuangan Bersama"} required minLength={2}/>
-                </Field>
-                <Field label={language === "en" ? "Relationship type" : "Jenis hubungan"}>
-                  <select className="input" name="relationshipType" defaultValue="partner">
-                    <option value="partner">Partner</option>
-                    <option value="married_couple">{language === "en" ? "Married Couple" : "Pasangan menikah"}</option>
-                  </select>
-                </Field>
-                <div className="rounded-2xl bg-[#F8FAFC] p-3">
-                  <p className="text-xs font-semibold text-slate-900">{language === "en" ? "Data sharing" : "Data yang dibagikan"}</p>
-                  <p className="mt-1 text-[11px] leading-4 text-slate-500">
-                    {language === "en"
-                    ? "Choose what your partner can use inside Relationship Finance. This does not change your private transaction visibility outside this workspace."
-                    : "Pilih data apa yang boleh dipakai partner di Relationship Finance. Ini tidak mengubah visibilitas transaksi pribadi di luar workspace ini."}
-                  </p>
-                  <div className="mt-3 grid gap-2">
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {[
-                    [
-                        language === "en" ? "Private" : "Private",
-                        language === "en" ? "Not used or shown in shared analysis." : "Tidak dipakai atau ditampilkan di analisis bersama."
-                    ],
-                    [
-                        language === "en" ? "Summary only" : "Ringkasan saja",
-                        language === "en" ? "Only aggregate totals, no names or details." : "Hanya total agregat, tanpa nama dan detail."
-                    ],
-                    [
-                        language === "en" ? "Shared" : "Dibagikan",
-                        language === "en" ? "Can show relevant detail to your partner." : "Detail relevan dapat dilihat partner."
-                    ]
-                ].map(([title, description]) => (<div key={title} className="rounded-2xl bg-white p-3">
-                          <p className="text-[11px] font-semibold text-slate-900">{title}</p>
-                          <p className="mt-1 text-[10px] leading-4 text-slate-500">{description}</p>
-                        </div>))}
-                    </div>
-                    {[
-                    {
-                        name: "incomeVisibility",
-                        label: language === "en" ? "Income" : "Pemasukan",
-                        defaultValue: "summary_only",
-                        description: language === "en"
-                            ? "Private: hidden. Summary: total income only. Shared: income source/category can be used."
-                            : "Private: disembunyikan. Ringkasan: total pemasukan saja. Dibagikan: sumber/kategori pemasukan bisa dipakai."
-                    },
-                    {
-                        name: "expenseVisibility",
-                        label: language === "en" ? "Expense" : "Pengeluaran",
-                        defaultValue: "summary_only",
-                        description: language === "en"
-                            ? "Private: hidden. Summary: total expense and main category only. Shared: category and trend details can be used."
-                            : "Private: disembunyikan. Ringkasan: total pengeluaran dan kategori utama saja. Dibagikan: detail kategori dan tren bisa dipakai."
-                    },
-                    {
-                        name: "accountsVisibility",
-                        label: language === "en" ? "Accounts" : "Akun",
-                        defaultValue: "private",
-                        description: language === "en"
-                            ? "Private: account names/balances hidden. Summary: total balance only. Shared: account name/type can be shown."
-                            : "Private: nama akun/saldo disembunyikan. Ringkasan: total saldo saja. Dibagikan: nama dan tipe akun bisa terlihat."
-                    },
-                    {
-                        name: "transactionsVisibility",
-                        label: language === "en" ? "Transactions" : "Transaksi",
-                        defaultValue: "private",
-                        description: language === "en"
-                            ? "Private: no transaction detail. Summary: totals by period/category only. Shared: selected transaction details can be shown."
-                            : "Private: tidak ada detail transaksi. Ringkasan: total per periode/kategori saja. Dibagikan: detail transaksi pilihan bisa terlihat."
-                    },
-                    {
-                        name: "assetsVisibility",
-                        label: language === "en" ? "Assets" : "Aset",
-                        defaultValue: "summary_only",
-                        description: language === "en"
-                            ? "Private: hidden. Summary: total asset value only. Shared: asset name/type/value can be shown."
-                            : "Private: disembunyikan. Ringkasan: total nilai aset saja. Dibagikan: nama, tipe, dan nilai aset bisa terlihat."
-                    },
-                    {
-                        name: "liabilitiesVisibility",
-                        label: language === "en" ? "Liabilities" : "Kewajiban",
-                        defaultValue: "summary_only",
-                        description: language === "en"
-                            ? "Private: hidden. Summary: total debt and monthly payment only. Shared: liability name/type/due date can be shown."
-                            : "Private: disembunyikan. Ringkasan: total utang dan cicilan bulanan saja. Dibagikan: nama, tipe, dan jatuh tempo bisa terlihat."
-                    }
-                ].map((item) => (<label key={item.name} className="rounded-2xl bg-white p-3">
-                        <span className="text-[11px] font-semibold text-slate-900">{item.label}</span>
-                        <span className="mt-1 block text-[10px] leading-4 text-slate-500">{item.description}</span>
-                        <select className="input mt-2" name={item.name} defaultValue={item.defaultValue}>
-                          <option value="private">{language === "en" ? "Private" : "Private"}</option>
-                          <option value="summary_only">{language === "en" ? "Summary only" : "Ringkasan saja"}</option>
-                          <option value="shared">{language === "en" ? "Shared" : "Dibagikan"}</option>
-                        </select>
-                      </label>))}
-                  </div>
-                </div>
-                <button className="btn-primary w-full" disabled={!relationshipPartnerId}>
-                  <UserPlus size={16}/> {language === "en" ? "Send invitation" : "Kirim undangan"}
-                </button>
-              </div>
-            </form>) : selectedRelationship ? (<div className="space-y-3">
-              <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                <div className="flex items-start justify-between gap-3">
-                  <button type="button" className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500" onClick={() => {
-                    setSelectedRelationship(null);
-                    setRelationshipOverviewData(null);
-                }}>
-                    <ArrowLeft size={15}/> {language === "en" ? "Back" : "Kembali"}
-                  </button>
-                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-[#16A34A]">
-                    {selectedRelationship.status === "active" ? (language === "en" ? "Active" : "Aktif") : (language === "en" ? "Pending" : "Menunggu")}
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center gap-3">
-                  <div className="flex -space-x-2">
-                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-white bg-emerald-100 text-sm font-semibold text-[#16A34A]">{currentUser.fullName.slice(0, 1).toUpperCase()}</span>
-                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl border-2 border-white bg-rose-100 text-sm font-semibold text-rose-700">{(selectedRelationship.partnerName ?? "?").slice(0, 1).toUpperCase()}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold text-slate-950">{currentUser.fullName} + {selectedRelationship.partnerName ?? "Partner"}</h2>
-                    <p className="truncate text-xs text-slate-500">{selectedRelationship.workspaceName}</p>
-                  </div>
-                </div>
-                {selectedRelationship.status !== "active" && (<div className="mt-4 rounded-2xl bg-[#F8FAFC] p-3">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {selectedRelationship.incomingInvitation
-                        ? (language === "en" ? "Invitation waiting for your response" : "Undangan menunggu respons Anda")
-                        : (language === "en" ? "Waiting for partner response" : "Menunggu respons partner")}
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      {selectedRelationship.incomingInvitation ? (<>
-                          <button className="btn-primary flex-1" onClick={() => respondRelationship(selectedRelationship, "accept")}>{language === "en" ? "Accept" : "Terima"}</button>
-                          <button className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600" onClick={() => respondRelationship(selectedRelationship, "decline")}>{language === "en" ? "Decline" : "Tolak"}</button>
-                        </>) : (<button className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700" onClick={() => respondRelationship(selectedRelationship, "cancel")}>{language === "en" ? "Cancel invitation" : "Batalkan undangan"}</button>)}
-                    </div>
-                  </div>)}
-              </div>
-
-              {selectedRelationship.status === "active" && relationshipOverviewData && (<>
-                  <div className="rounded-[22px] bg-[#16A34A] p-4 text-white shadow-[0_18px_42px_rgba(22,163,74,0.22)] lg:rounded-lg">
-                    <p className="text-[10px] font-semibold uppercase text-white/70">{language === "en" ? "Shared financial condition" : "Kondisi keuangan bersama"}</p>
-                    <h3 className="mt-1 text-xl font-semibold">{language === "en" ? "This month summary" : "Ringkasan bulan ini"}</h3>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="rounded-2xl bg-white/12 p-3">
-                        <p className="text-[11px] text-white/70">{language === "en" ? "Income" : "Pemasukan"}</p>
-                        <p className="mt-1 text-sm font-semibold">{rupiah(relationshipOverviewData.summary.combinedIncome)}</p>
-                      </div>
-                      <div className="rounded-2xl bg-white/12 p-3">
-                        <p className="text-[11px] text-white/70">{language === "en" ? "Expense" : "Pengeluaran"}</p>
-                        <p className="mt-1 text-sm font-semibold">{rupiah(relationshipOverviewData.summary.combinedExpense)}</p>
-                      </div>
-                      <div className="rounded-2xl bg-white/12 p-3">
-                        <p className="text-[11px] text-white/70">{language === "en" ? "Saving" : "Tabungan"}</p>
-                        <p className="mt-1 text-sm font-semibold">{rupiah(relationshipOverviewData.summary.combinedSaving)}</p>
-                      </div>
-                      <div className="rounded-2xl bg-white/12 p-3">
-                        <p className="text-[11px] text-white/70">{language === "en" ? "Saving rate" : "Saving rate"}</p>
-                        <p className="mt-1 text-sm font-semibold">{Number(relationshipOverviewData.summary.savingRate).toFixed(0)}%</p>
-                      </div>
-                    </div>
-                    <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#16A34A]" onClick={() => onOpenAssistantContext({
-                        contextType: "relationship_finance",
-                        relationshipFinanceId: selectedRelationship.id,
-                        sourcePage: "overview",
-                        label: selectedRelationship.workspaceName,
-                        partnerName: selectedRelationship.partnerName ?? null
-                    })}>
-                      <Bot size={16}/> {language === "en" ? "Analyze with Finance Copilot" : "Analisis dengan Finance Copilot"}
-                    </button>
-                  </div>
-
-                  {(goalFormMode || goalAction) ? (<div className="space-y-3">
-                      <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                        <button type="button" className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500" onClick={() => {
-                            setGoalFormMode(null);
-                            setEditingGoal(null);
-                            setGoalAction(null);
-                        }}>
-                          <ArrowLeft size={15}/> {language === "en" ? "Back to Shared goals" : "Kembali ke Shared goals"}
-                        </button>
-                      </div>
-
-                      {goalFormMode && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                          <SectionHeader title={goalFormMode === "edit" ? (language === "en" ? "Edit goal" : "Edit goal") : (language === "en" ? "New goal" : "Goal baru")} caption={language === "en" ? "Set the linked savings account and goal target." : "Atur akun tabungan tertaut dan target goal."}/>
-                          <form key={editingGoal?.id ?? "new-goal"} className="grid gap-2 sm:grid-cols-2" onSubmit={submitRelationshipGoal}>
-                            <input className="input sm:col-span-2" name="name" placeholder={language === "en" ? "Goal name, e.g. Home" : "Nama tujuan, contoh: Rumah"} defaultValue={editingGoal?.name ?? ""} required/>
-                            <select className="input" name="goalType" defaultValue={editingGoal?.goalType ?? "custom"}>
-                              <option value="home">{language === "en" ? "Home" : "Rumah"}</option>
-                              <option value="wedding">{language === "en" ? "Wedding" : "Pernikahan"}</option>
-                              <option value="vacation">{language === "en" ? "Vacation" : "Liburan"}</option>
-                              <option value="emergency_fund">{language === "en" ? "Emergency fund" : "Dana darurat"}</option>
-                              <option value="custom">Custom</option>
-                            </select>
-                            <select className="input" name="priority" defaultValue={editingGoal?.priority ?? "medium"}>
-                              <option value="medium">{language === "en" ? "Medium" : "Sedang"}</option>
-                              <option value="high">{language === "en" ? "High" : "Tinggi"}</option>
-                              <option value="critical">{language === "en" ? "Critical" : "Kritis"}</option>
-                              <option value="low">{language === "en" ? "Low" : "Rendah"}</option>
-                            </select>
-                            <input className="input" name="targetAmount" inputMode="numeric" placeholder={language === "en" ? "Target amount" : "Nominal target"} defaultValue={editingGoal ? moneyInputValue(editingGoal.targetAmount) : ""} onInput={handleMoneyInput} required/>
-                            <input type="hidden" name="trackingMode" value="linked_account"/>
-                            <select className="input" name="linkedAccountId" defaultValue={editingGoal?.linkedAccountId ?? ""} required>
-                              <option value="">{language === "en" ? "Select savings account" : "Pilih akun tabungan"}</option>
-                              {accounts.filter((account) => account.isActive).map((account) => {
-                                const alreadyLinked = Boolean(account.isRelationshipGoalAccount && account.id !== editingGoal?.linkedAccountId);
-                                const owner = account.ownerName && account.canEdit === false ? ` � ${language === "en" ? "owned by" : "milik"} ${account.ownerName}` : "";
-                                const linked = alreadyLinked ? ` � ${language === "en" ? "already linked" : "sudah tertaut"}` : "";
-                                return (<option key={account.id} value={account.id} disabled={alreadyLinked}>
-                                    {accountOptionLabel(account, { balance: true, language })}{owner}{linked}
-                                  </option>);
-                            })}
-                            </select>
-                            <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-[11px] leading-4 text-[#15803D] sm:col-span-2">
-                              {language === "en"
-                                ? "Progress follows the selected savings account balance. One account can only be linked to one active goal."
-                                : "Progress mengikuti saldo akun tabungan yang dipilih. Satu akun hanya bisa tertaut ke satu goal aktif."}
-                            </p>
-                            <input className="input" name="deadline" type="date" defaultValue={editingGoal?.deadline ? String(editingGoal.deadline).slice(0, 10) : ""}/>
-                            <button className="btn-primary">
-                              {goalFormMode === "edit" ? (language === "en" ? "Save goal" : "Simpan goal") : (language === "en" ? "Add goal" : "Tambah goal")}
-                            </button>
-                          </form>
-                        </div>)}
-                      {goalAction && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                          <div className="mb-4">
-                            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">
-                              {goalAction.type === "contribution"
-                                ? (language === "en" ? "Add contribution" : "Tambah kontribusi")
-                                : goalAction.type === "adjustment"
-                                    ? "Adjust Goal"
-                                    : "Contribution History"}
-                            </p>
-                            <h3 className="mt-1 text-base font-semibold text-slate-950">{goalAction.goal.name}</h3>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {language === "en" ? "Progress is calculated from completed contributions." : "Progress dihitung dari kontribusi yang selesai."}
-                            </p>
-                          </div>
-
-                          {goalAction.type !== "history" && (<form className="mb-4 grid gap-2 sm:grid-cols-2" onSubmit={submitGoalContribution}>
-                              <input className="input" name="amount" inputMode="numeric" placeholder={goalAction.type === "adjustment" ? (language === "en" ? "Amount, e.g. -500000" : "Nominal, contoh -500000") : (language === "en" ? "Amount" : "Nominal")} required/>
-                              <input className="input" name="contributionDate" type="date" defaultValue={isoDateInput()}/>
-                              <select className="input" name="contributorUserId" defaultValue={currentUser.id}>
-                                {(relationshipOverviewData.relationship.members ?? []).filter((member) => member.status === "accepted").map((member) => (<option key={member.userId} value={member.userId}>{member.fullName}</option>))}
-                              </select>
-                              {goalAction.type === "contribution" ? (<select className="input" name="sourceType" defaultValue="manual">
-                                  <option value="manual">Manual</option>
-                                  <option value="income_allocation">{language === "en" ? "Income allocation" : "Alokasi pemasukan"}</option>
-                                  <option value="scheduled">{language === "en" ? "Scheduled" : "Terjadwal"}</option>
-                                  <option value="shared_wallet">{language === "en" ? "Shared wallet" : "Dompet bersama"}</option>
-                                </select>) : (<input className="input" name="adjustmentReason" placeholder={language === "en" ? "Reason is required" : "Alasan wajib diisi"} required/>)}
-                              <input className="input sm:col-span-2" name="notes" placeholder={language === "en" ? "Notes" : "Catatan"}/>
-                              <button className="btn-primary sm:col-span-2">
-                                <Plus size={16}/>
-                                {goalAction.type === "adjustment"
-                                    ? (language === "en" ? "Save adjustment" : "Simpan adjustment")
-                                    : (language === "en" ? "Save contribution" : "Simpan kontribusi")}
-                              </button>
-                            </form>)}
-
-                          <div className="space-y-2">
-                            {goalContributionLoading && <SocialSkeleton />}
-                            {!goalContributionLoading && goalContributions.length === 0 && (<EmptyState text={language === "en" ? "No contribution history yet." : "Belum ada histori kontribusi."}/>)}
-                            {!goalContributionLoading && goalContributions.map((row) => {
-                                const amount = Number(row.amount);
-                                return (<div key={row.id} className="flex items-start gap-3 rounded-2xl border border-slate-100 p-3">
-                                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${amount >= 0 ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-700"}`}>
-                                    {amount >= 0 ? <Plus size={16}/> : <CircleMinus size={16}/>}
-                                  </span>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <p className={`text-sm font-semibold ${amount >= 0 ? "text-[#16A34A]" : "text-rose-700"}`}>
-                                        {amount >= 0 ? "+" : "-"}{rupiah(Math.abs(amount))}
-                                      </p>
-                                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-500">{row.status}</span>
-                                    </div>
-                                    <p className="mt-0.5 text-xs text-slate-500">
-                                      {localDate(row.contributionDate)} - {row.sourceType.replace(/_/g, " ")} - {row.contributorName ?? "-"}
-                                    </p>
-                                    {(row.notes || row.adjustmentReason) && (<p className="mt-1 text-[11px] leading-4 text-slate-500">{row.adjustmentReason ?? row.notes}</p>)}
-                                  </div>
-                                </div>);
-                            })}
-                          </div>
-                        </div>)}
-                    </div>) : (<>
-                  <div className="rounded-[22px] bg-white p-2 shadow-soft lg:rounded-lg">
-                    <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[#F8FAFC] p-1">
-                      {[
-                            { id: "goals" as const, label: language === "en" ? "Shared goals" : "Shared goals" },
-                            { id: "timeline" as const, label: language === "en" ? "Insight & timeline" : "Insight & timeline" }
-                        ].map((item) => (<button key={item.id} type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${relationshipDetailTab === item.id ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`} onClick={() => setRelationshipDetailTab(item.id)}>
-                          {item.label}
-                        </button>))}
-                    </div>
-                  </div>
-
-                  {relationshipDetailTab === "goals" && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                      <SectionHeader title={language === "en" ? "Shared goals" : "Tujuan bersama"} caption={language === "en" ? "Track goals without exposing private details." : "Pantau target tanpa membuka detail private."} action={(<button type="button" className="inline-flex items-center gap-1 rounded-full bg-[#16A34A] px-3 py-1.5 text-xs font-semibold text-white" onClick={() => {
-                                    setGoalFormMode("add");
-                                    setEditingGoal(null);
-                                    setGoalAction(null);
-                                }}>
-                            <Plus size={14}/> {language === "en" ? "Add goal" : "Tambah goal"}
-                          </button>)}/>
-                      <div className="space-y-2">
-                        {relationshipOverviewData.goals.length === 0 && <EmptyState text={language === "en" ? "No shared goal yet." : "Belum ada tujuan bersama."}/>}
-                        {relationshipOverviewData.goals.map((goal) => (<div key={goal.id} className="rounded-2xl border border-slate-100 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-slate-950">{goal.name}</p>
-                                <p className="mt-1 text-xs text-slate-500">{rupiah(goal.currentAmount)} / {rupiah(goal.targetAmount)}</p>
-                              </div>
-                              <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-[#16A34A]">{Number(goal.progress).toFixed(0)}%</span>
-                            </div>
-                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                              <div className="h-full rounded-full bg-[#16A34A]" style={{ width: `${Math.min(Number(goal.progress), 100)}%` }}/>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                              <span>{language === "en" ? "Remaining" : "Sisa"} {rupiah(goal.remainingAmount)}</span>
-                              {goal.monthlyRequired && <span>{rupiah(goal.monthlyRequired)}/{language === "en" ? "month" : "bulan"}</span>}
-                            </div>
-                            <div className="mt-3 rounded-xl bg-[#F8FAFC] px-3 py-2 text-[11px] font-semibold text-slate-600">
-                              {language === "en" ? "Linked" : "Tertaut"}: {goal.linkedAccountName ?? "-"}
-                              {goal.linkedAccountOwnerName && goal.linkedAccountOwnerName !== currentUser.fullName ? ` ${language === "en" ? "owned by" : "milik"} ${goal.linkedAccountOwnerName}` : ""}
-                            </div>
-                            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3">
-                              <button type="button" className="rounded-xl bg-emerald-50 px-2 py-2 text-[11px] font-semibold text-[#16A34A]" onClick={() => {
-                                    setGoalFormMode("edit");
-                                    setEditingGoal(goal);
-                                    setGoalAction(null);
-                                }}>
-                                Edit
-                              </button>
-                              {goal.trackingMode !== "linked_account" && (<button type="button" className="rounded-xl bg-amber-50 px-2 py-2 text-[11px] font-semibold text-amber-700" onClick={() => openGoalHistory(goal, "contribution")}>
-                                  {language === "en" ? "Add" : "Tambah"}
-                                </button>)}
-                              <button type="button" className={`${goal.trackingMode === "linked_account" ? "col-span-2" : ""} rounded-xl bg-slate-50 px-2 py-2 text-[11px] font-semibold text-slate-600`} onClick={() => openGoalHistory(goal, "history")}>
-                                History
-                              </button>
-                            </div>
-                          </div>))}
-                      </div>
-                    </div>)}
-
-                  {relationshipDetailTab === "timeline" && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                      <SectionHeader title={language === "en" ? "Insights & timeline" : "Insight & timeline"} caption={language === "en" ? "Private transactions are never shown here." : "Transaksi private tidak ditampilkan di sini."}/>
-                      <label className="mb-3 block">
-                        <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">
-                          {language === "en" ? "Goal filter" : "Filter goal"}
-                        </span>
-                        <select className="input" value={relationshipGoalFilterId} onChange={(event) => setRelationshipGoalFilterId(event.target.value)}>
-                          <option value="">{language === "en" ? "All goals" : "Semua goal"}</option>
-                          {relationshipOverviewData.goals.map((goal) => (<option key={goal.id} value={goal.id}>{goal.name}</option>))}
-                        </select>
-                      </label>
-                      <div className="space-y-2">
-                        {filteredRelationshipGoal && (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-slate-950">{filteredRelationshipGoal.name}</p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {rupiah(filteredRelationshipGoal.currentAmount)} / {rupiah(filteredRelationshipGoal.targetAmount)}
-                                </p>
-                              </div>
-                              <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[#16A34A]">
-                                {Number(filteredRelationshipGoal.progress).toFixed(0)}%
-                              </span>
-                            </div>
-                          </div>)}
-                        {filteredRelationshipInsights.length === 0 && filteredRelationshipTimeline.length === 0 && (<EmptyState text={language === "en" ? "No insight or timeline for this filter yet." : "Belum ada insight atau timeline untuk filter ini."}/>)}
-                        {filteredRelationshipInsights.map((insight) => (<div key={insight.type} className="rounded-2xl bg-[#F8FAFC] p-3">
-                            <p className="text-sm font-semibold text-slate-900">
-                              {insight.type === "cashflow_risk"
-                                    ? (language === "en" ? "Cashflow needs attention" : "Arus kas perlu diperhatikan")
-                                    : insight.type === "goal_needs_attention"
-                                        ? (language === "en" ? "Goal needs attention" : "Target perlu diperhatikan")
-                                        : insight.type === "saving_rate"
-                                            ? (language === "en" ? "Saving rate insight" : "Insight saving rate")
-                                            : (language === "en" ? "More data needed" : "Data belum cukup")}
-                              </p>
-                          </div>))}
-                        {filteredRelationshipTimeline.map((event) => (<div key={event.id} className="flex items-start gap-3 rounded-2xl px-2 py-2">
-                            <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-50 text-[#16A34A]"><Sparkles size={15}/></span>
-                            <div className="min-w-0">
-                              <p className="text-xs font-semibold text-slate-900">{event.eventType.replace(/_/g, " ")}</p>
-                              <p className="text-[10px] text-slate-500">{localDate(event.createdAt)}</p>
-                            </div>
-                          </div>))}
-                      </div>
-                    </div>)}
-                    </>)}
-                </>)}
-            </div>) : (<div className="space-y-3">
-              <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Relationship Finance</p>
-                    <h2 className="mt-1 text-lg font-semibold text-slate-950">{language === "en" ? "Plan the future together" : "Rencanakan masa depan bersama"}</h2>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {language === "en"
-                    ? "Manage shared goals, budget, assets, liabilities, and Finance Copilot insights with your partner."
-                    : "Kelola tujuan, budget, aset, kewajiban, dan insight Finance Copilot bersama partner."}
-                    </p>
-                  </div>
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700"><HeartPulse size={21}/></span>
-                </div>
-                <button className="btn-primary mt-4 w-full" onClick={() => setShowCreateRelationship(true)}>
-                  <Plus size={16}/> {language === "en" ? "Create Relationship Finance" : "Buat Relationship Finance"}
-                </button>
-              </div>
-              {relationships.length === 0 ? (<div className="rounded-[22px] border border-dashed border-slate-200 bg-white p-5 text-center shadow-soft lg:rounded-lg">
-                  <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A]"><HeartPulse size={22}/></span>
-                  <p className="mt-3 text-sm font-semibold text-slate-950">{language === "en" ? "No workspace yet" : "Belum ada workspace"}</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    {language === "en" ? "Start by inviting an accepted friend." : "Mulai dengan mengundang teman yang sudah diterima."}
-                  </p>
-                </div>) : (<div className="space-y-2">
-                  {relationships.map((item) => (<button key={item.id} type="button" className="ripple-card flex w-full items-center gap-3 rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99] lg:rounded-lg" onClick={() => openRelationship(item).catch(() => setMessage(null))}>
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-700"><HeartPulse size={20}/></span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-slate-950">{item.workspaceName}</span>
-                        <span className="mt-0.5 block truncate text-xs text-slate-500">{item.partnerName ?? "Partner"} - {item.status}</span>
-                      </span>
-                      <ChevronRight size={18} className="text-slate-300"/>
-                    </button>))}
-                </div>)}
-            </div>)}
-        </div>)}
 
       {!loading && tab === "friends" && (<div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="space-y-3">
@@ -6284,7 +5348,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                     userId: friend.userId
                 })}>
                     <p className="truncate text-sm font-semibold">{friend.fullName}</p>
-                    <p className="text-xs text-slate-500">@{friend.username} � {friend.incoming ? "Menunggu jawaban Anda" : socialEnumLabel(friend.status)}</p>
+                    <p className="text-xs text-slate-500">@{friend.username} Ã¯Â¿Â½ {friend.incoming ? "Menunggu jawaban Anda" : socialEnumLabel(friend.status)}</p>
                   </button>
                   {friend.incoming ? (<div className="flex gap-1">
                       <button className="rounded-full bg-emerald-50 p-2 text-[#16A34A]" onClick={() => runAction(() => request(`/social/friends/${friend.id}/respond`, { method: "PUT", body: JSON.stringify({ status: "accepted" }) }), "Pertemanan diterima")}><CheckCircle2 size={15}/></button>
@@ -6296,7 +5360,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="font-semibold">{selectedFriend.fullName}</p>
-                    <p className="text-xs text-slate-500">@{selectedFriend.username} � {selectedFriend.commonGroups} grup bersama</p>
+                    <p className="text-xs text-slate-500">@{selectedFriend.username} Ã¯Â¿Â½ {selectedFriend.commonGroups} grup bersama</p>
                   </div>
                   <button onClick={() => setSelectedFriend(null)}><X size={15}/></button>
                 </div>
@@ -6306,7 +5370,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 </p>
                 <div className="mt-3 space-y-2">
                   {selectedFriend.sharedTransactions?.map((row: any) => (<div key={row.id} className="flex justify-between gap-3 border-t border-slate-200 pt-2 text-xs">
-                      <span>{row.description} � {row.groupName}</span><span className="font-semibold">{rupiah(row.amount)}</span>
+                      <span>{row.description} Ã¯Â¿Â½ {row.groupName}</span><span className="font-semibold">{rupiah(row.amount)}</span>
                     </div>))}
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-200 pt-3">
@@ -6387,7 +5451,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             {groups.map((group) => (<div key={group.id} className="rounded-[22px] bg-white p-4 text-left shadow-soft lg:rounded-lg">
                 <button className="w-full text-left" disabled={group.status === "pending"} onClick={() => openGroup(group.id)}>
                   <div className="flex justify-between gap-3"><p className="font-semibold">{group.name}</p>{group.status !== "pending" && <ChevronRight size={16} className="text-slate-300"/>}</div>
-                  <p className="mt-1 text-xs text-slate-500">{group.status === "pending" ? "Undangan grup menunggu jawaban" : `${group.memberCount} anggota � ${socialEnumLabel(group.role)}`}</p>
+                  <p className="mt-1 text-xs text-slate-500">{group.status === "pending" ? "Undangan grup menunggu jawaban" : `${group.memberCount} anggota Ã¯Â¿Â½ ${socialEnumLabel(group.role)}`}</p>
                   {group.status !== "pending" && (<p className={`mt-3 text-sm font-semibold ${Number(group.myBalance) >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>
                       Posisi Anda {Number(group.myBalance) >= 0 ? "+" : "-"}{rupiah(Math.abs(Number(group.myBalance)))}
                     </p>)}
@@ -6490,7 +5554,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             <div className="space-y-2">
               {selectedGroup.expenses.map((expense) => (<div key={expense.id} className="rounded-2xl border border-slate-100 p-3">
                   <div className="flex justify-between gap-3"><p className="text-sm font-semibold">{expense.description}</p><p className="text-sm font-semibold">{rupiah(expense.amount)}</p></div>
-                  <p className="mt-1 text-xs text-slate-500">Dibayar {expense.paidByName} � {localDate(expense.expenseDate)}</p>
+                  <p className="mt-1 text-xs text-slate-500">Dibayar {expense.paidByName} Ã¯Â¿Â½ {localDate(expense.expenseDate)}</p>
                   {(expense.createdBy === currentUser.id || ["owner", "admin"].includes(selectedGroup.role)) && (<button className="mt-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
                         setEditingGroupExpense(expense);
                         setShowExpenseForm(true);
@@ -6516,7 +5580,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             <div className="space-y-2">
               {selectedGroup.auditHistory.length === 0 && <EmptyState text="Belum ada perubahan tercatat."/>}
               {selectedGroup.auditHistory.map((entry) => (<div key={entry.id} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3 text-xs">
-                  <span><strong>{entry.actorName ?? "Sistem"}</strong> � {entry.action === "CREATE" ? "membuat transaksi" : "mengubah transaksi dan meminta konfirmasi ulang"}</span>
+                  <span><strong>{entry.actorName ?? "Sistem"}</strong> Ã¯Â¿Â½ {entry.action === "CREATE" ? "membuat transaksi" : "mengubah transaksi dan meminta konfirmasi ulang"}</span>
                   <span className="shrink-0 text-slate-400">{localDate(entry.createdAt)}</span>
                 </div>))}
             </div>
@@ -6560,7 +5624,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-700"><Wallet size={20}/></span>
                   <div>
                     <h3 className="text-sm font-semibold text-slate-950">Buat dompet bersama</h3>
-                    <p className="mt-0.5 text-[11px] text-slate-500">Saldo bersama tetap terpisah dari akun pribadi.</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">Saldo bersama tetap terpisah dari pocket pribadi.</p>
                   </div>
                 </div>
               </div>
@@ -6574,13 +5638,13 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 <div>
                   <p className="mb-2 text-xs font-semibold text-slate-700">Tempat dana</p>
                   <div className="grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
-                    <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${walletStorageMode === "account" ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`} onClick={() => setWalletStorageMode("account")}>Pilih akun</button>
+                    <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${walletStorageMode === "account" ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`} onClick={() => setWalletStorageMode("account")}>Pilih pocket</button>
                     <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${walletStorageMode === "manual" ? "bg-white text-[#16A34A] shadow-sm" : "text-slate-500"}`} onClick={() => setWalletStorageMode("manual")}>Input manual</button>
                   </div>
                 </div>
-                {walletStorageMode === "account" ? (<Field label="Akun penyimpanan">
+                {walletStorageMode === "account" ? (<Field label="Pocket penyimpanan">
                     <select className="input" name="storageAccountId" required={walletStorageMode === "account"} value={walletStorageAccountId} onChange={(event) => setWalletStorageAccountId(event.target.value)}>
-                      <option value="" disabled>Pilih akun Anda</option>
+                      <option value="" disabled>Pilih pocket Anda</option>
                       {accounts.filter((account) => account.isActive && !account.isSharedWalletAccount).map((account) => (<option key={account.id} value={account.id}>
                           {accountOptionLabel(account, { balance: true, language })}
                         </option>))}
@@ -6605,7 +5669,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                   </>)}
                 {walletStorageMode === "account" && selectedWalletStorageAccount && (<>
                     <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-[11px] leading-4 text-amber-800">
-                      Akun ini akan menjadi tempat dana dompet bersama dan tidak dapat digunakan untuk transaksi pribadi selama masih terhubung.
+                      Pocket ini akan menjadi tempat dana dompet bersama dan tidak dapat digunakan untuk transaksi pribadi selama masih terhubung.
                     </div>
                     {selectedWalletStorageAccount.accountType !== "cash"
                         && (!selectedWalletStorageAccount.providerName || !selectedWalletStorageAccount.accountNumber) && (<div className="grid grid-cols-2 gap-2">
@@ -6632,7 +5696,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                         .map((friend) => {
                         const admin = walletAdminIds.has(friend.userId);
                         return (<button key={friend.userId} type="button" className={`rounded-full px-3 py-1.5 text-[11px] font-semibold ${admin ? "bg-[#16A34A] text-white" : "bg-slate-100 text-slate-600"}`} onClick={() => toggleSelectedFriend(setWalletAdminIds, friend.userId)}>
-                              {friend.fullName}{admin ? " � Admin" : ""}
+                              {friend.fullName}{admin ? " Ã¯Â¿Â½ Admin" : ""}
                             </button>);
                     })}
                     </div>
@@ -6721,15 +5785,15 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
           <div className="rounded-[22px] bg-[#16A34A] p-4 text-white shadow-soft">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs text-white/70">Saldo bersama � tidak termasuk saldo pribadi</p>
+                <p className="text-xs text-white/70">Saldo bersama Ã¯Â¿Â½ tidak termasuk saldo pribadi</p>
                 <h3 className="mt-1 text-2xl font-semibold">{rupiah(selectedWallet.balance)}</h3>
                 <p className="mt-1 text-xs text-white/70">
-                  {selectedWallet.name} � {selectedWallet.members.filter((member) => member.status === "accepted").length} anggota
+                  {selectedWallet.name} Ã¯Â¿Â½ {selectedWallet.members.filter((member) => member.status === "accepted").length} anggota
                 </p>
               </div>
               {["owner", "admin"].includes(selectedWallet.role) && (<div className="flex flex-wrap gap-2">
                   <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white" onClick={() => setShowWalletEditModal(true)}>
-                    <Settings size={14}/> Edit akun
+                    <Settings size={14}/> Edit pocket
                   </button>
                   <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white" onClick={() => setShowWalletMembersModal(true)}>
                     <Users size={14}/> Edit anggota
@@ -6784,7 +5848,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
               {selectedWallet.storageAccountNumber && <p className="mt-0.5 text-xs text-white/75">{selectedWallet.storageAccountNumber}</p>}
               <p className="mt-2 text-[11px] text-white/75">
                 Split biaya: {selectedWallet.expenseSplitRule === "percentage" ? "Persentase" : selectedWallet.expenseSplitRule === "manual" ? "Manual" : "Merata"}
-                {selectedWallet.activeUntil ? ` � Aktif sampai ${localDate(selectedWallet.activeUntil)}` : " � Aktif tanpa batas waktu"}
+                {selectedWallet.activeUntil ? ` Ã¯Â¿Â½ Aktif sampai ${localDate(selectedWallet.activeUntil)}` : " Ã¯Â¿Â½ Aktif tanpa batas waktu"}
               </p>
             </div>
           </div>
@@ -6798,7 +5862,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{member.displayName || member.fullName}</p>
-                      <p className="mt-0.5 truncate text-[11px] text-slate-500">@{member.username} � {socialEnumLabel(member.role)} � {socialEnumLabel(member.status)}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">@{member.username} Ã¯Â¿Â½ {socialEnumLabel(member.role)} Ã¯Â¿Â½ {socialEnumLabel(member.status)}</p>
                       {member.memberNote && <p className="mt-1 text-[11px] text-slate-500">{member.memberNote}</p>}
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${member.status === "pending" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
@@ -6829,7 +5893,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{item.title}</p>
                       <p className="mt-0.5 text-[11px] text-slate-500">
-                        {socialEnumLabel(item.status)} � {item.approvedCount}/{item.requiredApprovals} setuju � dibuat {localDate(item.createdAt)}
+                        {socialEnumLabel(item.status)} Ã¯Â¿Â½ {item.approvedCount}/{item.requiredApprovals} setuju Ã¯Â¿Â½ dibuat {localDate(item.createdAt)}
                       </p>
                     </div>
                     <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
@@ -6918,7 +5982,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-semibold text-slate-800">{reminder.message}</p>
                     <p className="mt-0.5 text-[10px] text-slate-500">
-                      {reminder.intervalType} � {reminder.reminderTime.slice(0, 5)} � {reminder.entryType} � {reminder.targetUserId
+                      {reminder.intervalType} Ã¯Â¿Â½ {reminder.reminderTime.slice(0, 5)} Ã¯Â¿Â½ {reminder.entryType} Ã¯Â¿Â½ {reminder.targetUserId
                     ? selectedWallet.members.find((member) => member.id === reminder.targetUserId)?.fullName ?? "Anggota"
                     : "Semua anggota"}
                     </p>
@@ -7049,7 +6113,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                   <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{entry.description}</p>
-                    <p className="text-xs text-slate-500">{entry.createdByName} � {socialEnumLabel(entry.status)}</p>
+                    <p className="text-xs text-slate-500">{entry.createdByName} Ã¯Â¿Â½ {socialEnumLabel(entry.status)}</p>
                   </div>
                   {entry.receiptId && (<button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 transition hover:bg-emerald-50 hover:text-[#16A34A]" onClick={() => openWalletAttachment(entry.receiptId!)} aria-label="Lihat attachment" title="Lihat attachment">
                       <Eye size={15}/>
@@ -7142,10 +6206,19 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
     const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
     const [profileMessage, setProfileMessage] = useState<string | null>(null);
     const [avatarUrl, setAvatarUrl] = useState(session.user.avatarUrl ?? "");
+    const [profileQrDataUrl, setProfileQrDataUrl] = useState("");
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     useEffect(() => {
         setAvatarUrl(session.user.avatarUrl ?? "");
     }, [session.user.avatarUrl]);
+    useEffect(() => {
+        const identifier = session.user.username || session.user.email || session.user.id;
+        QRCode.toDataURL(`finance-ai:user:${identifier}`, {
+            width: 220,
+            margin: 1,
+            color: { dark: "#16A34A", light: "#FFFFFF" }
+        }).then(setProfileQrDataUrl).catch(() => setProfileQrDataUrl(""));
+    }, [session.user.email, session.user.id, session.user.username]);
     const chooseAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file)
@@ -7268,6 +6341,16 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
                 </div>))}
             </dl>
             {profileMessage && <p className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-sm text-[#16A34A] lg:rounded-md">{profileMessage}</p>}
+            {profileQrDataUrl && (<div className="mt-4 rounded-[24px] border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Barcode profil</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">Scan untuk tambah ke pocket atau pertemanan</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">User lain bisa scan barcode ini tanpa perlu mengetik manual.</p>
+                  </div>
+                  <img src={profileQrDataUrl} alt="Barcode profil" className="h-24 w-24 rounded-2xl bg-white p-2 shadow-sm"/>
+                </div>
+              </div>)}
           </section>) : (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={saveProfile}>
             <SectionHeader title="Edit profil" caption="Atur identitas yang tampil di aplikasi."/>
             <div className="space-y-3">
@@ -7345,20 +6428,6 @@ export function AiFieldBadge({ status, language }: {
       {config.icon}
       {config.label}
     </span>);
-}
-
-export function Field({ label, hint, children }: {
-    label: string;
-    hint?: JSX.Element;
-    children: JSX.Element;
-}) {
-    return (<label className="block text-xs font-semibold text-slate-600">
-      <span className="flex min-h-5 items-center justify-between gap-2">
-        <span>{label}</span>
-        {hint}
-      </span>
-      <div className="mt-1">{children}</div>
-    </label>);
 }
 
 export function storedStringSet(key: string) {
@@ -7623,7 +6692,7 @@ export function LegacyTransactionList({ rows }: {
             </span>
             <div className="min-w-0">
               <p className="truncate font-bold">{row.merchantName ?? row.categoryName ?? "Transaksi"}</p>
-              <p className="truncate text-xs text-slate-500">{row.categoryName ?? row.sourceType ?? "Manual"} · {row.accountName}</p>
+              <p className="truncate text-xs text-slate-500">{row.categoryName ?? row.sourceType ?? "Manual"} Ã‚Â· {row.accountName}</p>
             </div>
           </div>
           <div className="shrink-0 text-right">
@@ -7634,31 +6703,6 @@ export function LegacyTransactionList({ rows }: {
           </div>
         </div>))}
     </div>);
-}
-
-export function LoadingState() {
-    return (<div className="flex min-h-56 items-center justify-center text-slate-500">
-      <Loader2 className="mr-2 animate-spin" size={18}/> Memuat data...
-    </div>);
-}
-
-export function DataErrorState({ message, onRetry }: {
-    message: string;
-    onRetry?: () => void;
-}) {
-    return (<div className="rounded-[22px] border border-rose-100 bg-rose-50/80 p-4 text-center text-sm text-rose-700">
-      <p className="font-semibold">Data belum bisa dimuat.</p>
-      <p className="mt-1 text-xs leading-5 text-rose-600">{message}</p>
-      {onRetry && (<button type="button" className="btn-secondary mt-3" onClick={onRetry}>
-          Coba lagi
-        </button>)}
-    </div>);
-}
-
-export function EmptyState({ text }: {
-    text: string;
-}) {
-    return <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">{text}</div>;
 }
 
 export function QrScanner({ onScan, onClose, request, selectedPocketId }: {
@@ -7751,3 +6795,6 @@ export function QrScanner({ onScan, onClose, request, selectedPocketId }: {
       </div>
     </div>);
 }
+
+
+

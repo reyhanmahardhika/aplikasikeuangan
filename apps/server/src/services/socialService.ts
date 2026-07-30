@@ -88,9 +88,10 @@ export async function socialSummary(userId: string) {
   };
 }
 
-export async function searchPeople(userId: string, rawQuery: string) {
+export async function searchPeople(userId: string, rawQuery: string, options?: { exact?: boolean }) {
   const query = rawQuery.trim().replace(/^finance-ai:user:/i, "").replace(/^@/, "");
   if (query.length < 2) return [];
+  const exact = options?.exact === true;
   const pattern = `%${query.replace(/[%_\\]/g, "\\$&")}%`;
   const result = await pool.query(
     `SELECT u.id, u.full_name AS "fullName", u.username, u.avatar_url AS "avatarUrl",
@@ -113,9 +114,13 @@ export async function searchPeople(userId: string, rawQuery: string) {
          (
            u.id = $1
            AND (
-             lower(u.username) LIKE lower($3) ESCAPE '\'
+             ${exact
+              ? `lower(u.username) = lower($2)
+             OR lower(u.email) = lower($2)
+             OR COALESCE(u.phone, '') = $2`
+              : `lower(u.username) LIKE lower($3) ESCAPE '\'
              OR lower(u.email) LIKE lower($3) ESCAPE '\'
-             OR COALESCE(u.phone, '') LIKE $3 ESCAPE '\'
+             OR COALESCE(u.phone, '') LIKE $3 ESCAPE '\\'`}
            )
          )
          OR (
@@ -124,19 +129,22 @@ export async function searchPeople(userId: string, rawQuery: string) {
            AND (
              (
                COALESCE(p.searchable_by, 'username') IN ('everyone', 'username')
-               AND lower(u.username) LIKE lower($3) ESCAPE '\'
+               AND ${exact ? "lower(u.username) = lower($2)" : "lower(u.username) LIKE lower($3) ESCAPE '\\'"}
              )
              OR (
                COALESCE(p.searchable_by, 'username') = 'everyone'
                AND (
-                 lower(u.email) LIKE lower($3) ESCAPE '\'
-                 OR COALESCE(u.phone, '') LIKE $3 ESCAPE '\'
+                 ${exact
+                  ? `lower(u.email) = lower($2)
+                 OR COALESCE(u.phone, '') = $2`
+                  : `lower(u.email) LIKE lower($3) ESCAPE '\\'
+                 OR COALESCE(u.phone, '') LIKE $3 ESCAPE '\\'`}
                )
              )
              OR (
                COALESCE(p.searchable_by, 'username') = 'friends'
                AND f.status = 'accepted'
-               AND lower(u.username) LIKE lower($3) ESCAPE '\'
+               AND ${exact ? "lower(u.username) = lower($2)" : "lower(u.username) LIKE lower($3) ESCAPE '\\'"}
              )
            )
          )

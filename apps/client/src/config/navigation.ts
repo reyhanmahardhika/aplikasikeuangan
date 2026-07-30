@@ -12,7 +12,7 @@ export const navigation: Array<{
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "manual", label: "Tambah", icon: Plus },
     { id: "history", label: "Riwayat", icon: ReceiptText },
-    { id: "accounts", label: "Akun", icon: Wallet },
+    { id: "accounts", label: "Pocket", icon: Wallet },
     { id: "categories", label: "Kategori", icon: Tags },
     { id: "budgets", label: "Anggaran", icon: CircleDollarSign },
     { id: "reports", label: "Laporan", icon: LineChart },

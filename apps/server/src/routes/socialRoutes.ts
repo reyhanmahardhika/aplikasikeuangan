@@ -110,7 +110,9 @@ socialRoutes.get("/summary", asyncHandler(async (req, res) => {
 }));
 
 socialRoutes.get("/people/search", asyncHandler(async (req, res) => {
-  res.json(await searchPeople(req.user!.id, String(req.query.q ?? "")));
+  res.json(await searchPeople(req.user!.id, String(req.query.q ?? ""), {
+    exact: String(req.query.exact ?? "") === "1"
+  }));
 }));
 
 socialRoutes.get("/friends", asyncHandler(async (req, res) => {

@@ -1,0 +1,28 @@
+﻿*** Begin Patch
+*** Update File: apps/client/src/components/app/AppSections.tsx
+@@ -2873,10 +2873,10 @@
+     const transferableAccounts = useMemo(() => accounts.filter((account) => !account.isSharedWalletAccount && account.canEdit !== false), [accounts]);
+     const sourceAccount = accounts.find((account) => account.id === sourceAccountId);
+     const destinationAccount = accounts.find((account) => account.id === destinationAccountId);
+     const totalBalance = accounts.reduce((sum, account) => sum + (account.accountType === "credit_card" ? -moneyValue(account.currentBalance) : moneyValue(account.currentBalance)), 0);
+-    const myPockets = accounts.filter((account) => account.canEdit !== false && !account.isSharedWalletAccount);
+-    const sharedPockets = accounts.filter((account) => account.canEdit === false || account.isRelationshipGoalAccount || account.isSharedWalletAccount);
++    const myPockets = accounts.filter((account) => account.canEdit !== false);
++    const sharedPockets = accounts.filter((account) => account.canEdit === false || account.isRelationshipGoalAccount);
+     const visiblePocketSource = pocketTab === "mine" ? myPockets : sharedPockets;
+     const orderedPocketSource = [...visiblePocketSource].sort((a, b) => {
+         const aIndex = pocketOrder.indexOf(a.id);
+         const bIndex = pocketOrder.indexOf(b.id);
+@@ -3250,15 +3250,13 @@
+                         <p className="truncate text-base font-semibold">{account.name}</p>
+                         <p className="mt-0.5 text-[10px] font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` Â· ${account.providerName}` : ""}</p>
+                         <p className="mt-1 text-[10px] font-medium text-white/70">Saldo saat ini</p>
+                         <p className="mt-0.5 text-lg font-semibold">{rupiah(account.currentBalance)}</p>
+                       </div>
+-                      <div className="mt-3 flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-white/14 px-2.5 py-1 text-[9px] font-semibold backdrop-blur">{accountTypeLabel(account.accountType)}</span>{pocketTab === "shared" && sharedLabel && <span className="rounded-full bg-white/14 px-2.5 py-1 text-[9px] font-semibold backdrop-blur">{sharedLabel}</span>}</div>
++                      <p className="mt-2 text-[10px] font-medium text-white/70">Saldo saat ini</p>
++                      <p className="mt-0.5 text-lg font-semibold">{rupiah(account.currentBalance)}</p>
+                     </div>
+                   </button>);
+                 })}}
+*** End Patch

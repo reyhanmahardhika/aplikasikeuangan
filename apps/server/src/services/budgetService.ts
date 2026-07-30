@@ -2,10 +2,12 @@ import { pool } from "../db/pool.js";
 import { badRequest, notFound } from "../utils/errors.js";
 import { normalizeMoney } from "../utils/money.js";
 import { writeAuditLog } from "./auditService.js";
+import { excludeInternalTransferLedger } from "./transactionAggregationScope.js";
 
 export async function listBudgets(userId: string, query: { month?: number; year?: number }) {
   const month = Number(query.month || new Date().getMonth() + 1);
   const year = Number(query.year || new Date().getFullYear());
+  const transactionScopeT = excludeInternalTransferLedger("t");
   const result = await pool.query(
     `WITH usage AS (
       SELECT b.id, b.category_id, c.name AS category, b.month, b.year, b.budget_amount,
@@ -17,6 +19,7 @@ export async function listBudgets(userId: string, query: { month?: number; year?
         AND t.transaction_type = 'expense'
         AND date_part('month', t.transaction_date) = b.month
         AND date_part('year', t.transaction_date) = b.year
+        AND ${transactionScopeT}
       WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3
       GROUP BY b.id, b.category_id, c.name, b.month, b.year, b.budget_amount
     )

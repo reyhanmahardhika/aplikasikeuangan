@@ -62,27 +62,6 @@ function toListQuery(
   return { where: where.join(" AND "), values, sort, direction };
 }
 
-async function relationshipGoalAccountAccess(userId: string, accountId: string) {
-  const result = await pool.query<{ account_id: string; owner_user_id: string; goal_created_at: Date }>(
-    `SELECT a.id AS account_id, a.user_id AS owner_user_id, g.created_at AS goal_created_at
-     FROM accounts a
-     JOIN relationship_goals g
-       ON g.linked_account_id = a.id
-      AND g.tracking_mode = 'linked_account'
-      AND g.status = 'active'
-     JOIN relationship_finance_members viewer
-       ON viewer.relationship_finance_id = g.relationship_finance_id
-      AND viewer.user_id = $1
-      AND viewer.status = 'accepted'
-     WHERE a.id = $2
-       AND a.is_active = true
-     ORDER BY g.created_at DESC
-     LIMIT 1`,
-    [userId, accountId]
-  );
-  return result.rows[0] ?? null;
-}
-
 function normalizeItems(items: TransactionInput["items"] = []) {
   return items.map((item) => ({
     itemName: item.itemName,
@@ -184,19 +163,7 @@ export async function listTransactions(userId: string, query: Record<string, unk
   const page = Math.max(Number(query.page ?? 1), 1);
   const limit = Math.min(Math.max(Number(query.limit ?? 20), 1), 100);
   const offset = (page - 1) * limit;
-  const requestedAccountId = typeof query.accountId === "string" ? query.accountId : "";
-  let listOptions: Parameters<typeof toListQuery>[2] = {};
-  if (requestedAccountId) {
-    const goalAccess = await relationshipGoalAccountAccess(userId, requestedAccountId);
-    if (goalAccess && goalAccess.owner_user_id !== userId) {
-      listOptions = {
-        baseWhere: ["t.account_id = $1", "t.transaction_date >= $2"],
-        baseValues: [requestedAccountId, goalAccess.goal_created_at],
-        skipAccountFilter: true
-      };
-    }
-  }
-  const { where, values, sort, direction } = toListQuery(query, userId, listOptions);
+  const { where, values, sort, direction } = toListQuery(query, userId);
 
   const [rows, count] = await Promise.all([
     pool.query(
@@ -227,7 +194,7 @@ export async function listTransactions(userId: string, query: Record<string, unk
 }
 
 export async function getTransaction(userId: string, transactionId: string, db: DbClient = pool) {
-  let transaction = await db.query(
+  const transaction = await db.query(
     `SELECT t.id, t.account_id AS "accountId", t.transaction_type AS "transactionType",
             t.transaction_date AS "transactionDate", t.amount::text, t.category_id AS "categoryId",
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
@@ -240,31 +207,6 @@ export async function getTransaction(userId: string, transactionId: string, db: 
      WHERE t.id = $1 AND t.user_id = $2`,
     [transactionId, userId]
   );
-  if (!transaction.rowCount) {
-    transaction = await db.query(
-      `SELECT t.id, t.account_id AS "accountId", t.transaction_type AS "transactionType",
-              t.transaction_date AS "transactionDate", t.amount::text, t.category_id AS "categoryId",
-              t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
-              t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
-              t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName",
-              false AS "canManage"
-       FROM transactions t
-       JOIN accounts a ON a.id = t.account_id
-       LEFT JOIN categories c ON c.id = t.category_id
-       JOIN relationship_goals g
-         ON g.linked_account_id = t.account_id
-        AND g.tracking_mode = 'linked_account'
-        AND g.status = 'active'
-        AND t.transaction_date >= g.created_at
-       JOIN relationship_finance_members viewer
-         ON viewer.relationship_finance_id = g.relationship_finance_id
-        AND viewer.user_id = $2
-        AND viewer.status = 'accepted'
-       WHERE t.id = $1
-       LIMIT 1`,
-      [transactionId, userId]
-    );
-  }
   if (!transaction.rowCount) throw notFound("Transaksi tidak ditemukan");
 
   const items = await db.query(

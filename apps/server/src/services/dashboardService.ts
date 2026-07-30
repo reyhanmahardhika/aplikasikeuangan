@@ -1,4 +1,5 @@
 import { pool } from "../db/pool.js";
+import { excludeInternalTransferLedger } from "./transactionAggregationScope.js";
 
 function monthBounds(date = new Date()) {
   const start = new Date(date.getFullYear(), date.getMonth(), 1);
@@ -8,6 +9,8 @@ function monthBounds(date = new Date()) {
 
 export async function dashboardSummary(userId: string) {
   const { start, end, month, year } = monthBounds();
+  const transactionScope = excludeInternalTransferLedger();
+  const transactionScopeT = excludeInternalTransferLedger("t");
   const [balances, monthly, daily, categories, lastTransactions, budgetAlerts, weeklyInsight, scheduledCommitments] = await Promise.all([
     pool.query(
       `SELECT COALESCE(sum(CASE WHEN account_type = 'credit_card' THEN -current_balance ELSE current_balance END), 0)::text AS balance
@@ -15,27 +18,30 @@ export async function dashboardSummary(userId: string) {
       [userId]
     ),
     pool.query(
-      `SELECT
+       `SELECT
          COALESCE(sum(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0)::text AS income,
          COALESCE(sum(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0)::text AS expense
        FROM transactions
-       WHERE user_id = $1 AND transaction_date >= $2 AND transaction_date < $3`,
+       WHERE user_id = $1 AND transaction_date >= $2 AND transaction_date < $3
+         AND ${transactionScope}`,
       [userId, start, end]
     ),
     pool.query(
-      `SELECT date_trunc('day', transaction_date)::date AS date,
+       `SELECT date_trunc('day', transaction_date)::date AS date,
               COALESCE(sum(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0)::text AS income,
               COALESCE(sum(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0)::text AS expense
        FROM transactions
        WHERE user_id = $1 AND transaction_date >= $2 AND transaction_date < $3
+         AND ${transactionScope}
        GROUP BY 1 ORDER BY 1`,
       [userId, start, end]
     ),
     pool.query(
-      `SELECT c.name AS category, COALESCE(sum(t.amount), 0)::text AS total
+       `SELECT c.name AS category, COALESCE(sum(t.amount), 0)::text AS total
        FROM transactions t
        LEFT JOIN categories c ON c.id = t.category_id
        WHERE t.user_id = $1 AND t.transaction_type = 'expense' AND t.transaction_date >= $2 AND t.transaction_date < $3
+         AND ${transactionScopeT}
        GROUP BY c.name ORDER BY sum(t.amount) DESC LIMIT 8`,
       [userId, start, end]
     ),
@@ -61,6 +67,7 @@ export async function dashboardSummary(userId: string) {
           AND t.transaction_type = 'expense'
           AND date_part('month', t.transaction_date) = b.month
           AND date_part('year', t.transaction_date) = b.year
+          AND ${transactionScopeT}
         WHERE b.user_id = $1 AND b.month = $2 AND b.year = $3
         GROUP BY b.id, b.budget_amount, c.name
        )
@@ -84,6 +91,7 @@ export async function dashboardSummary(userId: string) {
        FROM transactions
        WHERE user_id = $1
          AND transaction_type = 'expense'
+         AND ${transactionScope}
          AND transaction_date >= date_trunc('week', now()) - INTERVAL '7 days'`,
       [userId]
     ),

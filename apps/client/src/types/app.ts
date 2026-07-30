@@ -28,10 +28,6 @@ export type Account = {
     providerName?: string | null;
     accountNumber?: string | null;
     isSharedWalletAccount?: boolean;
-    isRelationshipGoalAccount?: boolean;
-    relationshipGoalId?: string | null;
-    relationshipGoalName?: string | null;
-    relationshipGoalCreatedAt?: string | null;
     ownerUserId?: string | null;
     ownerName?: string | null;
     canEdit?: boolean;
@@ -136,13 +132,10 @@ export type SocialSummary = {
 };
 
 export type AssistantContext = {
-    contextType: "personal" | "shared_wallet" | "relationship_finance" | "goal" | "budget" | "investment";
-    relationshipFinanceId?: string;
+    contextType: "personal" | "shared_wallet" | "goal" | "budget" | "investment";
     entityType?: string;
     entityId?: string;
     sourcePage?: string;
-    label?: string;
-    partnerName?: string | null;
 };
 
 export type HeaderNotification = {
@@ -289,104 +282,6 @@ export type SocialWallet = {
     goldWeightGrams?: string | null;
     goldPricePerGram?: number | null;
     goldPriceFetchedAt?: string | null;
-};
-
-export type RelationshipFinanceListItem = {
-    id: string;
-    workspaceName: string;
-    relationshipType: "partner" | "married_couple" | "family";
-    status: "pending" | "active" | "cancelled" | "archived";
-    acceptedAt?: string | null;
-    createdAt: string;
-    role: "owner" | "partner";
-    partnerUserId?: string | null;
-    partnerName?: string | null;
-    partnerUsername?: string | null;
-    partnerAvatarUrl?: string | null;
-    invitationId?: string | null;
-    invitationStatus?: "pending" | "accepted" | "declined" | "cancelled" | "expired" | null;
-    incomingInvitation?: boolean;
-};
-
-export type RelationshipGoal = {
-    id: string;
-    name: string;
-    goalType: string;
-    icon: string;
-    targetAmount: string;
-    currentAmount: string;
-    deadline?: string | null;
-    priority: "low" | "medium" | "high" | "critical";
-    status: "active" | "completed" | "paused" | "cancelled";
-    progress: string;
-    remainingAmount: string;
-    monthlyRequired?: string | null;
-    trackingMode: "contribution" | "linked_account";
-    linkedAccountId?: string | null;
-    linkedAccountName?: string | null;
-    linkedAccountOwnerName?: string | null;
-    totalContributions?: number;
-    lastContributionDate?: string | null;
-    predictionStatus: "on_track" | "needs_attention" | "at_risk" | "completed" | "insufficient_data";
-};
-
-export type RelationshipGoalContribution = {
-    id: string;
-    relationshipGoalId: string;
-    contributorUserId?: string | null;
-    contributorName?: string | null;
-    amount: string;
-    contributionDate: string;
-    sourceType: "manual" | "transaction" | "linked_account" | "shared_wallet" | "scheduled" | "income_allocation" | "adjustment";
-    accountId?: string | null;
-    accountName?: string | null;
-    transactionId?: string | null;
-    sharedWalletEntryId?: string | null;
-    notes?: string | null;
-    status: "pending" | "completed" | "cancelled";
-    adjustmentReason?: string | null;
-    createdAt: string;
-};
-
-export type RelationshipOverview = {
-    relationship: RelationshipFinanceListItem & {
-        members?: Array<{
-            userId: string;
-            fullName: string;
-            username?: string | null;
-            avatarUrl?: string | null;
-            role: "owner" | "partner";
-            status: string;
-        }>;
-    };
-    summary: {
-        period: string;
-        combinedIncome: string;
-        combinedExpense: string;
-        combinedSaving: string;
-        savingRate: string;
-        combinedNetWorth: string;
-        emergencyFundCoverage: string | null;
-        debtToIncomeRatio: string;
-    };
-    goals: RelationshipGoal[];
-    insights: Array<{
-        type: string;
-        severity: "positive" | "info" | "warning" | "critical";
-        titleKey: string;
-        descriptionKey: string;
-        parameters: Record<string, unknown>;
-    }>;
-    timeline: Array<{
-        id: string;
-        eventType: string;
-        entityType?: string | null;
-        entityId?: string | null;
-        metadata?: Record<string, unknown>;
-        createdAt: string;
-        actorUserId?: string | null;
-        actorName?: string | null;
-    }>;
 };
 
 export type WalletReminder = {

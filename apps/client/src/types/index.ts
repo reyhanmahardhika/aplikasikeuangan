@@ -61,10 +61,6 @@ export type Account = {
   providerName?: string | null;
   accountNumber?: string | null;
   isSharedWalletAccount?: boolean;
-  isRelationshipGoalAccount?: boolean;
-  relationshipGoalId?: string | null;
-  relationshipGoalName?: string | null;
-  relationshipGoalCreatedAt?: string | null;
   ownerUserId?: string | null;
   ownerName?: string | null;
   canEdit?: boolean;
@@ -153,13 +149,10 @@ export type SocialSummary = {
 };
 
 export type AssistantContext = {
-  contextType: 'personal' | 'shared_wallet' | 'relationship_finance' | 'goal' | 'budget' | 'investment';
-  relationshipFinanceId?: string;
+  contextType: 'personal' | 'shared_wallet' | 'goal' | 'budget' | 'investment';
   entityType?: string;
   entityId?: string;
   sourcePage?: string;
-  label?: string;
-  partnerName?: string | null;
 };
 
 export type HeaderNotification = {
@@ -289,74 +282,6 @@ export type SocialWallet = {
   myRole: 'owner' | 'admin' | 'member' | 'viewer';
   status: 'active' | 'archived';
   createdAt: string;
-};
-
-export type RelationshipFinanceListItem = {
-  id: string;
-  workspaceName: string;
-  partnerName: string;
-  partnerId: string;
-  currency: string;
-  status: 'active' | 'archived' | 'pending';
-  createdAt: string;
-};
-
-export type RelationshipGoal = {
-  id: string;
-  name: string;
-  targetAmount: string;
-  currentAmount: string;
-  deadline?: string | null;
-  createdAt: string;
-};
-
-export type RelationshipGoalContribution = {
-  id: string;
-  goalId: string;
-  amount: string;
-  contributedBy: string;
-  contributedAt: string;
-};
-
-export type RelationshipOverview = {
-  settings: {
-    currency: string;
-    settlementDay: number;
-    expenseSplitRule: 'equal' | 'percentage' | 'manual';
-    defaultSplitPercentage?: number | null;
-    spendingLimit?: string | null;
-    requireApproval: boolean;
-    notifyOnExpense: boolean;
-    notifyOnSettlement: boolean;
-  };
-  summary: {
-    period: string;
-    combinedIncome: string;
-    combinedExpense: string;
-    combinedSaving: string;
-    savingRate: string;
-    combinedNetWorth: string;
-    emergencyFundCoverage: string | null;
-    debtToIncomeRatio: string;
-  };
-  goals: RelationshipGoal[];
-  insights: Array<{
-    type: string;
-    severity: 'positive' | 'info' | 'warning' | 'critical';
-    titleKey: string;
-    descriptionKey: string;
-    parameters: Record<string, unknown>;
-  }>;
-  timeline: Array<{
-    id: string;
-    eventType: string;
-    entityType?: string | null;
-    entityId?: string | null;
-    metadata?: Record<string, unknown>;
-    createdAt: string;
-    actorUserId?: string | null;
-    actorName?: string | null;
-  }>;
 };
 
 export type WalletReminder = {
@@ -525,17 +450,6 @@ export interface DashboardViewProps {
 }
 
 // Additional types from App.tsx
-export type AssistantSelectorProps = {
-  language: AppLanguage;
-  onClose: () => void;
-  onPersonal: () => void;
-  onRelationship: () => void;
-  onSelectRelationship: (id: string) => void;
-  loading: boolean;
-  relationships: RelationshipFinanceListItem[];
-  selectedRelationshipId: string;
-};
-
 export interface NotificationCenterProps {
   language: AppLanguage;
   items: HeaderNotification[];

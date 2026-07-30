@@ -1,4 +1,5 @@
 import { pool } from "../db/pool.js";
+import { excludeInternalTransferLedger } from "./transactionAggregationScope.js";
 
 function rangeForPreset(preset?: string, from?: string, to?: string) {
   const now = new Date();
@@ -32,6 +33,7 @@ function rangeForPreset(preset?: string, from?: string, to?: string) {
 
 export async function cashFlowReport(userId: string, query: Record<string, string | undefined>) {
   const { start, end } = rangeForPreset(query.preset, query.from, query.to);
+  const transactionScope = excludeInternalTransferLedger();
   const result = await pool.query(
     `SELECT date_trunc('day', transaction_date)::date AS date,
             COALESCE(sum(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0)::text AS income,
@@ -40,6 +42,7 @@ export async function cashFlowReport(userId: string, query: Record<string, strin
              - COALESCE(sum(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0))::text AS net
      FROM transactions
      WHERE user_id = $1 AND transaction_date >= $2 AND transaction_date < $3
+       AND ${transactionScope}
      GROUP BY 1 ORDER BY 1`,
     [userId, start, end]
   );
@@ -48,12 +51,14 @@ export async function cashFlowReport(userId: string, query: Record<string, strin
 
 export async function categorySummaryReport(userId: string, query: Record<string, string | undefined>) {
   const { start, end } = rangeForPreset(query.preset, query.from, query.to);
+  const transactionScopeT = excludeInternalTransferLedger("t");
   const result = await pool.query(
     `SELECT c.name AS category, t.transaction_type AS "transactionType", COALESCE(sum(t.amount), 0)::text AS total,
             count(*)::int AS count
      FROM transactions t
      LEFT JOIN categories c ON c.id = t.category_id
      WHERE t.user_id = $1 AND t.transaction_date >= $2 AND t.transaction_date < $3
+       AND ${transactionScopeT}
      GROUP BY c.name, t.transaction_type
      ORDER BY t.transaction_type, sum(t.amount) DESC`,
     [userId, start, end]
@@ -62,12 +67,14 @@ export async function categorySummaryReport(userId: string, query: Record<string
 }
 
 export async function monthlyComparisonReport(userId: string) {
+  const transactionScope = excludeInternalTransferLedger();
   const result = await pool.query(
     `SELECT date_trunc('month', transaction_date)::date AS month,
             COALESCE(sum(CASE WHEN transaction_type = 'income' THEN amount ELSE 0 END), 0)::text AS income,
             COALESCE(sum(CASE WHEN transaction_type = 'expense' THEN amount ELSE 0 END), 0)::text AS expense
      FROM transactions
      WHERE user_id = $1 AND transaction_date >= date_trunc('month', now()) - interval '11 months'
+       AND ${transactionScope}
      GROUP BY 1 ORDER BY 1`,
     [userId]
   );
@@ -76,11 +83,13 @@ export async function monthlyComparisonReport(userId: string) {
 
 export async function merchantExpenseReport(userId: string, query: Record<string, string | undefined>) {
   const { start, end } = rangeForPreset(query.preset, query.from, query.to);
+  const transactionScope = excludeInternalTransferLedger();
   const result = await pool.query(
     `SELECT COALESCE(merchant_name, 'Tanpa merchant') AS merchant, COALESCE(sum(amount), 0)::text AS total,
             count(*)::int AS count
      FROM transactions
      WHERE user_id = $1 AND transaction_type = 'expense' AND transaction_date >= $2 AND transaction_date < $3
+       AND ${transactionScope}
      GROUP BY merchant_name ORDER BY sum(amount) DESC LIMIT 20`,
     [userId, start, end]
   );

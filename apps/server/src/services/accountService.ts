@@ -29,42 +29,21 @@ export function transactionDelta(accountType: string, transactionType: "income" 
 
 export async function listAccounts(userId: string) {
   const result = await pool.query(
-    `WITH visible_goal_accounts AS (
-       SELECT DISTINCT ON (g.linked_account_id)
-              g.linked_account_id AS account_id,
-              g.id AS goal_id,
-              g.name AS goal_name,
-              g.created_at AS goal_created_at
-       FROM relationship_goals g
-       JOIN relationship_finance_members viewer
-         ON viewer.relationship_finance_id = g.relationship_finance_id
-        AND viewer.user_id = $1
-        AND viewer.status = 'accepted'
-       WHERE g.tracking_mode = 'linked_account'
-         AND g.status = 'active'
-         AND g.linked_account_id IS NOT NULL
-       ORDER BY g.linked_account_id, g.created_at DESC
-     )
-     SELECT a.id, a.name, a.account_type AS "accountType", a.initial_balance AS "initialBalance",
+    `SELECT a.id, a.name, a.account_type AS "accountType", a.initial_balance AS "initialBalance",
             a.current_balance AS "currentBalance", a.currency, a.allow_negative AS "allowNegative",
             a.provider_name AS "providerName", a.account_number AS "accountNumber",
             EXISTS (
               SELECT 1 FROM shared_wallets w
               WHERE w.storage_account_id = a.id AND w.is_active = true
             ) AS "isSharedWalletAccount",
-            (vga.account_id IS NOT NULL) AS "isRelationshipGoalAccount",
-            vga.goal_id AS "relationshipGoalId",
-            vga.goal_name AS "relationshipGoalName",
-            vga.goal_created_at AS "relationshipGoalCreatedAt",
             a.user_id AS "ownerUserId",
             u.full_name AS "ownerName",
             (a.user_id = $1) AS "canEdit",
             a.is_active AS "isActive", a.created_at AS "createdAt", a.updated_at AS "updatedAt"
      FROM accounts a
      JOIN users u ON u.id = a.user_id
-     LEFT JOIN visible_goal_accounts vga ON vga.account_id = a.id
-     WHERE a.user_id = $1 OR vga.account_id IS NOT NULL
-     ORDER BY a.is_active DESC, (a.user_id = $1) DESC, a.name ASC`,
+     WHERE a.user_id = $1
+     ORDER BY a.is_active DESC, a.name ASC`,
     [userId]
   );
   return result.rows;

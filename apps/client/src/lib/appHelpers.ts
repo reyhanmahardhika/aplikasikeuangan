@@ -12,15 +12,15 @@ export function successMessageFor(path: string, method: string) {
     if (path.startsWith("/transactions/") && method === "DELETE")
         return "Berhasil menghapus transaksi";
     if (path === "/transfers" && method === "POST")
-        return "Berhasil transfer antar akun";
+        return "Berhasil transfer antar pocket";
     if (path.includes("/receipts/") && path.endsWith("/confirm") && method === "POST")
         return "Berhasil menambah transaksi dari struk";
     if (path === "/accounts" && method === "POST")
-        return "Berhasil menambah akun";
+        return "Berhasil menambah pocket";
     if (path.endsWith("/reset") && path.startsWith("/accounts/") && method === "POST")
-        return "Akun berhasil direset";
+        return "Pocket berhasil direset";
     if (path.startsWith("/accounts/") && method === "PUT")
-        return "Berhasil mengubah akun";
+        return "Berhasil mengubah pocket";
     if (path === "/categories" && method === "POST")
         return "Berhasil menambah kategori";
     if (path.startsWith("/categories/") && method === "PUT")

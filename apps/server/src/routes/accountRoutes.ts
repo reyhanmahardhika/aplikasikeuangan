@@ -1,8 +1,9 @@
 import { Router } from "express";
+import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { accountResetSchema, accountSchema, accountUpdateSchema } from "../validators/schemas.js";
-import { createAccount, deleteAccount, listAccounts, resetAccount, updateAccount } from "../services/accountService.js";
+import { createAccount, deleteAccount, listAccounts, reorderAccounts, resetAccount, updateAccount } from "../services/accountService.js";
 
 export const accountRoutes = Router();
 accountRoutes.use(requireAuth);
@@ -18,6 +19,16 @@ accountRoutes.post(
   "/",
   asyncHandler(async (req, res) => {
     res.status(201).json(await createAccount(req.user!.id, accountSchema.parse(req.body)));
+  })
+);
+
+accountRoutes.put(
+  "/order",
+  asyncHandler(async (req, res) => {
+    const input = z.object({
+      accountIds: z.array(z.string().uuid()).min(1).max(200)
+    }).parse(req.body);
+    res.json(await reorderAccounts(req.user!.id, input.accountIds));
   })
 );
 

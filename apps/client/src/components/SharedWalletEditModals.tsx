@@ -46,6 +46,7 @@ function ModalFrame({ title, caption, icon, children, onClose }: ModalFrameProps
     <>
       <button
         type="button"
+        data-scroll-lock="true"
         className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]"
         aria-label="Tutup modal"
         onClick={onClose}

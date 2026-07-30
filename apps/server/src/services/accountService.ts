@@ -32,6 +32,7 @@ export async function listAccounts(userId: string) {
     `SELECT a.id, a.name, a.account_type AS "accountType", a.initial_balance AS "initialBalance",
             a.current_balance AS "currentBalance", a.currency, a.allow_negative AS "allowNegative",
             a.provider_name AS "providerName", a.account_number AS "accountNumber",
+            a.display_order AS "displayOrder",
             EXISTS (
               SELECT 1 FROM shared_wallets w
               WHERE w.storage_account_id = a.id AND w.is_active = true
@@ -43,7 +44,7 @@ export async function listAccounts(userId: string) {
      FROM accounts a
      JOIN users u ON u.id = a.user_id
      WHERE a.user_id = $1
-     ORDER BY a.is_active DESC, a.name ASC`,
+     ORDER BY a.is_active DESC, a.display_order ASC, a.created_at ASC`,
     [userId]
   );
   return result.rows;
@@ -62,8 +63,9 @@ export async function createAccount(userId: string, payload: {
   const initialBalance = normalizeNonNegativeMoney(payload.initialBalance);
   const result = await pool.query(
     `INSERT INTO accounts (user_id, name, account_type, initial_balance, current_balance, currency,
-                           provider_name, account_number, allow_negative, is_active)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9)
+                           provider_name, account_number, allow_negative, is_active, display_order)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9,
+             COALESCE((SELECT max(display_order) + 1 FROM accounts WHERE user_id = $1), 0))
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
                provider_name AS "providerName", account_number AS "accountNumber",
@@ -82,6 +84,33 @@ export async function createAccount(userId: string, payload: {
   );
   await writeAuditLog(pool, { userId, action: "CREATE", entityName: "Account", entityId: result.rows[0].id, newValue: result.rows[0] });
   return result.rows[0];
+}
+
+export async function reorderAccounts(userId: string, accountIds: string[]) {
+  const uniqueIds = [...new Set(accountIds)];
+  if (uniqueIds.length !== accountIds.length) {
+    throw badRequest("Urutan pocket mengandung data duplikat");
+  }
+  return withDbTransaction(async (client) => {
+    const owned = await client.query<{ id: string }>(
+      "SELECT id FROM accounts WHERE user_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE",
+      [userId, uniqueIds]
+    );
+    if (owned.rowCount !== uniqueIds.length) {
+      throw forbidden("Urutan hanya dapat diubah untuk pocket milik sendiri");
+    }
+    await client.query(
+      `UPDATE accounts a
+       SET display_order = ordered.position, updated_at = now()
+       FROM (
+         SELECT id, ordinality - 1 AS position
+         FROM unnest($2::uuid[]) WITH ORDINALITY AS value(id, ordinality)
+       ) ordered
+       WHERE a.user_id = $1 AND a.id = ordered.id`,
+      [userId, uniqueIds]
+    );
+    return { accountIds: uniqueIds };
+  });
 }
 
 export async function updateAccount(userId: string, accountId: string, payload: Record<string, unknown>) {

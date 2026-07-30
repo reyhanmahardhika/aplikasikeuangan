@@ -16,7 +16,7 @@ export const accountCollaboratorRoutes = Router();
 accountCollaboratorRoutes.use(requireAuth);
 
 accountCollaboratorRoutes.get("/:id/collaborators", asyncHandler(async (req, res) => {
-  const collaborators = await getAccountCollaborators(req.params.id as string);
+  const collaborators = await getAccountCollaborators(req.params.id as string, req.user!.id);
   res.json(collaborators);
 }));
 

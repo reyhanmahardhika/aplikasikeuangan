@@ -88,9 +88,40 @@ export async function socialSummary(userId: string) {
   };
 }
 
-export async function searchPeople(userId: string, rawQuery: string, options?: { exact?: boolean }) {
+export async function searchPeople(userId: string, rawQuery: string, options?: { exact?: boolean; pocketInvite?: boolean }) {
   const query = rawQuery.trim().replace(/^finance-ai:user:/i, "").replace(/^@/, "");
   if (query.length < 2) return [];
+  if (options?.pocketInvite) {
+    const phoneDigits = query.replace(/\D/g, "");
+    const phoneVariants = new Set<string>();
+    if (phoneDigits) {
+      phoneVariants.add(phoneDigits);
+      if (phoneDigits.startsWith("0"))
+        phoneVariants.add(`62${phoneDigits.slice(1)}`);
+      if (phoneDigits.startsWith("62"))
+        phoneVariants.add(`0${phoneDigits.slice(2)}`);
+    }
+    const result = await pool.query(
+      `SELECT u.id, u.full_name AS "fullName", u.username, u.avatar_url AS "avatarUrl",
+              u.phone, u.email
+       FROM users u
+       LEFT JOIN user_privacy_settings p ON p.user_id = u.id
+       WHERE u.id <> $1
+         AND COALESCE(p.allow_wallet_invites, true)
+         AND (
+           lower(u.username) = lower($2)
+           OR lower(u.email) = lower($2)
+           OR (
+             cardinality($3::text[]) > 0
+             AND regexp_replace(COALESCE(u.phone, ''), '[^0-9]', '', 'g') = ANY($3::text[])
+           )
+         )
+       ORDER BY u.full_name
+       LIMIT 1`,
+      [userId, query, [...phoneVariants]]
+    );
+    return result.rows;
+  }
   const exact = options?.exact === true;
   const pattern = `%${query.replace(/[%_\\]/g, "\\$&")}%`;
   const result = await pool.query(

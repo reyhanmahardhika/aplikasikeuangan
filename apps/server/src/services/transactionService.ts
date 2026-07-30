@@ -105,43 +105,15 @@ async function insertItems(client: PoolClient, transactionId: string, items: Ret
 
 async function replaceTransactionViewers(
   client: PoolClient,
-  userId: string,
+  _userId: string,
   transactionId: string,
   visibility: TransactionInput["visibility"],
-  viewerIds: string[] = [],
-  eventType: "transaction_shared" | "transaction_edited" = "transaction_shared"
+  _viewerIds: string[] = [],
+  _eventType: "transaction_shared" | "transaction_edited" = "transaction_shared"
 ) {
   await client.query("DELETE FROM transaction_viewers WHERE transaction_id = $1", [transactionId]);
-  if (visibility !== "selected_friends") return;
-  const ids = [...new Set(viewerIds)].filter((id) => id !== userId);
-  if (!ids.length) throw badRequest("Pilih minimal satu teman untuk transaksi ini");
-  const accepted = await client.query(
-    `SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS friend_id
-     FROM friendships
-     WHERE status = 'accepted'
-       AND (requester_id = $1 OR addressee_id = $1)
-       AND CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END = ANY($2::uuid[])`,
-    [userId, ids]
-  );
-  if (accepted.rowCount !== ids.length) throw badRequest("Penerima transaksi harus merupakan teman aktif");
-  for (const viewerId of ids) {
-    await client.query(
-      "INSERT INTO transaction_viewers (transaction_id, user_id) VALUES ($1, $2)",
-      [transactionId, viewerId]
-    );
-    await client.query(
-      `INSERT INTO social_events
-        (recipient_id, actor_id, event_type, title, body, entity_type, entity_id)
-       VALUES ($1, $2, $3, $4, $5, 'transaction', $6)`,
-      [
-        viewerId,
-        userId,
-        eventType,
-        eventType === "transaction_edited" ? "Transaksi bersama diedit" : "Anda dilibatkan dalam transaksi",
-        eventType === "transaction_edited" ? "Periksa kembali nominal dan detail transaksi." : "Transaksi dibagikan hanya kepada pihak yang dipilih.",
-        transactionId
-      ]
-    );
+  if (visibility && visibility !== "private") {
+    throw badRequest("Berbagi transaksi melalui fitur Social sudah tidak didukung");
   }
 }
 

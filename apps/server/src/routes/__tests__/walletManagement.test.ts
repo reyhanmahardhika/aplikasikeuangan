@@ -4,10 +4,11 @@
  */
 
 import request from "supertest";
-import app from "../../app";
+import { createApp } from "../../app";
 import { pool } from "../../db/pool";
 
 describe("Wallet Management API", () => {
+  const app = createApp();
   let userId: string;
   let walletId: string;
   let memberId: string;
@@ -26,12 +27,6 @@ describe("Wallet Management API", () => {
       ["member@example.com", "memberuser", "Member User", "hashed_password"]
     );
     memberId = memberResult.rows[0].id;
-
-    // Create friendship
-    await pool.query(
-      "INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1, $2, 'accepted')",
-      [userId, memberId]
-    );
 
     // Mock auth token
     authToken = "test-token";

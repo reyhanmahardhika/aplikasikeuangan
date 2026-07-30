@@ -6,7 +6,7 @@
 
 import { ApiError, apiFetch, downloadUrl } from "../../lib/api";
 import type { Account, AiTrackedField, AppLanguage, AssistantContext, AssistantMessage, BudgetRow, CashFlowReportRow, Category, CategoryReportRow, ChildFrameState, DashboardSummary, GroupDetail, ManageTab, ManualDraft, MonthlyReportRow, ParsedManualTransaction, PocketVisual, Schedule, SocialActivity, SocialFriend, SocialGroup, SocialSummary, SocialWallet, Transaction, TransactionDetail, View, WalletDetail, WalletReminder } from "../../types/app";
-import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, HeartPulse, Landmark, Lightbulb, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
+import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, HeartPulse, Landmark, Lightbulb, ListFilter, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
 import type { Session } from "../../lib/api";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "../../lib/format";
@@ -56,15 +56,15 @@ export function quickAmount(value: string, language: AppLanguage) {
         return `${amount / 1000000}${language === "en" ? "m" : "jt"}`;
     }
     if (amount >= 1000 && amount % 1000 === 0) {
-        return `${amount / 1000}${language === "en" ? "k" : "rb"}`;
+        return `${amount / 1000}k`;
     }
     return new Intl.NumberFormat(language === "en" ? "en-US" : "id-ID").format(amount);
 }
 
 export function transactionQuickExamples(transactions: Transaction[], language: AppLanguage) {
     const fallback = language === "en"
-        ? ["buy coffee 20k cash", "buy electricity token 100k", "ride Grab 25k", "ride Gojek 20k", "ride MRT 14k", "ride KRL 5k"]
-        : ["beli kopi 20rb cash", "isi token listrik 100rb", "naik Grab 25rb", "naik Gojek 20rb", "naik MRT 14rb", "naik KRL 5rb"];
+        ? ["buy Fore coffee 25k", "ride Gojek 15k", "ride MRT 3500"]
+        : ["beli kopi Fore 25k", "naik Gojek 15k", "naik MRT 3500"];
     const patterns = new Map<string, {
         count: number;
         index: number;
@@ -80,7 +80,6 @@ export function transactionQuickExamples(transactions: Transaction[], language: 
         if (/top[ -]?up|transfer ke/.test(context))
             return;
         const amount = quickAmount(transaction.amount, language);
-        const payment = transaction.paymentMethod?.trim().toLowerCase() ?? "";
         const account = transaction.accountName?.trim() ?? "";
         let subject = merchant || category;
         let action = language === "en" ? "pay" : "bayar";
@@ -106,20 +105,19 @@ export function transactionQuickExamples(transactions: Transaction[], language: 
         }
         else if (/kopi|coffee|cafe|cafÃ¯Â¿Â½/.test(context)) {
             subject = merchant && !/kopi|coffee/i.test(merchant)
-                ? `${language === "en" ? "coffee at" : "kopi di"} ${merchant}`
+                ? `${language === "en" ? "coffee" : "kopi"} ${merchant}`
                 : merchant || (language === "en" ? "coffee" : "kopi");
             action = language === "en" ? "buy" : "beli";
         }
         else if (!subject) {
             return;
         }
-        const text = [action, subject, amount, payment].filter(Boolean).join(" ");
+        const text = [action, subject, amount].filter(Boolean).join(" ");
         const key = [
             transaction.transactionType,
             account,
             category,
-            merchant,
-            payment
+            merchant
         ].map((value) => value.trim().toLowerCase()).join("|");
         const current = patterns.get(key);
         patterns.set(key, current
@@ -130,7 +128,23 @@ export function transactionQuickExamples(transactions: Transaction[], language: 
         .filter((item) => item.count > 1)
         .sort((a, b) => b.count - a.count || a.index - b.index)
         .map((item) => item.text);
-    return [...new Set([...personalized, ...fallback])].slice(0, 5);
+    return [...new Set([...personalized, ...fallback])].slice(0, 6);
+}
+
+export function pocketPaymentMethod(account?: Account | null) {
+    if (!account)
+        return "";
+    if (account.accountType === "cash")
+        return "Tunai";
+    if (account.providerName?.trim())
+        return account.providerName.trim();
+    if (account.accountType === "bank")
+        return "Rekening bank";
+    if (account.accountType === "e_wallet")
+        return "E-wallet";
+    if (account.accountType === "credit_card")
+        return "Kartu kredit";
+    return "E-money";
 }
 
 export function ManualTransactionView({ accounts, categories, editing, initialType, initialAccountId, resetKey, language, request, onCancel, onDone }: {
@@ -148,14 +162,14 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     const transactionAccounts = accounts.filter((account) => (!account.isSharedWalletAccount && account.canEdit !== false) || account.id === editing?.accountId);
     const [transactionType, setTransactionType] = useState<"income" | "expense">(editing?.transactionType ?? initialType);
     const initialDraft = useMemo<ManualDraft>(() => ({
-        accountId: ((editing?.accountId ?? initialAccountId) || transactionAccounts[0]?.id) ?? "",
+        accountId: (editing?.accountId ?? initialAccountId) || "",
         transactionDate: editing ? editing.transactionDate.slice(0, 10) : isoDateInput(),
         amount: moneyInputValue(editing?.amount),
         categoryId: editing?.categoryId ?? "",
         merchantName: editing?.merchantName ?? "",
-        paymentMethod: editing?.paymentMethod ?? "",
+        paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === (editing?.accountId ?? initialAccountId))),
         notes: editing?.notes ?? ""
-    }), [transactionAccounts[0]?.id, editing?.id, initialAccountId]);
+    }), [accounts, editing?.accountId, editing?.amount, editing?.categoryId, editing?.id, editing?.merchantName, editing?.notes, editing?.transactionDate, initialAccountId]);
     const [draft, setDraft] = useState<ManualDraft>(initialDraft);
     const [formVersion, setFormVersion] = useState(0);
     const [freeText, setFreeText] = useState("");
@@ -169,9 +183,6 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     const [attachmentReceiptId, setAttachmentReceiptId] = useState<string | null>(editing?.receiptId ?? null);
     const [attachmentMessage, setAttachmentMessage] = useState<string | null>(null);
     const [budgets, setBudgets] = useState<BudgetRow[]>([]);
-    const [visibility, setVisibility] = useState<TransactionDetail["visibility"]>(editing?.visibility ?? "private");
-    const [viewerIds, setViewerIds] = useState<string[]>(editing?.viewerIds ?? []);
-    const [socialFriends, setSocialFriends] = useState<SocialFriend[]>([]);
     const [suggestionTransactions, setSuggestionTransactions] = useState<Transaction[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [errorContext, setErrorContext] = useState<"parse" | "submit" | null>(null);
@@ -183,7 +194,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         placeholder: "Example: buy coffee 15k cash",
         analyze: "Analyze Transaction",
         analyzing: "Analyzing transaction...",
-        steps: ["Reading amount", "Choosing category", "Choosing account", "Choosing payment method"],
+        steps: ["Reading amount", "Choosing category"],
         addAccountFirst: "Add an account before saving a transaction.",
         confirmation: "Confirmation",
         confirmTitle: "Confirm AI Result",
@@ -209,7 +220,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         placeholder: "Contoh: beli kopi 15rb cash",
         analyze: "Analisis Transaksi",
         analyzing: "Menganalisis transaksi...",
-        steps: ["Membaca nominal", "Menentukan kategori", "Menentukan pocket", "Menentukan metode pembayaran"],
+        steps: ["Membaca nominal", "Menentukan kategori"],
         addAccountFirst: "Tambahkan pocket dulu sebelum menyimpan transaksi.",
         confirmation: "Konfirmasi",
         confirmTitle: "Konfirmasi Hasil AI",
@@ -241,8 +252,6 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         setAttachmentName("");
         setAttachmentReceiptId(editing?.receiptId ?? null);
         setAttachmentMessage(null);
-        setVisibility(editing?.visibility ?? "private");
-        setViewerIds(editing?.viewerIds ?? []);
         setError(null);
         setErrorContext(null);
     }, [editing?.id, initialDraft, initialType, resetKey]);
@@ -250,9 +259,6 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         request<BudgetRow[]>("/budgets")
             .then(setBudgets)
             .catch(() => setBudgets([]));
-        request<SocialFriend[]>("/social/friends")
-            .then((rows) => setSocialFriends(rows.filter((row) => row.status === "accepted")))
-            .catch(() => setSocialFriends([]));
         request<{
             data: Transaction[];
         }>("/transactions?limit=100&page=1&sort=transaction_date&direction=desc")
@@ -317,7 +323,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                     })
                 }),
                 (async () => {
-                    for (let step = 1; step <= 4; step += 1) {
+                    for (let step = 1; step <= copy.steps.length; step += 1) {
                         await new Promise((resolve) => window.setTimeout(resolve, 230));
                         setAnalysisStep(step);
                     }
@@ -327,12 +333,12 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             setChangedFields(new Set());
             setTransactionType(parsed.transactionType);
             setDraft({
-                accountId: parsed.accountId ?? draft.accountId ?? transactionAccounts[0]?.id ?? "",
+                accountId: draft.accountId,
                 transactionDate: parsed.transactionDate.slice(0, 10),
                 amount: moneyInputValue(parsed.amount),
                 categoryId: parsed.categoryId ?? "",
                 merchantName: parsed.merchantName ?? "",
-                paymentMethod: parsed.paymentMethod ?? "",
+                paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === draft.accountId)),
                 notes: parsed.notes
             });
             setFormVersion((current) => current + 1);
@@ -412,18 +418,16 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         setErrorContext(null);
         const form = new FormData(event.currentTarget);
         const payload = {
-            accountId: String(form.get("accountId")),
+            accountId: draft.accountId,
             transactionType,
             transactionDate: dateFilterIso(String(form.get("transactionDate")), "start"),
             amount: String(form.get("amount")),
             categoryId: String(form.get("categoryId") || "") || null,
             merchantName: String(form.get("merchantName") || "") || null,
-            paymentMethod: String(form.get("paymentMethod") || "") || null,
+            paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === draft.accountId)) || null,
             notes: String(form.get("notes") || "") || null,
             sourceType: "manual",
             receiptId: attachmentReceiptId,
-            visibility,
-            viewerIds: visibility === "selected_friends" ? viewerIds : [],
             items: []
         };
         try {
@@ -450,6 +454,9 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     return (<section className="mx-auto max-w-4xl space-y-3 lg:space-y-5">
       {!editing && (<div className="overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
           <div className="border-b border-slate-100 bg-emerald-50/60 px-4 py-4 lg:px-5">
+            <button type="button" className="app-back-button mb-3" onClick={onCancel}>
+              <ArrowLeft size={14}/> Kembali
+            </button>
             <div className="flex items-start gap-3">
               <div className="min-w-0">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-[#16A34A] shadow-sm">
@@ -507,8 +514,8 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
 
       <div ref={formCardRef} className={`scroll-mt-24 overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-lg lg:border-slate-200 ${parseResult ? "ai-form-enter" : ""}`}>
         <div className="border-b border-slate-100 bg-white px-4 py-4 lg:px-5">
-          {editing && (<button type="button" className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={onCancel}>
-              <ArrowLeft size={15}/> Kembali
+          {editing && (<button type="button" className="app-back-button mb-4" onClick={onCancel}>
+              <ArrowLeft size={14}/> Kembali
             </button>)}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
@@ -552,6 +559,25 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
           </div>
         </div>
         <form key={formVersion} className="grid gap-3 p-4 md:grid-cols-2 lg:p-5" onSubmit={submit}>
+          <div className="md:col-span-2">
+            <Field label={language === "en" ? "Transaction pocket" : "Pocket transaksi"}>
+              {selectedAccount ? (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-md">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-950">{selectedAccount.name}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">{[accountTypeLabel(selectedAccount.accountType), selectedAccount.providerName].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] text-slate-400">{copy.currentBalance}</p>
+                      <p className="mt-0.5 text-xs font-bold text-slate-900">{rupiah(selectedAccount.currentBalance)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[11px] font-medium text-[#15803D]">{language === "en" ? "This transaction will use this pocket." : "Transaksi ini akan menggunakan pocket ini."}</p>
+                </div>) : (<p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                  {language === "en" ? "Open this form from a pocket detail first." : "Buka form transaksi melalui detail pocket terlebih dahulu."}
+                </p>)}
+            </Field>
+          </div>
           <Field label={copy.date} hint={<AiFieldBadge status={aiFieldStatus("transactionDate")} language={language}/>}>
             <div>
               <input type="hidden" name="transactionDate" value={draft.transactionDate}/>
@@ -563,33 +589,6 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
           </Field>
           <Field label={copy.amount} hint={<AiFieldBadge status={aiFieldStatus("amount")} language={language}/>}>
             <input className="input" name="amount" inputMode="numeric" min="1" value={draft.amount} onChange={updateAmount} required/>
-          </Field>
-          <Field label={copy.account} hint={<AiFieldBadge status={aiFieldStatus("accountId")} language={language}/>}>
-            <div>
-              <select className="input" name="accountId" value={draft.accountId} onChange={(event) => {
-            markFieldChanged("accountId");
-            setDraft((current) => ({ ...current, accountId: event.target.value }));
-        }} required>
-                {accounts.map((account) => {
-            const disabled = Boolean(account.isSharedWalletAccount || account.canEdit === false);
-            return (<option key={account.id} value={account.id} disabled={disabled}>
-                    {accountOptionLabel(account, { balance: true, language })}
-                  </option>);
-        })}
-              </select>
-              {accounts.some((account) => account.isSharedWalletAccount || account.canEdit === false) && (<p className="mt-1.5 text-[10px] text-amber-700">
-                  Pocket bertanda "Dipakai dompet bersama" atau "Pocket bersama" tidak dapat digunakan untuk transaksi pribadi.
-                </p>)}
-              {selectedAccount && (<div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
-                  <span className="inline-flex items-center gap-1">
-                    {copy.currentBalance}
-                    {accountSharedLabel(selectedAccount, language) && (<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#16A34A]">
-                        {accountSharedLabel(selectedAccount, language)}
-                      </span>)}
-                  </span>
-                  <span className="font-semibold text-slate-900">{rupiah(selectedAccount.currentBalance)}</span>
-                </div>)}
-            </div>
           </Field>
           <Field label={copy.category} hint={<AiFieldBadge status={aiFieldStatus("categoryId")} language={language}/>}>
             <select className="input" name="categoryId" value={draft.categoryId} onChange={(event) => {
@@ -618,35 +617,6 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             setDraft((current) => ({ ...current, merchantName: event.target.value }));
         }}/>
           </Field>
-          <Field label={copy.payment} hint={<AiFieldBadge status={aiFieldStatus("paymentMethod")} language={language}/>}>
-            <input className="input" name="paymentMethod" value={draft.paymentMethod} onChange={(event) => {
-            markFieldChanged("paymentMethod");
-            setDraft((current) => ({ ...current, paymentMethod: event.target.value }));
-        }} placeholder="Tunai, QRIS, debit"/>
-          </Field>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
-            <Field label={language === "en" ? "Who can view this transaction" : "Siapa yang dapat melihat transaksi ini"}>
-              <select className="input" value={visibility} onChange={(event) => setVisibility(event.target.value as TransactionDetail["visibility"])}>
-                <option value="private">{language === "en" ? "Private Ã¯Â¿Â½ only you" : "Privat Ã¯Â¿Â½ hanya Anda"}</option>
-                <option value="selected_friends">{language === "en" ? "Selected friends" : "Teman pilihan"}</option>
-                <option value="everyone_involved">{language === "en" ? "Everyone involved" : "Semua pihak terlibat"}</option>
-              </select>
-            </Field>
-            {visibility === "selected_friends" && (<div className="mt-2 grid grid-cols-2 gap-2">
-                {socialFriends.length === 0 && <p className="col-span-2 text-xs text-slate-500">Tambahkan teman dulu untuk membagikan transaksi.</p>}
-                {socialFriends.map((friend) => (<label key={friend.userId} className="flex items-center gap-2 rounded-xl bg-white p-2 text-xs">
-                    <input type="checkbox" checked={viewerIds.includes(friend.userId)} onChange={() => setViewerIds((current) => current.includes(friend.userId)
-                    ? current.filter((id) => id !== friend.userId)
-                    : [...current, friend.userId])}/>
-                    <span className="truncate">{friend.fullName}</span>
-                  </label>))}
-              </div>)}
-            <p className="mt-2 text-[11px] text-slate-500">
-              {language === "en"
-            ? "Account balances, budgets, and other transactions remain private."
-            : "Saldo pocket, rekening, budget, dan transaksi lainnya tetap privat."}
-            </p>
-          </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -713,23 +683,6 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
     const [attachmentOriginalUrl, setAttachmentOriginalUrl] = useState<string | null>(null);
     const [attachmentPreviewLoading, setAttachmentPreviewLoading] = useState(Boolean(transaction.receiptId));
     const [attachmentContentType, setAttachmentContentType] = useState("");
-    const [comments, setComments] = useState<Array<{
-        id: string;
-        authorName: string;
-        message: string;
-        createdAt: string;
-    }>>([]);
-    const [commentError, setCommentError] = useState<string | null>(null);
-    const loadComments = () => request<typeof comments>(`/social/comments/transaction/${transaction.id}`)
-        .then(setComments)
-        .catch(() => setComments([]));
-    useEffect(() => {
-        if (transaction.canManage === false) {
-            setComments([]);
-            return;
-        }
-        loadComments();
-    }, [transaction.id, transaction.canManage]);
     useEffect(() => {
         if (!transaction.receiptId) {
             setAttachmentPreviewUrl(null);
@@ -800,12 +753,11 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
         ["Metode", transaction.paymentMethod ?? "-"],
         ["Kategori", transaction.categoryName ?? "Tanpa kategori"],
         ["Sumber", transaction.sourceType ?? "Manual"],
-        ["Visibilitas", transaction.visibility === "selected_friends" ? "Teman pilihan" : transaction.visibility === "everyone_involved" ? "Semua yang terlibat" : "Private"],
         ...(transaction.receiptId ? [["Attachment", "File tersimpan"]] : [])
     ];
     return (<section className="mx-auto max-w-3xl space-y-3">
-      <button type="button" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50" onClick={onBack}>
-        <ArrowLeft size={15}/> Kembali
+      <button type="button" className="app-back-button" onClick={onBack}>
+        <ArrowLeft size={14}/> Kembali
       </button>
 
       <div className="overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
@@ -863,38 +815,6 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
                 Attachment tidak dapat dimuat.
               </p>)}
           </div>)}
-
-        {transaction.canManage !== false && (<div className="border-t border-slate-100 px-5 py-4">
-          <p className="text-[11px] font-semibold uppercase text-slate-400">Diskusi transaksi</p>
-          <div className="mt-3 space-y-2">
-            {comments.length === 0 && <p className="text-xs text-slate-500">Belum ada komentar.</p>}
-            {comments.map((comment) => (<div key={comment.id} className="rounded-2xl bg-slate-50 p-3">
-                <p className="text-xs font-semibold text-slate-900">{comment.authorName}</p>
-                <p className="mt-1 text-sm text-slate-700">{comment.message}</p>
-              </div>))}
-          </div>
-          <form className="mt-3 flex gap-2" onSubmit={async (event) => {
-                event.preventDefault();
-                const formElement = event.currentTarget;
-                const message = String(new FormData(formElement).get("message"));
-                try {
-                    await request(`/social/comments/transaction/${transaction.id}`, {
-                        method: "POST",
-                        body: JSON.stringify({ message })
-                    });
-                    formElement.reset();
-                    setCommentError(null);
-                    await loadComments();
-                }
-                catch (error) {
-                    setCommentError(error instanceof Error ? error.message : "Komentar gagal dikirim");
-                }
-            }}>
-            <input className="input min-w-0 flex-1" name="message" placeholder="Tulis komentar" required/>
-            <button className="btn-secondary shrink-0" aria-label="Kirim komentar"><MessageCircle size={15}/></button>
-          </form>
-          {commentError && <p className="mt-2 text-xs text-rose-600">{commentError}</p>}
-        </div>)}
 
         {transaction.canManage !== false && (<div className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 p-5">
             <button type="button" className="btn-primary" onClick={onEdit}>
@@ -1525,7 +1445,16 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
 }
 
 export function moneyValue(value: string | number | null | undefined) {
-    return Number(value ?? 0);
+    if (typeof value === "number")
+        return Number.isFinite(value) ? value : 0;
+    const normalized = String(value ?? "").trim();
+    if (!normalized)
+        return 0;
+    if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(normalized)) {
+        return Number(normalized.replace(/\./g, "").replace(",", "."));
+    }
+    const parsed = Number(normalized.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function accountTypeLabel(type: string) {
@@ -1611,7 +1540,16 @@ export const pocketEMoneyOptions = [
 ];
 
 export const pocketCardColors = ["#16A34A", "#0F766E", "#111827", "#2563EB", "#7C3AED", "#E11D48"];
-export const pocketStickerOptions = ["😎", "💳", "💸", "🏦", "🪙", "🛍️", "☕", "🚕", "🎯", "📈", "🌟", "🎉"];
+export const pocketStickerOptions = [
+    "\u{1F60E}", "\u{1F4B3}", "\u{1F4B8}", "\u{1F3E6}", "\u{1FA99}", "\u{1F6CD}\u{FE0F}",
+    "\u{2615}", "\u{1F695}", "\u{1F3AF}", "\u{1F4C8}", "\u{1F31F}", "\u{1F389}",
+    "\u{1F4B0}", "\u{1F45B}", "\u{1F4B5}", "\u{1F9FE}", "\u{1F4CA}", "\u{1F4C9}",
+    "\u{1F3E0}", "\u{1F697}", "\u{2708}\u{FE0F}", "\u{1F6B2}", "\u{1F6F5}", "\u{1F3D6}\u{FE0F}",
+    "\u{1F6D2}", "\u{1F381}", "\u{1F37D}\u{FE0F}", "\u{1F35C}", "\u{1F37F}", "\u{1F3AE}",
+    "\u{1F4F1}", "\u{1F4BB}", "\u{1F4DA}", "\u{1F393}", "\u{1F3CB}\u{FE0F}", "\u{1F48A}",
+    "\u{1F436}", "\u{1F431}", "\u{1F331}", "\u{1F33B}", "\u{1F525}", "\u{26A1}",
+    "\u{2764}\u{FE0F}", "\u{1F48E}", "\u{1F680}", "\u{1F3C6}", "\u{2705}", "\u{1F512}"
+];
 
 export const pocketVisualStorageKey = "finance-ai-pocket-visuals";
 
@@ -1672,12 +1610,14 @@ export function SectionHeader({ title, caption, action }: {
     caption?: string;
     action?: JSX.Element;
 }) {
-    return (<div className="mb-3 flex items-start justify-between gap-3">
+    const isBackAction = Boolean(action?.props?.className?.includes("app-back-button"));
+    return (<div className={`mb-3 flex gap-3 ${isBackAction ? "flex-col items-start" : "items-start justify-between"}`}>
+      {isBackAction && action}
       <div className="min-w-0">
         <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
         {caption && <p className="mt-0.5 text-xs font-semibold text-slate-500">{caption}</p>}
       </div>
-      {action}
+      {!isBackAction && action}
     </div>);
 }
 
@@ -1746,11 +1686,11 @@ export function ManageView({ accounts, categories, language, request, onNavigate
         const ActiveIcon = activeItem.icon;
         return (<section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
         <div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
-          <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95" onClick={() => {
+          <button type="button" className="app-back-button" onClick={() => {
                 setActiveTab(null);
                 setQuickCreate(null);
             }}>
-            <ArrowLeft size={16}/> {isEnglish ? "Back to Settings" : "Kembali ke Atur"}
+            <ArrowLeft size={14}/> Kembali
           </button>
           <div className="flex min-w-0 items-center gap-2">
             <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${activeItem.tone}`}>
@@ -1929,7 +1869,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
       </section>)}
 
       {scheduleView === "form" && (<form key={editingSchedule?.id ?? "new-schedule"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
-        <SectionHeader title={editingSchedule ? "Edit jadwal" : "Tambah jadwal"} caption={editingSchedule ? "Sesuaikan pengingat dan detail transaksi terjadwal." : "Contoh: bayar SPP tiap tanggal 1 atau top up GoPay."} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+        <SectionHeader title={editingSchedule ? "Edit jadwal" : "Tambah jadwal"} caption={editingSchedule ? "Sesuaikan pengingat dan detail transaksi terjadwal." : "Contoh: bayar SPP tiap tanggal 1 atau top up GoPay."} action={(<button type="button" className="app-back-button" onClick={() => {
                     setEditingSchedule(null);
                     setError(null);
                     setScheduleView("list");
@@ -1987,13 +1927,15 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
     </div>);
 }
 
-export function AccountsView({ accounts, request, onChanged, onAddTransaction, onOpenTransactions, initialView = "list", resetKey = 0, language = "id" }: {
+export function AccountsView({ accounts, request, onChanged, onAddTransaction, onOpenTransactions, onChildFrameStateChange, initialView = "list", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
     accounts: Account[];
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
     onChanged: () => Promise<void>;
     onAddTransaction?: (accountId: string) => void;
     onOpenTransactions: (accountId: string, fromDate?: string) => void;
-    initialView?: "list" | "account-form" | "transfer-form";
+    onChildFrameStateChange?: (state: ChildFrameState) => void;
+    initialView?: "list" | "account-form" | "transfer-form" | "pocket-detail";
+    initialSelectedPocketId?: string;
     resetKey?: number;
     language?: AppLanguage;
 }) {
@@ -2003,10 +1945,18 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const [pocketTab, setPocketTab] = useState<"mine" | "shared">("mine");
     const [pocketSearch, setPocketSearch] = useState("");
     const [pocketOrder, setPocketOrder] = useState<string[]>([]);
+    const pocketOrderRef = useRef<string[]>([]);
     const draggedPocketIdRef = useRef<string | null>(null);
-    const [selectedPocketId, setSelectedPocketId] = useState("");
+    const dragTargetPocketIdRef = useRef<string | null>(null);
+    const suppressPocketClickRef = useRef(false);
+    const [selectedPocketId, setSelectedPocketId] = useState(initialSelectedPocketId);
     const [pocketTransactionSearch, setPocketTransactionSearch] = useState("");
     const [pocketTransactionType, setPocketTransactionType] = useState<"all" | "income" | "expense">("all");
+    const [showPocketTransactionFilter, setShowPocketTransactionFilter] = useState(false);
+    const [pocketTransactionDatePreset, setPocketTransactionDatePreset] = useState<"all" | "today" | "last7" | "month" | "custom">("all");
+    const [pocketTransactionCustomStart, setPocketTransactionCustomStart] = useState("");
+    const [pocketTransactionCustomEnd, setPocketTransactionCustomEnd] = useState("");
+    const [pocketTransactionSort, setPocketTransactionSort] = useState<"newest" | "oldest" | "amount-desc" | "amount-asc">("newest");
     const [pocketTransactionRows, setPocketTransactionRows] = useState<Transaction[]>([]);
     const [pocketTransactionLoading, setPocketTransactionLoading] = useState(false);
     const [targetBalanceDraft, setTargetBalanceDraft] = useState("");
@@ -2018,9 +1968,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         email: string | null;
         avatarUrl: string | null;
         phone: string | null;
-        relationshipStatus: string;
     }>>([]);
     const [inviteSearchLoading, setInviteSearchLoading] = useState(false);
+    const [inviteSearchedQuery, setInviteSearchedQuery] = useState("");
     const [inviteSelectedUser, setInviteSelectedUser] = useState<{
         id: string;
         fullName: string;
@@ -2031,6 +1981,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const [invitePermission, setInvitePermission] = useState<"member" | "viewer">("member");
     const [inviteSending, setInviteSending] = useState(false);
     const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+    const inviteRequestRef = useRef(request);
     const [pocketCollaborators, setPocketCollaborators] = useState<Array<{
         user_id: string;
         role: string;
@@ -2040,6 +1991,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         username: string;
         avatar_url: string | null;
     }>>([]);
+    useEffect(() => {
+        inviteRequestRef.current = request;
+    }, [request]);
     const [pocketMemberPreviewMap, setPocketMemberPreviewMap] = useState<Record<string, Array<{
         userId: string;
         fullName: string;
@@ -2066,6 +2020,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const [transferMode, setTransferMode] = useState<"general" | "out" | "in">("general");
     const [sourceAccountId, setSourceAccountId] = useState("");
     const [destinationAccountId, setDestinationAccountId] = useState("");
+    const [transferPocketPicker, setTransferPocketPicker] = useState<"source" | "destination" | null>(null);
     const [transferAttachmentId, setTransferAttachmentId] = useState<string | null>(null);
     const [transferAttachmentName, setTransferAttachmentName] = useState("");
     const [transferAttachmentLoading, setTransferAttachmentLoading] = useState(false);
@@ -2085,6 +2040,10 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const transferableAccounts = useMemo(() => accounts.filter((account) => !account.isSharedWalletAccount && account.canEdit !== false), [accounts]);
     const sourceAccount = accounts.find((account) => account.id === sourceAccountId);
     const destinationAccount = accounts.find((account) => account.id === destinationAccountId);
+    const transferAmount = moneyValue(transferDraft.amount);
+    const transferFee = moneyValue(transferDraft.feeAmount);
+    const sourceBalanceAfter = sourceAccount ? moneyValue(sourceAccount.currentBalance) - transferAmount - transferFee : 0;
+    const destinationBalanceAfter = destinationAccount ? moneyValue(destinationAccount.currentBalance) + transferAmount : 0;
     const transferFormCopy = useMemo(() => {
         if (transferMode === "out") {
             return {
@@ -2138,9 +2097,26 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const selectedPocket = accounts.find((account) => account.id === selectedPocketId) ?? null;
     const filteredPocketTransactions = useMemo(() => {
         const query = pocketTransactionSearch.trim().toLowerCase();
-        return pocketTransactionRows.filter((transaction) => {
+        const today = isoDateInput();
+        const last7StartDate = new Date(`${today}T12:00:00`);
+        last7StartDate.setDate(last7StartDate.getDate() - 6);
+        const last7Start = isoDateInput(last7StartDate);
+        const filtered = pocketTransactionRows.filter((transaction) => {
             if (pocketTransactionType !== "all" && transaction.transactionType !== pocketTransactionType) {
                 return false;
+            }
+            const transactionDate = transaction.transactionDate.slice(0, 10);
+            if (pocketTransactionDatePreset === "today" && transactionDate !== today)
+                return false;
+            if (pocketTransactionDatePreset === "last7" && (transactionDate < last7Start || transactionDate > today))
+                return false;
+            if (pocketTransactionDatePreset === "month" && !transactionDate.startsWith(today.slice(0, 7)))
+                return false;
+            if (pocketTransactionDatePreset === "custom") {
+                if (pocketTransactionCustomStart && transactionDate < pocketTransactionCustomStart)
+                    return false;
+                if (pocketTransactionCustomEnd && transactionDate > pocketTransactionCustomEnd)
+                    return false;
             }
             if (!query) {
                 return true;
@@ -2153,8 +2129,17 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 transaction.accountName
             ].filter(Boolean).join(" ").toLowerCase().includes(query);
         });
-    }, [pocketTransactionRows, pocketTransactionSearch, pocketTransactionType]);
-    const recentPocketTransactions = useMemo(() => filteredPocketTransactions.slice(0, 5), [filteredPocketTransactions]);
+        return [...filtered].sort((a, b) => {
+            if (pocketTransactionSort === "amount-desc")
+                return moneyValue(b.amount) - moneyValue(a.amount);
+            if (pocketTransactionSort === "amount-asc")
+                return moneyValue(a.amount) - moneyValue(b.amount);
+            const dateComparison = new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime();
+            return pocketTransactionSort === "oldest" ? dateComparison : -dateComparison;
+        });
+    }, [pocketTransactionCustomEnd, pocketTransactionCustomStart, pocketTransactionDatePreset, pocketTransactionRows, pocketTransactionSearch, pocketTransactionSort, pocketTransactionType]);
+    const recentPocketTransactions = useMemo(() => filteredPocketTransactions.slice(0, 20), [filteredPocketTransactions]);
+    const pocketTransactionFilterCount = (pocketTransactionDatePreset !== "all" ? 1 : 0) + (pocketTransactionSort !== "newest" ? 1 : 0);
     const pocketMembers = useMemo(() => {
         if (!selectedPocket)
             return [];
@@ -2265,17 +2250,39 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         });
     }, [accounts, pocketMemberPreviewMap, request]);
     useEffect(() => {
+        if (initialSelectedPocketId)
+            setSelectedPocketId(initialSelectedPocketId);
         setAccountView(initialView);
         if (initialView !== "transfer-form") {
             setTransferMode("general");
         }
-    }, [initialView, resetKey]);
+    }, [initialSelectedPocketId, initialView, resetKey]);
+    useEffect(() => {
+        if (!onChildFrameStateChange)
+            return;
+        const returnFromChild = () => {
+            setError(null);
+            setTransferPocketPicker(null);
+            if (accountView === "transfer-form" && transferMode !== "general" && selectedPocketId) {
+                setAccountView("pocket-detail");
+                return;
+            }
+            setAccountView("list");
+        };
+        onChildFrameStateChange({
+            active: accountView !== "list",
+            onBack: accountView !== "list" ? returnFromChild : null,
+            onRefresh: null
+        });
+        return () => onChildFrameStateChange({ active: false, onBack: null, onRefresh: null });
+    }, [accountView, onChildFrameStateChange, selectedPocketId, transferMode]);
     useEffect(() => {
         setPocketOrder((current) => {
-            const known = new Set(accounts.map((account) => account.id));
-            const kept = current.filter((id) => known.has(id));
-            const missing = accounts.map((account) => account.id).filter((id) => !kept.includes(id));
-            return [...kept, ...missing];
+            const next = [...accounts]
+                .sort((a, b) => (a.displayOrder ?? Number.MAX_SAFE_INTEGER) - (b.displayOrder ?? Number.MAX_SAFE_INTEGER))
+                .map((account) => account.id);
+            pocketOrderRef.current = next;
+            return next.every((id, index) => current[index] === id) && current.length === next.length ? current : next;
         });
     }, [accounts]);
     useEffect(() => {
@@ -2336,6 +2343,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             setInvitePermission("member");
             setInviteSuccess(null);
             setInviteSearchLoading(false);
+            setInviteSearchedQuery("");
             return;
         }
         const query = inviteQuery.trim();
@@ -2343,30 +2351,24 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             setInviteSearchResults([]);
             setInviteSelectedUser(null);
             setInviteSearchLoading(false);
+            setInviteSearchedQuery("");
             return;
         }
         let active = true;
         const timer = window.setTimeout(async () => {
             setInviteSearchLoading(true);
             try {
-                const results = await request<Array<{
+                const results = await inviteRequestRef.current<Array<{
                     id: string;
                     fullName: string;
                     username: string;
                     email: string | null;
                     avatarUrl: string | null;
                     phone: string | null;
-                    relationshipStatus: string;
-                }>>(`/social/people/search?q=${encodeURIComponent(query)}&exact=1`);
+                }>>(`/social/people/search?q=${encodeURIComponent(query)}&exact=1&purpose=pocket_invite`);
                 if (!active)
                     return;
-                const normalizedQuery = query.toLowerCase();
-                const filtered = results.filter((person) => {
-                    const username = person.username.toLowerCase();
-                    const email = (person.email ?? "").toLowerCase();
-                    const phone = (person.phone ?? "").trim();
-                    return username === normalizedQuery || email === normalizedQuery || phone === query;
-                }).slice(0, 1);
+                const filtered = results.slice(0, 1);
                 setInviteSearchResults(filtered);
                 if (!filtered.some((person) => person.id === inviteSelectedUser?.id)) {
                     setInviteSelectedUser(null);
@@ -2379,15 +2381,17 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 setInviteSelectedUser(null);
             }
             finally {
-                if (active)
+                if (active) {
                     setInviteSearchLoading(false);
+                    setInviteSearchedQuery(query);
+                }
             }
         }, 260);
         return () => {
             active = false;
             window.clearTimeout(timer);
         };
-    }, [inviteQuery, inviteSelectedUser?.id, request, showPocketInviteModal]);
+    }, [inviteQuery, inviteSelectedUser?.id, showPocketInviteModal]);
     const submitPocketInvite = async () => {
         if (!selectedPocketId || !inviteSelectedUser)
             return;
@@ -2444,8 +2448,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 email: string | null;
                 avatarUrl: string | null;
                 phone: string | null;
-                relationshipStatus: string;
-            }>>(`/social/people/search?q=${encodeURIComponent(value)}&exact=1`);
+            }>>(`/social/people/search?q=${encodeURIComponent(value)}&exact=1&purpose=pocket_invite`);
             const match = results[0] ?? null;
             setInviteSearchResults(match ? [match] : []);
             setInviteSelectedUser(match ? {
@@ -2499,8 +2502,56 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 return current;
             const [moved] = next.splice(fromIndex, 1);
             next.splice(toIndex, 0, moved);
+            pocketOrderRef.current = next;
             return next;
         });
+    };
+    const savePocketOrder = () => {
+        const ownedIds = new Set(myPockets.map((account) => account.id));
+        const accountIds = pocketOrderRef.current.filter((id) => ownedIds.has(id));
+        if (!accountIds.length)
+            return;
+        request("/accounts/order", {
+            method: "PUT",
+            body: JSON.stringify({ accountIds })
+        }).catch(() => onChanged());
+    };
+    const startPocketPointerDrag = (event: React.PointerEvent<HTMLElement>, pocketId: string) => {
+        if (pocketTab !== "mine")
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        draggedPocketIdRef.current = pocketId;
+        dragTargetPocketIdRef.current = pocketId;
+        suppressPocketClickRef.current = true;
+    };
+    const updatePocketPointerDrag = (event: React.PointerEvent<HTMLElement>) => {
+        const draggedId = draggedPocketIdRef.current;
+        if (!draggedId)
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-pocket-id]");
+        const targetId = target?.dataset.pocketId;
+        if (!targetId || targetId === dragTargetPocketIdRef.current)
+            return;
+        movePocket(draggedId, targetId);
+        dragTargetPocketIdRef.current = targetId;
+    };
+    const finishPocketPointerDrag = (event: React.PointerEvent<HTMLElement>) => {
+        if (!draggedPocketIdRef.current)
+            return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        draggedPocketIdRef.current = null;
+        dragTargetPocketIdRef.current = null;
+        savePocketOrder();
+        window.setTimeout(() => {
+            suppressPocketClickRef.current = false;
+        }, 0);
     };
     useEffect(() => {
         if (!transferableAccounts.length) {
@@ -2595,17 +2646,49 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             setError(null);
         }
     };
-    const handlePocketImage = (event: ChangeEvent<HTMLInputElement>) => {
+    const handlePocketImage = async (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file)
             return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result === "string")
-                setPocketLogoDraft(reader.result);
-        };
-        reader.readAsDataURL(file);
         event.target.value = "";
+        setError(null);
+        if (!file.type.startsWith("image/")) {
+            setError("File logo harus berupa gambar.");
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            setError("Ukuran gambar maksimal 10 MB.");
+            return;
+        }
+        try {
+            const source = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => typeof reader.result === "string"
+                    ? resolve(reader.result)
+                    : reject(new Error("Gambar tidak dapat dibaca."));
+                reader.onerror = () => reject(reader.error ?? new Error("Gambar tidak dapat dibaca."));
+                reader.readAsDataURL(file);
+            });
+            const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const nextImage = new Image();
+                nextImage.onload = () => resolve(nextImage);
+                nextImage.onerror = () => reject(new Error("Format gambar tidak didukung."));
+                nextImage.src = source;
+            });
+            const scale = Math.min(1, 512 / Math.max(image.naturalWidth, image.naturalHeight));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+            const context = canvas.getContext("2d");
+            if (!context)
+                throw new Error("Gambar tidak dapat diproses.");
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            setPocketLogoDraft(canvas.toDataURL("image/webp", 0.82));
+            setShowPocketLogoMenu(false);
+        }
+        catch (error) {
+            setError(error instanceof Error ? error.message : "Gambar gagal dipilih.");
+        }
     };
     const resetAccount = async (form: HTMLFormElement) => {
         if (!editingAccount)
@@ -2658,7 +2741,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             setTransferText("");
             setTransferDraft({ amount: "", feeAmount: "", transferDate: isoDateInput(), notes: "" });
             await onChanged();
-            setAccountView("list");
+            setAccountView(transferMode !== "general" && selectedPocketId ? "pocket-detail" : "list");
         }
         catch {
             setError(null);
@@ -2793,15 +2876,21 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     const accountVisual = account.logo ? { logo: account.logo, background: account.background } : visuals[account.id];
                     const cardBackground = accountVisual?.background || "#16A34A";
                     const cardLogo = accountVisual?.logo || getDefaultPocketLogo(account.accountType);
-                    return (<button key={account.id} type="button" draggable={pocketTab === "mine"} onDragStart={() => { draggedPocketIdRef.current = account.id; }} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+                    return (<button key={account.id} data-pocket-id={account.id} type="button" draggable={pocketTab === "mine"} onDragStart={() => { draggedPocketIdRef.current = account.id; }} onDragEnd={() => { draggedPocketIdRef.current = null; savePocketOrder(); }} onDragOver={(event) => event.preventDefault()} onDrop={() => {
                             movePocket(draggedPocketIdRef.current ?? "", account.id);
                             draggedPocketIdRef.current = null;
                         }} className="ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white shadow-lg transition active:scale-[0.99] lg:rounded-lg" style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }} onClick={() => {
+                            if (suppressPocketClickRef.current)
+                                return;
                             setSelectedPocketId(account.id);
                             setTargetBalanceDraft("");
                             setInviteQuery("");
                             setPocketTransactionSearch("");
                             setPocketTransactionType("all");
+                            setPocketTransactionDatePreset("all");
+                            setPocketTransactionCustomStart("");
+                            setPocketTransactionCustomEnd("");
+                            setPocketTransactionSort("newest");
                             setAccountView("pocket-detail");
                         }}>
                     <div className="absolute right-[-28px] top-[-28px] h-24 w-24 rounded-full bg-white/15"/>
@@ -2811,7 +2900,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                           {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="text-lg">{cardLogo}</span>)}
                         </span>
                         <div className="flex flex-col items-end gap-1">
-                          <span className="rounded-full bg-white/14 px-2 py-1 text-[9px] font-semibold text-white/75 backdrop-blur">
+                          <span className={`rounded-full bg-white/14 px-2 py-1 text-[9px] font-semibold text-white/75 backdrop-blur ${pocketTab === "mine" ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`} onPointerDown={(event) => startPocketPointerDrag(event, account.id)} onPointerMove={updatePocketPointerDrag} onPointerUp={finishPocketPointerDrag} onPointerCancel={finishPocketPointerDrag}>
                             {pocketTab === "mine" ? "Drag" : "Shared"}
                           </span>
                           {hasMultipleMembers && (<button type="button" className="inline-flex items-center rounded-full bg-white/12 px-1.5 py-1 backdrop-blur transition hover:bg-white/18 active:scale-[0.98]" onClick={(event) => {
@@ -2845,8 +2934,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
           <div className="relative overflow-hidden rounded-[26px] p-4 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${selectedPocket.background || loadPocketVisuals()[selectedPocket.id]?.background || "#16A34A"}, #064E3B)` }}>
             <div className="absolute right-[-38px] top-[-38px] h-32 w-32 rounded-full bg-white/15"/>
             <div className="relative z-10 flex items-start justify-between gap-3">
-              <button type="button" className="inline-flex items-center gap-2 rounded-full bg-white/14 px-3 py-2 text-xs font-semibold text-white/90 backdrop-blur" onClick={() => setAccountView("list")}>
-                <ArrowLeft size={15}/> Back to Pocket
+              <button type="button" className="app-back-button app-back-button-on-dark" onClick={() => setAccountView("list")}>
+                <ArrowLeft size={14}/> Kembali
               </button>
               <div className="flex items-center gap-2">
                 {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white/90 backdrop-blur" onClick={() => {
@@ -2957,9 +3046,14 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
           </div>
 
           <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-            <SectionHeader title="Transaction history" caption="Search and filter transactions in this pocket." action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => loadPocketTransactions().catch(() => undefined)} disabled={pocketTransactionLoading}>
-                  {pocketTransactionLoading ? <Loader2 size={13} className="animate-spin"/> : <ArrowLeftRight size={13}/>} Refresh
-                </button>)}/>
+            <SectionHeader title="Transaction history" caption="Search and filter transactions in this pocket." action={(<div className="flex items-center gap-2">
+                  <button type="button" className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold ${pocketTransactionFilterCount > 0 ? "bg-emerald-50 text-[#16A34A]" : "text-slate-500 hover:bg-slate-50"}`} onClick={() => setShowPocketTransactionFilter(true)}>
+                    <ListFilter size={13}/> Filter{pocketTransactionFilterCount > 0 ? ` (${pocketTransactionFilterCount})` : ""}
+                  </button>
+                  <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => loadPocketTransactions().catch(() => undefined)} disabled={pocketTransactionLoading}>
+                    {pocketTransactionLoading ? <Loader2 size={13} className="animate-spin"/> : <ArrowLeftRight size={13}/>} Refresh
+                  </button>
+                </div>)}/>
             <div className="grid gap-2">
               <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
                 <Search size={16} className="text-slate-400"/>
@@ -3002,11 +3096,74 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     No transactions found for this pocket.
                   </div>)}
               </div>
-              <button type="button" className="btn-secondary w-full" onClick={() => onOpenTransactions(selectedPocket.id)}>
-                <ReceiptText size={16}/> View all transaction history
-              </button>
             </div>
           </div>
+          {showPocketTransactionFilter && (<>
+              <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label="Tutup filter transaksi" onClick={() => setShowPocketTransactionFilter(false)}/>
+              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-950">Filter transaksi</h2>
+                    <p className="mt-1 text-xs text-slate-500">Atur periode dan urutan transaksi.</p>
+                  </div>
+                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowPocketTransactionFilter(false)}>
+                    <X size={16}/>
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-slate-700">Periode</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {[
+                    { id: "all" as const, label: "Semua tanggal" },
+                    { id: "today" as const, label: "Today" },
+                    { id: "last7" as const, label: "Last 7 days" },
+                    { id: "month" as const, label: "This month" },
+                    { id: "custom" as const, label: "Custom tanggal" }
+                ].map((option) => (<button key={option.id} type="button" className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${pocketTransactionDatePreset === option.id ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => setPocketTransactionDatePreset(option.id)}>
+                        {option.label}
+                      </button>))}
+                  </div>
+                  {pocketTransactionDatePreset === "custom" && (<div className="mt-3 grid grid-cols-2 gap-2">
+                      <Field label="Dari tanggal">
+                        <input className="input" type="date" value={pocketTransactionCustomStart} onChange={(event) => setPocketTransactionCustomStart(event.target.value)}/>
+                      </Field>
+                      <Field label="Sampai tanggal">
+                        <input className="input" type="date" min={pocketTransactionCustomStart || undefined} value={pocketTransactionCustomEnd} onChange={(event) => setPocketTransactionCustomEnd(event.target.value)}/>
+                      </Field>
+                    </div>)}
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-slate-700">Urutkan</p>
+                  <div className="mt-2 space-y-2">
+                    {[
+                    { id: "newest" as const, label: "Transaksi terbaru" },
+                    { id: "oldest" as const, label: "Transaksi terlama" },
+                    { id: "amount-desc" as const, label: "Nominal paling besar" },
+                    { id: "amount-asc" as const, label: "Nominal paling kecil" }
+                ].map((option) => (<button key={option.id} type="button" className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition ${pocketTransactionSort === option.id ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => setPocketTransactionSort(option.id)}>
+                        {option.label}
+                        {pocketTransactionSort === option.id && <CheckCircle2 size={14}/>}
+                      </button>))}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" className="btn-secondary w-full" onClick={() => {
+                    setPocketTransactionDatePreset("all");
+                    setPocketTransactionCustomStart("");
+                    setPocketTransactionCustomEnd("");
+                    setPocketTransactionSort("newest");
+                }}>
+                    Reset
+                  </button>
+                  <button type="button" className="btn-primary w-full" onClick={() => setShowPocketTransactionFilter(false)}>
+                    Terapkan
+                  </button>
+                </div>
+              </section>
+            </>)}
 
 
           {targetBalanceDraft !== "" && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
@@ -3017,7 +3174,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
 
         </section>)}
       {accountView === "pocket-detail" && selectedPocket && showPocketInviteModal && (<>
-          <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Close invite user" onClick={() => setShowPocketInviteModal(false)}/>
+          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Close invite user" onClick={() => setShowPocketInviteModal(false)}/>
           <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -3033,6 +3190,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 <UserPlus size={16} className="text-slate-400"/>
                 <input className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-slate-400" value={inviteQuery} onChange={(event) => {
                 setInviteQuery(event.target.value);
+                setInviteSearchedQuery("");
                 setInviteSuccess(null);
             }} placeholder="Username, email, atau phone"/>
               </div>
@@ -3043,7 +3201,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 <QrCode size={15}/> Scan barcode
               </button>
               {inviteSearchLoading && <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-[#166534]">Mencari user yang cocok...</div>}
-              {!inviteSearchLoading && inviteQuery.trim().length >= 2 && inviteSearchResults.length === 0 && !inviteSelectedUser && (<div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {!inviteSearchLoading && inviteSearchedQuery === inviteQuery.trim() && inviteSearchResults.length === 0 && !inviteSelectedUser && (<div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                   Tidak ditemukan, silakan isi username/email/phone secara lengkap.
                 </div>)}
               {qrScannerError && <div className="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-600">{qrScannerError}</div>}
@@ -3110,7 +3268,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
       {accountView === "pocket-detail" && scanQrOpen && <QrScanner onScan={handlePocketInviteScan} onClose={() => setScanQrOpen(false)} request={request} selectedPocketId={selectedPocketId}/>}
 
       {accountView === "account-form" && (<form key={editingAccount?.id ?? "new-pocket"} className="flex min-h-[calc(100vh-132px)] flex-col rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
-          <SectionHeader title={editingAccount ? "Edit pocket" : "Add pocket"} caption="Atur identitas pocket, jenis penyimpanan, dan saldo awal." action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+          <SectionHeader title={editingAccount ? "Edit pocket" : "Add pocket"} caption="Atur identitas pocket, jenis penyimpanan, dan saldo awal." action={(<button type="button" className="app-back-button" onClick={() => {
                     const isEditingExistingPocket = Boolean(editingAccount);
                     setEditingAccount(null);
                     setError(null);
@@ -3119,7 +3277,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
 
-          <input ref={pocketGalleryInputRef} className="hidden" type="file" accept="image/*" onChange={handlePocketImage}/>
+          <input id="pocket-logo-upload" ref={pocketGalleryInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handlePocketImage}/>
 
           <div className="flex-1 space-y-4">
             <div className="relative overflow-hidden rounded-[24px] p-4 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${pocketBackgroundDraft}, #064E3B)` }}>
@@ -3132,20 +3290,6 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             }} aria-label="Ubah logo pocket">
                     {pocketLogoDraft.startsWith("data:") ? <img src={pocketLogoDraft} alt="" className="h-full w-full object-cover"/> : <span className="flex h-full w-full items-center justify-center text-[34px] leading-none">{pocketLogoDraft}</span>}
                   </button>
-                  {showPocketLogoMenu && (<div className="absolute left-0 top-16 z-20 w-36 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
-                      <button type="button" className="flex w-full items-center rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => {
-                setShowPocketLogoMenu(false);
-                setShowPocketStickerPicker(true);
-            }}>
-                        Sticker
-                      </button>
-                      <button type="button" className="flex w-full items-center rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => {
-                setShowPocketLogoMenu(false);
-                pocketGalleryInputRef.current?.click();
-            }}>
-                        Upload
-                      </button>
-                    </div>)}
                 </div>
                 <div className="flex flex-wrap justify-end gap-1.5">
                   {pocketCardColors.map((color) => (<button key={color} type="button" className={`h-6 w-6 rounded-full border-2 ${pocketBackgroundDraft === color ? "border-white" : "border-white/40"}`} style={{ backgroundColor: color }} onClick={() => setPocketBackgroundDraft(color)} aria-label={`Pilih warna ${color}`}/>))}
@@ -3159,9 +3303,34 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               </div>
               <p className="relative z-10 mt-4 text-[11px] font-medium text-white/70">Tap logo untuk memilih sticker atau upload gambar. Pilih warna untuk background kartu.</p>
             </div>
-            {showPocketStickerPicker && (<>
-                <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Tutup pilihan sticker" onClick={() => setShowPocketStickerPicker(false)}/>
+            {showPocketLogoMenu && (<>
+                <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Tutup menu logo pocket" onClick={() => setShowPocketLogoMenu(false)}/>
                 <div className="fixed inset-x-4 top-1/2 z-50 mx-auto w-full max-w-xs -translate-y-1/2 rounded-[24px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">Ubah logo pocket</p>
+                      <p className="mt-0.5 text-[11px] text-slate-500">Pilih sticker atau gunakan gambar sendiri.</p>
+                    </div>
+                    <button type="button" className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowPocketLogoMenu(false)}>
+                      <X size={14}/>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className="flex min-h-14 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50" onClick={() => {
+                setShowPocketLogoMenu(false);
+                setShowPocketStickerPicker(true);
+            }}>
+                      Sticker
+                    </button>
+                    <label htmlFor="pocket-logo-upload" className="flex min-h-14 cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50" onClick={() => setShowPocketLogoMenu(false)}>
+                      Upload gambar
+                    </label>
+                  </div>
+                </div>
+              </>)}
+            {showPocketStickerPicker && (<>
+                <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Tutup pilihan sticker" onClick={() => setShowPocketStickerPicker(false)}/>
+                <div className="fixed inset-x-4 top-1/2 z-50 mx-auto flex max-h-[80vh] w-full max-w-sm -translate-y-1/2 flex-col rounded-[24px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)]">
                   <div className="mb-3 flex items-center justify-between">
                     <div>
                       <p className="text-sm font-semibold text-slate-950">Pilih sticker</p>
@@ -3171,8 +3340,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                       <X size={14}/>
                     </button>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {pocketStickerOptions.map((sticker) => (<button key={sticker} type="button" className="flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[30px] transition hover:bg-emerald-50 hover:border-emerald-100" onClick={() => {
+                  <div className="grid grid-cols-4 gap-2 overflow-y-auto pr-1 sm:grid-cols-5">
+                    {pocketStickerOptions.map((sticker) => (<button key={sticker} type="button" className="flex aspect-square min-h-12 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[28px] transition hover:border-emerald-100 hover:bg-emerald-50" onClick={() => {
                 setPocketLogoDraft(sticker);
                 setShowPocketStickerPicker(false);
             }}>
@@ -3236,80 +3405,63 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         </form>)}
 
       {accountView === "transfer-form" && (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={transfer}>
-          <SectionHeader title={transferFormCopy.title} caption={transferFormCopy.caption} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+          <SectionHeader title={transferFormCopy.title} caption={transferFormCopy.caption} action={(<button type="button" className="app-back-button" onClick={() => {
                     setError(null);
-                    setTransferMode("general");
-                    setAccountView("list");
+                    setTransferPocketPicker(null);
+                    setAccountView(transferMode !== "general" && selectedPocketId ? "pocket-detail" : "list");
                 }}>
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
           <div className="mb-4 rounded-[22px] border border-slate-100 bg-[#F8FAFC] p-3 lg:rounded-md">
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <div className="rounded-2xl bg-white px-3 py-3 shadow-sm lg:rounded-md">
+              <button type="button" disabled={transferMode === "out"} onClick={() => setTransferPocketPicker("source")} className={`rounded-2xl bg-white px-3 py-3 text-left shadow-sm lg:rounded-md ${transferMode === "out" ? "cursor-default" : "transition hover:ring-2 hover:ring-emerald-100 active:scale-[0.99]"}`}>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{transferFormCopy.sourceLabel}</p>
                 <p className="mt-1 truncate text-sm font-semibold text-slate-950">{sourceAccount?.name ?? "-"}</p>
-                <p className="mt-1 text-[11px] text-slate-500">{transferFormCopy.sourceCaption}</p>
-              </div>
+                {transferMode !== "out" && <p className="mt-1 text-[11px] text-slate-500">Pilih pocket asal.</p>}
+                <p className="mt-2 text-xs font-semibold text-slate-700">{sourceAccount ? rupiah(sourceAccount.currentBalance) : "-"}</p>
+              </button>
               <span className={`flex h-10 w-10 items-center justify-center rounded-full ${transferMode === "in" ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
                 {transferMode === "in" ? <ArrowDownLeft size={18}/> : <ArrowUpRight size={18}/>}
               </span>
-              <div className="rounded-2xl bg-white px-3 py-3 shadow-sm lg:rounded-md">
+              <button type="button" disabled={transferMode === "in"} onClick={() => setTransferPocketPicker("destination")} className={`rounded-2xl bg-white px-3 py-3 text-left shadow-sm lg:rounded-md ${transferMode === "in" ? "cursor-default" : "transition hover:ring-2 hover:ring-emerald-100 active:scale-[0.99]"}`}>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{transferFormCopy.destinationLabel}</p>
                 <p className="mt-1 truncate text-sm font-semibold text-slate-950">{destinationAccount?.name ?? "-"}</p>
-                <p className="mt-1 text-[11px] text-slate-500">{transferFormCopy.destinationCaption}</p>
-              </div>
+                {transferMode !== "in" && <p className="mt-1 text-[11px] text-slate-500">Pilih pocket tujuan.</p>}
+                <p className="mt-2 text-xs font-semibold text-slate-700">{destinationAccount ? rupiah(destinationAccount.currentBalance) : "-"}</p>
+              </button>
             </div>
           </div>
           <div ref={transferFormFieldsRef} className="space-y-3 scroll-mt-24">
-            <Field label={transferFormCopy.sourceLabel}>
-              <div>
-                <select className="input" name="sourceAccountId" value={sourceAccountId} onChange={(event) => {
-                const nextSourceId = event.target.value;
-                setSourceAccountId(nextSourceId);
-                if (destinationAccountId === nextSourceId) {
-                    setDestinationAccountId(transferableAccounts.find((account) => account.id !== nextSourceId)?.id ?? "");
-                }
-            }} required disabled={transferableAccounts.length < 2}>
-                  {transferableAccounts.map((account) => <option key={account.id} value={account.id}>{accountOptionLabel(account, { balance: true })}</option>)}
-                </select>
-                {sourceAccount && (<div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
-                    <span className="inline-flex items-center gap-1">
-                      Saldo tersedia
-                      {accountSharedLabel(sourceAccount) && (<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#16A34A]">
-                          {accountSharedLabel(sourceAccount)}
-                        </span>)}
-                    </span>
-                    <span className="font-semibold text-slate-900">{rupiah(sourceAccount.currentBalance)}</span>
-                  </div>)}
-              </div>
-            </Field>
-            <Field label={transferFormCopy.destinationLabel}>
-              <div>
-                <select className="input" name="destinationAccountId" value={destinationAccountId} onChange={(event) => setDestinationAccountId(event.target.value)} required disabled={transferableAccounts.length < 2}>
-                  {transferableAccounts.filter((account) => account.id !== sourceAccountId).map((account) => (<option key={account.id} value={account.id}>{accountOptionLabel(account, { balance: true })}</option>))}
-                </select>
-                {destinationAccount && (<div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-xs text-slate-500">
-                    <span className="inline-flex items-center gap-1">
-                      Saldo saat ini
-                      {accountSharedLabel(destinationAccount) && (<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-[#16A34A]">
-                          {accountSharedLabel(destinationAccount)}
-                        </span>)}
-                    </span>
-                    <span className="font-semibold text-slate-900">{rupiah(destinationAccount.currentBalance)}</span>
-                  </div>)}
-              </div>
-            </Field>
+            <input type="hidden" name="sourceAccountId" value={sourceAccountId}/>
+            <input type="hidden" name="destinationAccountId" value={destinationAccountId}/>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Nominal">
-                <input className="input" name="amount" inputMode="numeric" placeholder="100000" value={transferDraft.amount} onChange={(event) => setTransferDraft((current) => ({ ...current, amount: formatRupiahInput(event.target.value) }))} required/>
+                <input className="input h-11" name="amount" inputMode="numeric" placeholder="100000" value={transferDraft.amount} onChange={(event) => setTransferDraft((current) => ({ ...current, amount: formatRupiahInput(event.target.value) }))} required/>
               </Field>
               <Field label="Tanggal">
-                <input className="input" name="transferDate" type="date" value={transferDraft.transferDate} onChange={(event) => setTransferDraft((current) => ({ ...current, transferDate: event.target.value }))} required/>
+                <input className="input h-11" name="transferDate" type="date" value={transferDraft.transferDate} onChange={(event) => setTransferDraft((current) => ({ ...current, transferDate: event.target.value }))} required/>
               </Field>
             </div>
             <Field label="Fee/admin">
-              <input className="input" name="feeAmount" inputMode="numeric" placeholder="Opsional, contoh: 2500" value={transferDraft.feeAmount} onChange={(event) => setTransferDraft((current) => ({ ...current, feeAmount: formatRupiahInput(event.target.value) }))}/>
+              <input className="input h-11" name="feeAmount" inputMode="numeric" placeholder="Opsional, contoh: 2500" value={transferDraft.feeAmount} onChange={(event) => setTransferDraft((current) => ({ ...current, feeAmount: formatRupiahInput(event.target.value) }))}/>
             </Field>
+            {sourceAccount && destinationAccount && transferAmount > 0 && (<div className="rounded-[22px] border border-emerald-100 bg-emerald-50/70 p-3 lg:rounded-md">
+                <p className="text-xs font-semibold text-emerald-900">Simulasi saldo setelah transfer</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-white p-3 lg:rounded-md">
+                    <p className="truncate text-[11px] font-semibold text-slate-500">{sourceAccount.name}</p>
+                    <p className="mt-1 text-xs text-slate-400">{rupiah(sourceAccount.currentBalance)}</p>
+                    <p className={`mt-1 text-sm font-bold ${sourceBalanceAfter < 0 ? "text-rose-600" : "text-slate-950"}`}>{rupiah(sourceBalanceAfter)}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">Setelah nominal + biaya admin</p>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 lg:rounded-md">
+                    <p className="truncate text-[11px] font-semibold text-slate-500">{destinationAccount.name}</p>
+                    <p className="mt-1 text-xs text-slate-400">{rupiah(destinationAccount.currentBalance)}</p>
+                    <p className="mt-1 text-sm font-bold text-[#16A34A]">{rupiah(destinationBalanceAfter)}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">Setelah menerima transfer</p>
+                  </div>
+                </div>
+              </div>)}
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:rounded-md">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -3330,12 +3482,56 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                   {transferAttachmentMessage}
                 </p>)}
             </div>
-            <input className="input" name="notes" placeholder="Catatan transfer (opsional)" value={transferDraft.notes} onChange={(event) => setTransferDraft((current) => ({ ...current, notes: event.target.value }))}/>
+            <input className="input h-11" name="notes" placeholder="Catatan transfer (opsional)" value={transferDraft.notes} onChange={(event) => setTransferDraft((current) => ({ ...current, notes: event.target.value }))}/>
             <button className="btn-primary w-full" disabled={transferableAccounts.length < 2 || transferAttachmentLoading || transferParseLoading}>
               <ArrowLeftRight size={16}/> {transferFormCopy.submitLabel}
             </button>
           </div>
         </form>)}
+      {accountView === "transfer-form" && transferPocketPicker && (<>
+          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label="Tutup pilihan pocket" onClick={() => setTransferPocketPicker(null)}/>
+          <div className="fixed inset-x-4 top-1/2 z-50 mx-auto flex max-h-[82vh] w-full max-w-md -translate-y-1/2 flex-col rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)]">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-slate-950">{transferPocketPicker === "source" ? "Pilih pocket asal" : "Pilih pocket tujuan"}</p>
+                <p className="mt-0.5 text-xs text-slate-500">Saldo saat ini ditampilkan pada setiap pocket.</p>
+              </div>
+              <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setTransferPocketPicker(null)}>
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="space-y-2 overflow-y-auto pr-1">
+              {transferableAccounts
+                .filter((account) => transferPocketPicker === "source" ? account.id !== destinationAccountId : account.id !== sourceAccountId)
+                .map((account) => {
+                const visual = account.logo
+                    ? { logo: account.logo, background: account.background }
+                    : loadPocketVisuals()[account.id];
+                const logo = visual?.logo || getDefaultPocketLogo(account.accountType);
+                const selected = transferPocketPicker === "source" ? account.id === sourceAccountId : account.id === destinationAccountId;
+                return (<button key={account.id} type="button" className={`flex w-full items-center gap-3 rounded-[20px] border p-3 text-left transition active:scale-[0.99] ${selected ? "border-emerald-300 bg-emerald-50" : "border-slate-100 bg-white hover:bg-slate-50"}`} onClick={() => {
+                    if (transferPocketPicker === "source")
+                        setSourceAccountId(account.id);
+                    else
+                        setDestinationAccountId(account.id);
+                    setTransferPocketPicker(null);
+                }}>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl text-2xl text-white shadow-sm" style={{ background: `linear-gradient(135deg, ${visual?.background || "#16A34A"}, #064E3B)` }}>
+                      {logo.startsWith("data:") ? <img src={logo} alt="" className="h-full w-full object-cover"/> : <span>{logo}</span>}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-950">{account.name}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-slate-500">{[accountTypeLabel(account.accountType), account.providerName].filter(Boolean).join(" · ")}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[10px] font-medium text-slate-400">Saldo saat ini</span>
+                      <span className="mt-0.5 block text-xs font-bold text-slate-900">{rupiah(account.currentBalance)}</span>
+                    </span>
+                  </button>);
+            })}
+            </div>
+          </div>
+        </>)}
       {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
     </div>);
 }
@@ -3428,7 +3624,7 @@ export function CategoriesView({ categories, request, onChanged, initialView = "
       </section>)}
 
       {categoryView === "form" && (<form key={editingCategory?.id ?? "new-category"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
-        <SectionHeader title={editingCategory ? "Edit kategori" : "Kategori baru"} caption={editingCategory ? "Ubah nama atau tipe kategori transaksi." : "Buat kategori yang mudah dipilih oleh AI dan form manual."} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+        <SectionHeader title={editingCategory ? "Edit kategori" : "Kategori baru"} caption={editingCategory ? "Ubah nama atau tipe kategori transaksi." : "Buat kategori yang mudah dipilih oleh AI dan form manual."} action={(<button type="button" className="app-back-button" onClick={() => {
                     setEditingCategory(null);
                     setError(null);
                     setCategoryView("list");
@@ -3629,7 +3825,7 @@ export function BudgetsView({ categories, request, onChanged, initialView = "lis
       </section>)}
 
       {budgetView === "form" && (<form key={editingBudget?.id ?? "new-budget"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
-        <SectionHeader title={editingBudget ? "Edit budget" : "Atur budget"} caption={editingBudget ? "Sesuaikan kategori, periode, atau batas nominal." : "Pilih kategori pengeluaran, periode, lalu isi batas nominal."} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900" onClick={() => {
+        <SectionHeader title={editingBudget ? "Edit budget" : "Atur budget"} caption={editingBudget ? "Sesuaikan kategori, periode, atau batas nominal." : "Pilih kategori pengeluaran, periode, lalu isi batas nominal."} action={(<button type="button" className="app-back-button" onClick={() => {
                     setEditingBudget(null);
                     setError(null);
                     setBudgetView("list");
@@ -4341,7 +4537,7 @@ export function WalletMembersManageModal({ walletId, walletName, members, friend
             setRemovingMemberId(null);
         }
     };
-    return (<div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-4">
+    return (<div data-scroll-lock="true" className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-4">
       <button type="button" className="absolute inset-0 cursor-default" aria-label="Tutup" onClick={onClose}/>
 
       <section className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-[26px] bg-white p-4 shadow-xl sm:max-w-lg sm:rounded-[26px]">
@@ -5200,7 +5396,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             </div>
           </div>
         </>) : !selectedGroup && !selectedWallet && !showCreateGroup && !showCreateWallet ? (<div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
-          <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 active:scale-95" onClick={() => {
+          <button type="button" className="app-back-button" onClick={() => {
                 setTab(null);
                 setSelectedGroup(null);
                 setSelectedWallet(null);
@@ -5210,7 +5406,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 setGroupMemberIds(new Set());
                 setWalletMemberIds(new Set());
             }}>
-            <ArrowLeft size={16}/> Kembali ke Social
+            <ArrowLeft size={14}/> Kembali
           </button>
           {(() => {
                 const activeItem = tabs.find((item) => item.id === tab)!;
@@ -5401,11 +5597,11 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
       {!loading && tab === "groups" && !selectedGroup && (<div className="space-y-3">
           {!showCreateGroup && (<button className="btn-primary w-full" onClick={() => setShowCreateGroup(true)}><Plus size={16}/> Buat grup</button>)}
           {showCreateGroup && (<>
-            <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-white active:scale-95" onClick={() => {
+            <button type="button" className="app-back-button" onClick={() => {
                     setShowCreateGroup(false);
                     setGroupMemberIds(new Set());
                 }}>
-              <ArrowLeft size={16}/> Kembali ke grup
+              <ArrowLeft size={14}/> Kembali
             </button>
             <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
                     event.preventDefault();
@@ -5465,7 +5661,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
         </div>)}
 
       {!loading && tab === "groups" && selectedGroup && (<div className="space-y-3">
-          <button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" onClick={() => setSelectedGroup(null)}><ArrowLeft size={14}/> Kembali ke grup</button>
+          <button type="button" className="app-back-button" onClick={() => setSelectedGroup(null)}><ArrowLeft size={14}/> Kembali</button>
           <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
             <SectionHeader title={selectedGroup.name} caption={`${selectedGroup.members.filter((item) => item.status === "accepted").length} anggota`}/>
             <div className="flex -space-x-2">
@@ -5589,11 +5785,11 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
 
       {!loading && tab === "wallets" && !selectedWallet && (<div className="space-y-3">
           {showCreateWallet && (<>
-            <button type="button" className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-xs font-semibold text-slate-600 transition hover:bg-white active:scale-95" onClick={() => {
+            <button type="button" className="app-back-button" onClick={() => {
                     setShowCreateWallet(false);
                     setWalletMemberIds(new Set());
                 }}>
-              <ArrowLeft size={16}/> Kembali ke dompet bersama
+              <ArrowLeft size={14}/> Kembali
             </button>
             <form className="rounded-[22px] bg-white p-4 shadow-soft" onSubmit={(event) => {
                     event.preventDefault();
@@ -5777,7 +5973,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
         </div>)}
 
       {!loading && tab === "wallets" && selectedWallet && (<div className="space-y-3">
-          <button className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500" onClick={() => {
+          <button type="button" className="app-back-button" onClick={() => {
                 setShowWalletEditModal(false);
                 setShowWalletMembersModal(false);
                 setSelectedWallet(null);
@@ -6773,10 +6969,10 @@ export function QrScanner({ onScan, onClose, request, selectedPocketId }: {
         animId = requestAnimationFrame(tick);
         return () => cancelAnimationFrame(animId);
     }, [scanning]);
-    return (<div className="fixed inset-0 z-50 flex flex-col bg-black">
+    return (<div data-scroll-lock="true" className="fixed inset-0 z-50 flex flex-col bg-black">
       <div className="flex items-center justify-between bg-black/80 px-4 py-3">
-        <button type="button" className="text-sm font-semibold text-white" onClick={onClose}>
-          <ArrowLeft size={20}/>
+        <button type="button" className="app-back-button app-back-button-on-dark" onClick={onClose}>
+          <ArrowLeft size={14}/> Kembali
         </button>
         <p className="text-sm font-semibold text-white">Scan barcode user</p>
         <div className="w-5"/>

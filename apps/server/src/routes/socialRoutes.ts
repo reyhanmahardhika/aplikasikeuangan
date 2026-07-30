@@ -1,73 +1,34 @@
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.js";
-import { asyncHandler } from "../utils/asyncHandler.js";
 import {
-  addComment,
-  addGroupMember,
   addWalletMember,
   approveWalletEntry,
-  confirmExpense,
-  confirmSettlement,
-  createGroup,
-  createGroupExpense,
-  createSettlement,
   createWallet,
   createWalletEntry,
-  friendProfile,
+  createWalletReminder,
   getPrivacy,
-  groupDetail,
-  listActivity,
-  listComments,
-  listFriends,
-  listGroups,
-  listWallets,
   listWalletReminders,
-  markActivityRead,
-  removeOrBlockFriend,
-  reportUser,
-  requestFriend,
-  respondFriend,
-  respondGroupInvite,
+  listWallets,
   respondWalletInvite,
   searchPeople,
-  socialSummary,
   updatePrivacy,
-  updateGroupExpense,
-  createWalletReminder,
   walletDetail
 } from "../services/socialService.js";
 import {
-  updateWallet,
-  updateWalletMember,
-  removeWalletMember,
-  listGoldPrices,
   getCurrentGoldPrice,
+  listGoldPrices,
   listWalletChangeRequests,
+  removeWalletMember,
   reviewWalletChangeRequest,
-  syncGoldPriceNow
+  syncGoldPriceNow,
+  updateWallet,
+  updateWalletMember
 } from "../services/walletManagementService.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 const uuid = z.string().uuid();
 const text = (max: number) => z.string().trim().min(1).max(max);
-
-const groupSchema = z.object({
-  name: text(120),
-  description: z.string().trim().max(500).optional(),
-  memberIds: z.array(uuid).max(50).optional()
-});
-
-const expenseSchema = z.object({
-  description: text(220),
-  amount: z.union([z.string(), z.number()]),
-  paidBy: uuid,
-  participantIds: z.array(uuid).min(1).max(100),
-  customShares: z.array(z.object({
-    userId: uuid,
-    amount: z.union([z.string(), z.number()])
-  })).max(100).optional(),
-  expenseDate: z.string().datetime().optional()
-});
 
 const walletSchema = z.object({
   name: text(120),
@@ -105,132 +66,11 @@ const walletMemberUpdateSchema = z.object({
 export const socialRoutes = Router();
 socialRoutes.use(requireAuth);
 
-socialRoutes.get("/summary", asyncHandler(async (req, res) => {
-  res.json(await socialSummary(req.user!.id));
-}));
-
 socialRoutes.get("/people/search", asyncHandler(async (req, res) => {
   res.json(await searchPeople(req.user!.id, String(req.query.q ?? ""), {
-    exact: String(req.query.exact ?? "") === "1"
+    exact: String(req.query.exact ?? "") === "1",
+    pocketInvite: String(req.query.purpose ?? "") === "pocket_invite"
   }));
-}));
-
-socialRoutes.get("/friends", asyncHandler(async (req, res) => {
-  res.json(await listFriends(req.user!.id));
-}));
-
-socialRoutes.post("/friends/request", asyncHandler(async (req, res) => {
-  const input = z.object({
-    identifier: text(255),
-    targetUserId: uuid.optional()
-  }).parse(req.body);
-  res.status(201).json(await requestFriend(req.user!.id, input.identifier, input.targetUserId));
-}));
-
-socialRoutes.put("/friends/:id/respond", asyncHandler(async (req, res) => {
-  const input = z.object({ status: z.enum(["accepted", "rejected"]) }).parse(req.body);
-  res.json(await respondFriend(req.user!.id, req.params.id as string, input.status));
-}));
-
-socialRoutes.delete("/friends/:id", asyncHandler(async (req, res) => {
-  res.json(await removeOrBlockFriend(req.user!.id, req.params.id as string, false));
-}));
-
-socialRoutes.post("/friends/:id/block", asyncHandler(async (req, res) => {
-  res.json(await removeOrBlockFriend(req.user!.id, req.params.id as string, true));
-}));
-
-socialRoutes.get("/friends/profile/:userId", asyncHandler(async (req, res) => {
-  res.json(await friendProfile(req.user!.id, req.params.userId as string));
-}));
-
-socialRoutes.post("/people/:userId/report", asyncHandler(async (req, res) => {
-  const input = z.object({ reason: text(500) }).parse(req.body);
-  res.status(201).json(await reportUser(req.user!.id, req.params.userId as string, input.reason));
-}));
-
-socialRoutes.get("/groups", asyncHandler(async (req, res) => {
-  res.json(await listGroups(req.user!.id));
-}));
-
-socialRoutes.post("/groups", asyncHandler(async (req, res) => {
-  res.status(201).json(await createGroup(req.user!.id, groupSchema.parse(req.body)));
-}));
-
-socialRoutes.get("/groups/:id", asyncHandler(async (req, res) => {
-  res.json(await groupDetail(req.user!.id, req.params.id as string));
-}));
-
-socialRoutes.put("/groups/:id/invite", asyncHandler(async (req, res) => {
-  const input = z.object({ status: z.enum(["accepted", "rejected"]) }).parse(req.body);
-  res.json(await respondGroupInvite(req.user!.id, req.params.id as string, input.status));
-}));
-
-socialRoutes.post("/groups/:id/members", asyncHandler(async (req, res) => {
-  const input = z.object({ userId: uuid }).parse(req.body);
-  res.status(201).json(await addGroupMember(req.user!.id, req.params.id as string, input.userId));
-}));
-
-// Update Wallet Details
-socialRoutes.put("/wallets/:id", asyncHandler(async (req, res) => {
-  res.json(await updateWallet(req.user!.id, req.params.id as string, walletUpdateSchema.parse(req.body)));
-}));
-
-// Update Wallet Member
-socialRoutes.put("/wallets/:id/members/:targetUserId", asyncHandler(async (req, res) => {
-  res.json(await updateWalletMember(
-    req.user!.id,
-    req.params.id as string,
-    req.params.targetUserId as string,
-    walletMemberUpdateSchema.parse(req.body)
-  ));
-}));
-
-// Remove Wallet Member
-socialRoutes.delete("/wallets/:id/members/:targetUserId", asyncHandler(async (req, res) => {
-  res.json(await removeWalletMember(
-    req.user!.id,
-    req.params.id as string,
-    req.params.targetUserId as string
-  ));
-}));
-
-// Get Gold Price History
-socialRoutes.get("/gold-prices", asyncHandler(async (req, res) => {
-  const limit = z.coerce.number().int().min(1).max(100).default(30).parse(req.query.limit);
-  res.json(await listGoldPrices(limit));
-}));
-
-// Get Current Gold Price
-socialRoutes.get("/gold-prices/current", asyncHandler(async (req, res) => {
-  res.json(await getCurrentGoldPrice());
-}));
-
-socialRoutes.post("/gold-prices/sync", asyncHandler(async (_req, res) => {
-  res.json(await syncGoldPriceNow());
-}));
-
-socialRoutes.post("/groups/:id/expenses", asyncHandler(async (req, res) => {
-  res.status(201).json(await createGroupExpense(req.user!.id, req.params.id as string, expenseSchema.parse(req.body)));
-}));
-
-socialRoutes.put("/expenses/:id", asyncHandler(async (req, res) => {
-  res.json(await updateGroupExpense(req.user!.id, req.params.id as string, expenseSchema.parse(req.body)));
-}));
-
-socialRoutes.put("/expenses/:id/confirm", asyncHandler(async (req, res) => {
-  const input = z.object({ status: z.enum(["confirmed", "rejected", "paid"]) }).parse(req.body);
-  res.json(await confirmExpense(req.user!.id, req.params.id as string, input.status));
-}));
-
-socialRoutes.post("/groups/:id/settlements", asyncHandler(async (req, res) => {
-  const input = z.object({ toUserId: uuid, amount: z.union([z.string(), z.number()]) }).parse(req.body);
-  res.status(201).json(await createSettlement(req.user!.id, req.params.id as string, input));
-}));
-
-socialRoutes.put("/settlements/:id/confirm", asyncHandler(async (req, res) => {
-  const input = z.object({ status: z.enum(["confirmed", "cancelled"]) }).parse(req.body);
-  res.json(await confirmSettlement(req.user!.id, req.params.id as string, input.status));
 }));
 
 socialRoutes.get("/wallets", asyncHandler(async (req, res) => {
@@ -243,6 +83,33 @@ socialRoutes.post("/wallets", asyncHandler(async (req, res) => {
 
 socialRoutes.get("/wallets/:id", asyncHandler(async (req, res) => {
   res.json(await walletDetail(req.user!.id, req.params.id as string));
+}));
+
+socialRoutes.put("/wallets/:id", asyncHandler(async (req, res) => {
+  res.json(await updateWallet(req.user!.id, req.params.id as string, walletUpdateSchema.parse(req.body)));
+}));
+
+socialRoutes.post("/wallets/:id/members", asyncHandler(async (req, res) => {
+  const input = z.object({ userId: uuid, role: z.enum(["admin", "member", "viewer"]) }).parse(req.body);
+  res.status(201).json(await addWalletMember(req.user!.id, req.params.id as string, input));
+}));
+
+socialRoutes.put("/wallets/:id/members/:targetUserId", asyncHandler(async (req, res) => {
+  res.json(await updateWalletMember(
+    req.user!.id,
+    req.params.id as string,
+    req.params.targetUserId as string,
+    walletMemberUpdateSchema.parse(req.body)
+  ));
+}));
+
+socialRoutes.delete("/wallets/:id/members/:targetUserId", asyncHandler(async (req, res) => {
+  res.json(await removeWalletMember(req.user!.id, req.params.id as string, req.params.targetUserId as string));
+}));
+
+socialRoutes.put("/wallets/:id/invite", asyncHandler(async (req, res) => {
+  const input = z.object({ status: z.enum(["accepted", "rejected"]) }).parse(req.body);
+  res.json(await respondWalletInvite(req.user!.id, req.params.id as string, input.status));
 }));
 
 socialRoutes.get("/wallets/:id/reminders", asyncHandler(async (req, res) => {
@@ -261,16 +128,6 @@ socialRoutes.post("/wallets/:id/reminders", asyncHandler(async (req, res) => {
     timezone: z.literal("Asia/Jakarta").default("Asia/Jakarta")
   }).parse(req.body);
   res.status(201).json(await createWalletReminder(req.user!.id, req.params.id as string, input));
-}));
-
-socialRoutes.post("/wallets/:id/members", asyncHandler(async (req, res) => {
-  const input = z.object({ userId: uuid, role: z.enum(["admin", "member", "viewer"]) }).parse(req.body);
-  res.status(201).json(await addWalletMember(req.user!.id, req.params.id as string, input));
-}));
-
-socialRoutes.put("/wallets/:id/invite", asyncHandler(async (req, res) => {
-  const input = z.object({ status: z.enum(["accepted", "rejected"]) }).parse(req.body);
-  res.json(await respondWalletInvite(req.user!.id, req.params.id as string, input.status));
 }));
 
 socialRoutes.get("/wallets/:id/change-requests", asyncHandler(async (req, res) => {
@@ -307,17 +164,17 @@ socialRoutes.put("/wallet-entries/:id/approve", asyncHandler(async (req, res) =>
   res.json(await approveWalletEntry(req.user!.id, req.params.id as string, input.status));
 }));
 
-socialRoutes.get("/activity", asyncHandler(async (req, res) => {
-  const query = z.object({
-    limit: z.coerce.number().int().min(1).max(50).default(20),
-    offset: z.coerce.number().int().min(0).default(0)
-  }).parse(req.query);
-  res.json(await listActivity(req.user!.id, query.limit, query.offset));
+socialRoutes.get("/gold-prices", asyncHandler(async (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(100).default(30).parse(req.query.limit);
+  res.json(await listGoldPrices(limit));
 }));
 
-socialRoutes.put("/activity/read", asyncHandler(async (req, res) => {
-  const input = z.object({ eventId: uuid.optional() }).parse(req.body);
-  res.json(await markActivityRead(req.user!.id, input.eventId));
+socialRoutes.get("/gold-prices/current", asyncHandler(async (_req, res) => {
+  res.json(await getCurrentGoldPrice());
+}));
+
+socialRoutes.post("/gold-prices/sync", asyncHandler(async (_req, res) => {
+  res.json(await syncGoldPriceNow());
 }));
 
 socialRoutes.get("/privacy", asyncHandler(async (req, res) => {
@@ -332,18 +189,4 @@ socialRoutes.put("/privacy", asyncHandler(async (req, res) => {
     hidePhone: z.boolean()
   }).parse(req.body);
   res.json(await updatePrivacy(req.user!.id, input));
-}));
-
-socialRoutes.get("/comments/:entityType/:entityId", asyncHandler(async (req, res) => {
-  res.json(await listComments(req.user!.id, req.params.entityType as string, req.params.entityId as string));
-}));
-
-socialRoutes.post("/comments/:entityType/:entityId", asyncHandler(async (req, res) => {
-  const input = z.object({ message: text(1000) }).parse(req.body);
-  res.status(201).json(await addComment(
-    req.user!.id,
-    req.params.entityType as string,
-    req.params.entityId as string,
-    input.message
-  ));
 }));

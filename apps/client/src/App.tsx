@@ -15,12 +15,12 @@ import {
   type StoredSession
 } from "./lib/session";
 import { installUiTranslation } from "./lib/uiTranslation";
-import type { Account, AppLanguage, AssistantContext, Category, ChildFrameState, DashboardSummary, HeaderNotification, InstallPromptEvent, NoticePayload, Schedule, SocialSummary, TransactionDetail, View } from "./types/app";
+import type { Account, AppLanguage, AssistantContext, Category, ChildFrameState, DashboardSummary, HeaderNotification, InstallPromptEvent, NoticePayload, Schedule, TransactionDetail, View } from "./types/app";
 import { mobileNavigation, navigation } from "./config/navigation";
 import { successMessageFor } from "./lib/appHelpers";
 import { MobileTopBar, NotificationBadge } from "./components/layout/MobileTopBar";
 import { NotificationCenter } from "./components/notifications/NotificationCenter";
-import { AccountsView, AddActionSheet, appNavigationLabel, AssistantView, AuthView, BudgetsView, CategoriesView, DashboardView, DataErrorState, HistoryView, LoadingState, ManageView, ManualTransactionView, MobileBottomNav, ProfileView, queueDebugLog, ReportsView, SocialHubView, storedStringSet, TransactionDetailView, urlBase64ToUint8Array } from "./components/app/AppSections";
+import { AccountsView, AddActionSheet, appNavigationLabel, AssistantView, AuthView, BudgetsView, CategoriesView, DashboardView, DataErrorState, HistoryView, LoadingState, ManageView, ManualTransactionView, MobileBottomNav, ProfileView, queueDebugLog, ReportsView, storedStringSet, TransactionDetailView, urlBase64ToUint8Array } from "./components/app/AppSections";
 
 
 declare global {
@@ -42,7 +42,7 @@ function App() {
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as View | null;
-    return requested && ["dashboard", "manual", "history", "reports", "assistant", "social", "manage", "profile"].includes(requested)
+    return requested && ["dashboard", "manual", "history", "reports", "assistant", "manage", "profile"].includes(requested)
       ? requested
       : "dashboard";
   });
@@ -53,8 +53,6 @@ function App() {
   const [coreLoading, setCoreLoading] = useState(false);
   const [coreLoaded, setCoreLoaded] = useState(false);
   const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
-  const [socialSummaryData, setSocialSummaryData] = useState<SocialSummary | null>(null);
-  const [headerNotifications, setHeaderNotifications] = useState<HeaderNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<"unsupported" | "unavailable" | "default" | "granted" | "denied">(
     () => !("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)
@@ -70,7 +68,7 @@ function App() {
   const [manualInitialType, setManualInitialType] = useState<"income" | "expense">("expense");
   const [manualInitialAccountId, setManualInitialAccountId] = useState("");
   const [manualResetKey, setManualResetKey] = useState(0);
-  const [accountsInitialView, setAccountsInitialView] = useState<"list" | "account-form" | "transfer-form">("list");
+  const [accountsInitialView, setAccountsInitialView] = useState<"list" | "account-form" | "transfer-form" | "pocket-detail">("list");
   const [accountsResetKey, setAccountsResetKey] = useState(0);
   const [addActionOpen, setAddActionOpen] = useState(false);
   const [assistantContext, setAssistantContext] = useState<AssistantContext | null>(null);
@@ -118,6 +116,45 @@ function App() {
   useEffect(() => {
     backSwipeOffsetRef.current = backSwipeOffset;
   }, [backSwipeOffset]);
+  useEffect(() => {
+    let locked = false;
+    let lockedScrollY = 0;
+    const body = document.body;
+    const syncScrollLock = () => {
+      const shouldLock = Boolean(document.querySelector("[data-scroll-lock='true']"));
+      if (shouldLock === locked) return;
+      locked = shouldLock;
+      if (shouldLock) {
+        lockedScrollY = window.scrollY;
+        body.style.position = "fixed";
+        body.style.top = `-${lockedScrollY}px`;
+        body.style.left = "0";
+        body.style.right = "0";
+        body.style.width = "100%";
+        body.style.overflow = "hidden";
+        return;
+      }
+      body.style.position = "";
+      body.style.top = "";
+      body.style.left = "";
+      body.style.right = "";
+      body.style.width = "";
+      body.style.overflow = "";
+      window.scrollTo(0, lockedScrollY);
+    };
+    const observer = new MutationObserver(syncScrollLock);
+    observer.observe(document.body, { childList: true, subtree: true });
+    syncScrollLock();
+    return () => {
+      observer.disconnect();
+      body.style.position = "";
+      body.style.top = "";
+      body.style.left = "";
+      body.style.right = "";
+      body.style.width = "";
+      body.style.overflow = "";
+    };
+  }, []);
   const [dismissedScheduleIds, setDismissedScheduleIds] = useState<Set<string>>(
     () => storedStringSet("dismissed-schedule-notifications")
   );
@@ -142,7 +179,6 @@ function App() {
     setCategories([]);
     setSchedules([]);
     setDashboard(null);
-    setSocialSummaryData(null);
     if (message) setNotice(message);
   };
 
@@ -461,22 +497,12 @@ function App() {
         request<DashboardSummary>("/dashboard/summary")
       ]);
 
-      const [
-        nextSchedules,
-        nextSocialSummary,
-        nextNotifications
-      ] = await Promise.all([
-        optionalRequest<Schedule[]>("/schedules", []),
-        optionalRequest<SocialSummary | null>("/social/summary", null),
-        optionalRequest<HeaderNotification[]>("/social/activity", [])
-      ]);
+      const nextSchedules = await optionalRequest<Schedule[]>("/schedules", []);
 
       setAccounts(nextAccounts);
       setCategories(nextCategories);
       setDashboard(nextDashboard);
       setSchedules(nextSchedules);
-      setSocialSummaryData(nextSocialSummary);
-      setHeaderNotifications(nextNotifications);
       coreLoadedRef.current = true;
       setCoreLoaded(true);
     } catch (error) {
@@ -487,8 +513,6 @@ function App() {
         setAccounts([]);
         setCategories([]);
         setSchedules([]);
-        setSocialSummaryData(null);
-        setHeaderNotifications([]);
         coreLoadedRef.current = false;
         setCoreLoaded(false);
       }
@@ -791,18 +815,15 @@ function App() {
       createdAt: schedule.nextDueDate,
       kind: "schedule"
     }));
-  const notificationItems = [...scheduleNotifications, ...headerNotifications]
+  const notificationItems = [...scheduleNotifications]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const unreadNotificationCount = notificationItems.filter((item) => !item.isRead).length;
 
   const markAllNotificationsRead = async () => {
-    await request("/social/activity/read", { method: "PUT", body: "{}" });
-    setHeaderNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
     const nextDismissed = new Set(dismissedScheduleIds);
     scheduleNotifications.forEach((item) => nextDismissed.add(item.id));
     setDismissedScheduleIds(nextDismissed);
     localStorage.setItem("dismissed-schedule-notifications", JSON.stringify([...nextDismissed]));
-    setSocialSummaryData((current) => current ? { ...current, unreadNotifications: 0 } : current);
   };
 
   const openNotification = async (item: HeaderNotification) => {
@@ -815,21 +836,14 @@ function App() {
       setView("manage");
       return;
     }
-    if (!item.isRead) {
-      await request("/social/activity/read", {
-        method: "PUT",
-        body: JSON.stringify({ eventId: item.id })
-      });
-      setHeaderNotifications((current) => current.map((row) => row.id === item.id ? { ...row, isRead: true } : row));
-    }
     setNotificationsOpen(false);
-    setView("social");
   };
 
   const canHandleChildBack = () => {
     if (childFrameActiveRef.current && childFrameBackRef.current) return true;
     if (view === "transactionDetail") return true;
     if (view === "manual" && Boolean(editing && selectedTransaction)) return true;
+    if (view === "manual" && Boolean(manualInitialAccountId)) return true;
     if (view === "profile") return true;
     if (view === "accounts" || view === "categories" || view === "budgets") return true;
     return false;
@@ -870,8 +884,9 @@ function App() {
     setEditing(null);
     setManualInitialType(type);
     setManualInitialAccountId("");
-    setManualResetKey((current) => current + 1);
-    navigate("manual");
+    setAccountsInitialView("list");
+    setAccountsResetKey((current) => current + 1);
+    navigate("accounts");
   };
 
   const startPocketTransaction = (accountId: string) => {
@@ -880,6 +895,12 @@ function App() {
     setManualInitialAccountId(accountId);
     setManualResetKey((current) => current + 1);
     navigate("manual");
+  };
+
+  const returnToPocketDetail = (accountId = manualInitialAccountId) => {
+    setAccountsInitialView(accountId ? "pocket-detail" : "list");
+    setAccountsResetKey((current) => current + 1);
+    navigate("accounts");
   };
 
   const openPocketTransactions = (accountId = "", fromDate?: string) => {
@@ -924,9 +945,11 @@ function App() {
     appNavigationLabel(view, navigation.find((item) => item.id === view)?.label, language) ??
     appNavigationLabel(view, mobileNavigation.find((item) => item.id === view)?.label, language) ??
     "Detail transaksi";
-  const activeNavigationView = (view === "history" || view === "transactionDetail") && historyParentView === "accounts"
+  const activeNavigationView = view === "manual" && Boolean(manualInitialAccountId)
     ? "accounts"
-    : view;
+    : (view === "history" || view === "transactionDetail") && historyParentView === "accounts"
+      ? "accounts"
+      : view;
   const backSwipeProgress = Math.min(1, backSwipeOffset / Math.max(window.innerWidth, 320));
 
   const goBackFromChildFrame = () => {
@@ -942,6 +965,10 @@ function App() {
     }
     if (view === "manual" && editing && selectedTransaction) {
       navigate("transactionDetail");
+      return true;
+    }
+    if (view === "manual" && manualInitialAccountId) {
+      returnToPocketDetail(manualInitialAccountId);
       return true;
     }
     if (view === "profile") {
@@ -994,7 +1021,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (view !== "social" && view !== "manage" && view !== "history") {
+    if (view !== "manage" && view !== "history" && view !== "accounts") {
       applyChildFrameState({ active: false, onBack: null, onRefresh: null });
     }
   }, [view]);
@@ -1114,7 +1141,7 @@ function App() {
       window.removeEventListener("touchend", handleTouchEnd);
       window.removeEventListener("touchcancel", handleTouchCancel);
     };
-  }, [backSwipeSettling, editing, notificationsOpen, selectedTransaction, view]);
+  }, [backSwipeSettling, editing, manualInitialAccountId, notificationsOpen, selectedTransaction, view]);
 
   if (sessionLoading) {
     return <LoadingState />;
@@ -1326,7 +1353,7 @@ function App() {
                 if (editing && selectedTransaction) {
                   navigate("transactionDetail");
                 } else {
-                  navigate("history");
+                  returnToPocketDetail(manualInitialAccountId);
                 }
               }}
               onDone={async () => {
@@ -1339,7 +1366,7 @@ function App() {
                   setView("transactionDetail");
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 } else {
-                  navigate("history");
+                  returnToPocketDetail(manualInitialAccountId);
                 }
               }}
             />
@@ -1378,12 +1405,14 @@ function App() {
               request={request}
               onChanged={refreshCore}
               initialView={accountsInitialView}
+              initialSelectedPocketId={manualInitialAccountId}
               resetKey={accountsResetKey}
               language={language}
               onAddTransaction={startPocketTransaction}
               onOpenTransactions={(accountId, fromDate) => {
                 openPocketTransactions(accountId, fromDate);
               }}
+              onChildFrameStateChange={applyChildFrameState}
             />
           )}
           {view === "categories" && <CategoriesView categories={categories} request={request} onChanged={refreshCore} />}
@@ -1406,18 +1435,6 @@ function App() {
           )}
           {view === "reports" && <ReportsView request={request} />}
           {view === "assistant" && <AssistantView request={request} language={language} onNavigate={navigate} context={assistantContext} />}
-          {view === "social" && (
-            <SocialHubView
-              request={request}
-              accounts={accounts}
-              token={activeSession.accessToken}
-              currentUser={activeSession.user}
-              summary={socialSummaryData}
-              language={language}
-              onChanged={refreshCore}
-              onChildFrameStateChange={applyChildFrameState}
-            />
-          )}
           {view === "profile" && (
             <ProfileView
               session={activeSession}
@@ -1437,7 +1454,6 @@ function App() {
           activeView={activeNavigationView}
           language={language}
           isScrolling={isScrolling}
-          onAdd={openAddActionSheet}
           onNavigate={(nextView) => {
             if (nextView === "assistant") {
               openAssistant();

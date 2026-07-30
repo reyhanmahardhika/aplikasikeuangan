@@ -1,4 +1,4 @@
-import { ArrowLeftRight, ChevronRight, Plus, ReceiptText, X, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, ChevronRight, ReceiptText, X, type LucideIcon } from "lucide-react";
 import { mobileNavigation } from "../../config/navigation";
 import { downloadUrl } from "../../lib/api";
 import type { AppLanguage, View } from "../../types/app";
@@ -27,16 +27,14 @@ export function queueDebugLog(event: string, data: unknown) {
   }, 350);
 }
 
-export function MobileBottomNav({ view, activeView, language, isScrolling, onAdd, onNavigate }: {
+export function MobileBottomNav({ view, activeView, language, isScrolling, onNavigate }: {
   view: View;
   activeView?: View;
   language: AppLanguage;
   isScrolling: boolean;
-  onAdd: () => void;
   onNavigate: (view: View) => void;
 }) {
   const resolvedView = activeView ?? view;
-  const plusActive = resolvedView === "manual";
   const isActive = (item: { id: View }) =>
     item.id === "accounts"
       ? resolvedView === "accounts"
@@ -56,9 +54,6 @@ export function MobileBottomNav({ view, activeView, language, isScrolling, onAdd
             {mobileNavigation.slice(2).map((item) => <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate} />)}
           </div>
         </div>
-        <button className={`mobile-fab ${plusActive ? "mobile-fab-active" : ""}`} aria-label={language === "en" ? "Add transaction" : "Tambah transaksi"} title={language === "en" ? "Add transaction" : "Tambah transaksi"} aria-current={plusActive ? "page" : undefined} onClick={onAdd}>
-          <Plus size={31} strokeWidth={3} />
-        </button>
       </div>
     </nav>
   );
@@ -92,7 +87,7 @@ export function AddActionSheet({ language, onClose, onTransaction, onTransfer }:
 
   return (
     <>
-      <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label={language === "en" ? "Close add menu" : "Tutup menu tambah"} onClick={onClose} />
+      <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label={language === "en" ? "Close add menu" : "Tutup menu tambah"} onClick={onClose} />
       <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
         <div className="flex items-start justify-between gap-3">
           <div>

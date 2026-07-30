@@ -17,6 +17,26 @@ const english: Record<string, string> = {
   "Berhasil mengubah transaksi": "Transaction updated successfully",
   "Berhasil menyimpan budget": "Budget saved successfully",
   "Berhasil transfer antar pocket": "Pocket transfer saved successfully",
+  "Transfer out": "Transfer out",
+  "Transfer in": "Transfer in",
+  "Kirim saldo keluar dari pocket ini ke pocket tujuan.": "Send funds from this pocket to the destination pocket.",
+  "Terima saldo dari pocket lain masuk ke pocket ini.": "Receive funds from another pocket into this pocket.",
+  "Dari pocket ini": "From this pocket",
+  "Ke pocket tujuan": "To destination pocket",
+  "Dari pocket asal": "From source pocket",
+  "Masuk ke pocket ini": "Into this pocket",
+  "Pilih pocket asal.": "Choose the source pocket.",
+  "Pilih pocket tujuan.": "Choose the destination pocket.",
+  "Saldo akan dipotong dari pocket asal.": "The balance will be deducted from the source pocket.",
+  "Pilih pocket penerima transfer.": "Choose the pocket that will receive the transfer.",
+  "Transfer keluar": "Transfer out",
+  "Transfer masuk": "Transfer in",
+  "Simulasi saldo setelah transfer": "Balance simulation after transfer",
+  "Setelah nominal + biaya admin": "After amount + admin fee",
+  "Setelah menerima transfer": "After receiving the transfer",
+  "Atur identitas pocket, jenis penyimpanan, dan saldo awal.": "Set the pocket identity, storage type, and starting balance.",
+  "Invite user": "Invite user",
+  "Mengirim undangan...": "Sending invitation...",
   "Dashboard": "Dashboard",
   "Detail transaksi": "Transaction details",
   "Masuk untuk melanjutkan pencatatanmu.": "Sign in to continue tracking your finances.",
@@ -693,6 +713,27 @@ function translateTree(root: Node, language: UiLanguage) {
 }
 
 export function installUiTranslation(language: UiLanguage) {
+  translateTree(document, language);
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "characterData") {
+        translateTextNode(mutation.target as Text, language);
+        continue;
+      }
+      if (mutation.type === "attributes" && mutation.target instanceof Element) {
+        translateElement(mutation.target, language);
+        continue;
+      }
+      mutation.addedNodes.forEach((node) => translateTree(node, language));
+    }
+  });
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: translatedAttributes
+  });
   const nativeConfirm = window.confirm.bind(window);
   const nativeAlert = window.alert.bind(window);
   const nativePrompt = window.prompt.bind(window);
@@ -703,6 +744,7 @@ export function installUiTranslation(language: UiLanguage) {
     defaultValue
   );
   return () => {
+    observer.disconnect();
     window.confirm = nativeConfirm;
     window.alert = nativeAlert;
     window.prompt = nativePrompt;

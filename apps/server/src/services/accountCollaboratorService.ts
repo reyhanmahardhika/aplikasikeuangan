@@ -2,7 +2,7 @@ import { pool, withDbTransaction } from "../db/pool.js";
 import { badRequest, conflict, forbidden, notFound } from "../utils/errors.js";
 import { writeAuditLog } from "./auditService.js";
 
-export async function getAccountCollaborators(accountId: string) {
+export async function getAccountCollaborators(accountId: string, requesterId: string) {
   const result = await pool.query(
     `SELECT ac.user_id, ac.role, ac.status, ac.invited_by, ac.invited_at, ac.accepted_at,
             u.full_name, u.email, u.username, u.avatar_url,
@@ -11,8 +11,22 @@ export async function getAccountCollaborators(accountId: string) {
      JOIN users u ON u.id = ac.user_id
      JOIN users inv ON inv.id = ac.invited_by
      WHERE ac.account_id = $1
+       AND EXISTS (
+         SELECT 1
+         FROM accounts a
+         WHERE a.id = ac.account_id
+           AND (
+             a.user_id = $2
+             OR EXISTS (
+               SELECT 1 FROM account_collaborators access
+               WHERE access.account_id = a.id
+                 AND access.user_id = $2
+                 AND access.status = 'accepted'
+             )
+           )
+       )
      ORDER BY ac.status, ac.invited_at DESC`,
-    [accountId]
+    [accountId, requesterId]
   );
   return result.rows;
 }
@@ -24,13 +38,13 @@ export async function inviteAccountCollaborator(
   role: "admin" | "member" | "viewer" = "member"
 ) {
   const accountResult = await pool.query(
-    "SELECT user_id, can_edit FROM accounts WHERE id = $1",
+    "SELECT user_id FROM accounts WHERE id = $1",
     [accountId]
   );
   if (!accountResult.rowCount) throw notFound("Akun tidak ditemukan");
 
   const account = accountResult.rows[0];
-  if (!account.can_edit) throw forbidden("Hanya owner yang dapat mengundang collaborator");
+  if (account.user_id !== inviterId) throw forbidden("Hanya owner yang dapat mengundang collaborator");
   if (targetUserId === inviterId) throw badRequest("Tidak dapat mengundang diri sendiri");
 
   const existingResult = await pool.query(

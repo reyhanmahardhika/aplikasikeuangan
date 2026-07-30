@@ -22,7 +22,7 @@ export function NotificationCenter({ language, items, pushStatus, onClose, onEna
         default: isEnglish ? "Get reminders even when the app is closed" : "Dapatkan pengingat saat aplikasi ditutup"
     }[pushStatus];
     return (<>
-      <button type="button" className="fixed inset-0 z-40 cursor-default bg-slate-950/10 backdrop-blur-[1px]" aria-label={isEnglish ? "Close notifications" : "Tutup notifikasi"} onClick={onClose}/>
+      <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/10 backdrop-blur-[1px]" aria-label={isEnglish ? "Close notifications" : "Tutup notifikasi"} onClick={onClose}/>
       <aside className="fixed inset-x-3 top-[4.5rem] z-50 mx-auto max-h-[calc(100dvh-6rem)] max-w-md overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.18)] lg:left-auto lg:right-6 lg:top-20 lg:mx-0 lg:w-96">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <div>

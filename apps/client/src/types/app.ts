@@ -37,6 +37,7 @@ export type Account = {
     autoBudgetingEnabled?: boolean;
     logo?: string | null;
     background?: string | null;
+    displayOrder?: number;
 };
 
 export type Category = {

@@ -2638,9 +2638,16 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 savePocketVisuals(visuals);
             }
             formElement.reset();
+            const returnToDetail = Boolean(editingAccount && pocketId);
             setEditingAccount(null);
-            await onChanged();
-            setAccountView("list");
+            if (returnToDetail) {
+                setSelectedPocketId(pocketId);
+                setAccountView("pocket-detail");
+            }
+            else {
+                setAccountView("list");
+            }
+            onChanged().catch(() => setError("Pocket berhasil disimpan, tetapi data terbaru belum dapat dimuat."));
         }
         catch {
             setError(null);
@@ -2740,8 +2747,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             setTransferAttachmentMessage(null);
             setTransferText("");
             setTransferDraft({ amount: "", feeAmount: "", transferDate: isoDateInput(), notes: "" });
-            await onChanged();
             setAccountView(transferMode !== "general" && selectedPocketId ? "pocket-detail" : "list");
+            onChanged().catch(() => setError("Transfer berhasil disimpan, tetapi data terbaru belum dapat dimuat."));
         }
         catch {
             setError(null);
@@ -3045,15 +3052,21 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
               </button>)}
           </div>
 
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-            <SectionHeader title="Transaction history" caption="Search and filter transactions in this pocket." action={(<div className="flex items-center gap-2">
+          <div className="min-w-0 overflow-hidden rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+            <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-950">Transaction history</h3>
+                <p className="mt-0.5 text-xs font-semibold leading-4 text-slate-500">Search and filter transactions in this pocket.</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
                   <button type="button" className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold ${pocketTransactionFilterCount > 0 ? "bg-emerald-50 text-[#16A34A]" : "text-slate-500 hover:bg-slate-50"}`} onClick={() => setShowPocketTransactionFilter(true)}>
                     <ListFilter size={13}/> Filter{pocketTransactionFilterCount > 0 ? ` (${pocketTransactionFilterCount})` : ""}
                   </button>
                   <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => loadPocketTransactions().catch(() => undefined)} disabled={pocketTransactionLoading}>
                     {pocketTransactionLoading ? <Loader2 size={13} className="animate-spin"/> : <ArrowLeftRight size={13}/>} Refresh
                   </button>
-                </div>)}/>
+              </div>
+            </div>
             <div className="grid gap-2">
               <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
                 <Search size={16} className="text-slate-400"/>
@@ -3075,7 +3088,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     </span>
                   </div>) : recentPocketTransactions.length > 0 ? (recentPocketTransactions.map((transaction) => {
                     const isIncome = transaction.transactionType === "income";
-                    return (<div key={transaction.id} className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-[#F8FAFC] px-3 py-3">
+                    return (<div key={transaction.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden rounded-2xl border border-slate-100 bg-[#F8FAFC] px-3 py-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isIncome ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
@@ -3087,9 +3100,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                             </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className={`text-sm font-semibold ${isIncome ? "text-[#16A34A]" : "text-slate-900"}`}>{isIncome ? "+" : "-"}{rupiah(transaction.amount)}</p>
-                          <p className="mt-1 text-[11px] text-slate-400">{isIncome ? "Income" : "Expense"}</p>
+                        <div className="max-w-[42vw] shrink-0 text-right">
+                          <p className={`whitespace-nowrap text-[13px] font-bold ${isIncome ? "text-[#16A34A]" : "text-slate-900"}`}>{isIncome ? "+" : "-"}{rupiah(transaction.amount)}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-400">{isIncome ? "Income" : "Expense"}</p>
                         </div>
                       </div>);
                 })) : (<div className="rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] px-3 py-4 text-center text-xs font-medium text-slate-500">

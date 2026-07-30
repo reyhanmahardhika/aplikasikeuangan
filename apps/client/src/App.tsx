@@ -1359,14 +1359,22 @@ function App() {
               onDone={async () => {
                 const editedId = editing?.id;
                 setEditing(null);
-                await refreshCore();
                 if (editedId) {
-                  const updated = await request<TransactionDetail>(`/transactions/${editedId}`);
-                  setSelectedTransaction(updated);
                   setView("transactionDetail");
                   window.scrollTo({ top: 0, behavior: "smooth" });
+                  Promise.all([
+                    refreshCore(),
+                    request<TransactionDetail>(`/transactions/${editedId}`)
+                  ]).then(([, updated]) => {
+                    setSelectedTransaction(updated);
+                  }).catch((error) => {
+                    setNotice(error instanceof Error ? error.message : "Transaction data could not be refreshed");
+                  });
                 } else {
                   returnToPocketDetail(manualInitialAccountId);
+                  refreshCore().catch((error) => {
+                    setNotice(error instanceof Error ? error.message : "Transaction data could not be refreshed");
+                  });
                 }
               }}
             />

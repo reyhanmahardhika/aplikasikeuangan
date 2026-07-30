@@ -2984,7 +2984,15 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     const accountVisual = account.logo ? { logo: account.logo, background: account.background } : visuals[account.id];
                     const cardBackground = accountVisual?.background || "#16A34A";
                     const cardLogo = resolvePocketLogo(accountVisual?.logo, account.accountType);
-                    return (<button key={account.id} data-pocket-id={account.id} type="button" className={`ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white shadow-lg transition-all duration-200 lg:rounded-lg ${draggingPocketId === account.id ? "z-20 scale-[1.03] opacity-80 ring-2 ring-white/80 shadow-2xl" : "active:scale-[0.99]"} ${dropTargetPocketId === account.id ? "ring-2 ring-emerald-300 ring-offset-2" : ""}`} style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }} onClick={() => {
+                    const isDraggingThisPocket = draggingPocketId === account.id;
+                    return (<button key={account.id} data-pocket-id={account.id} type="button" className={`ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white lg:rounded-lg ${isDraggingThisPocket ? "z-20 ring-2 ring-white/90" : "active:scale-[0.99]"} ${dropTargetPocketId === account.id ? "ring-2 ring-emerald-300 ring-offset-2" : ""}`} style={{
+                            background: `linear-gradient(135deg, ${cardBackground}, #064E3B)`,
+                            transform: isDraggingThisPocket ? "translate3d(0, -12px, 0) scale(1.08) rotate(1.5deg)" : "translate3d(0, 0, 0) scale(1) rotate(0deg)",
+                            boxShadow: isDraggingThisPocket ? "0 24px 42px rgba(15, 23, 42, 0.34)" : "0 10px 20px rgba(15, 23, 42, 0.16)",
+                            opacity: isDraggingThisPocket ? 0.92 : 1,
+                            transition: "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms ease, opacity 180ms ease",
+                            willChange: isDraggingThisPocket ? "transform" : undefined
+                        }} onClick={() => {
                             if (suppressPocketClickRef.current)
                                 return;
                             setSelectedPocketId(account.id);
@@ -3005,8 +3013,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                           {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="text-lg">{cardLogo}</span>)}
                         </span>
                         <div className="flex flex-col items-end gap-1">
-                          <span className={`flex h-8 w-8 items-center justify-center rounded-full bg-white/14 text-white/80 backdrop-blur ${pocketTab === "mine" ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`} role={pocketTab === "mine" ? "button" : undefined} aria-label={pocketTab === "mine" ? (language === "en" ? "Drag to reorder pocket" : "Tarik untuk mengurutkan pocket") : undefined} onPointerDown={(event) => startPocketPointerDrag(event, account.id)} onPointerMove={updatePocketPointerDrag} onPointerUp={finishPocketPointerDrag} onPointerCancel={finishPocketPointerDrag}>
-                            {pocketTab === "mine" ? <GripVertical size={16}/> : <span className="px-2 text-[9px] font-semibold">Shared</span>}
+                          <span className={`flex h-8 w-8 items-center justify-center rounded-full text-white backdrop-blur transition-all duration-150 ${pocketTab === "mine" ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""} ${isDraggingThisPocket ? "scale-110 bg-white/30 shadow-md" : "bg-white/14 text-white/80"}`} role={pocketTab === "mine" ? "button" : undefined} aria-label={pocketTab === "mine" ? (language === "en" ? "Drag to reorder pocket" : "Tarik untuk mengurutkan pocket") : undefined} onPointerDown={(event) => startPocketPointerDrag(event, account.id)} onPointerMove={updatePocketPointerDrag} onPointerUp={finishPocketPointerDrag} onPointerCancel={finishPocketPointerDrag}>
+                            {pocketTab === "mine" ? <GripVertical className={isDraggingThisPocket ? "animate-pulse" : ""} size={17}/> : <span className="px-2 text-[9px] font-semibold">Shared</span>}
                           </span>
                           {hasMultipleMembers && (<button type="button" className="inline-flex items-center rounded-full bg-white/12 px-1.5 py-1 backdrop-blur transition hover:bg-white/18 active:scale-[0.98]" onClick={(event) => {
                                     event.stopPropagation();

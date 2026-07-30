@@ -19,6 +19,8 @@ export function successMessageFor(path: string, method: string) {
         return "Berhasil menambah pocket";
     if (path.endsWith("/reset") && path.startsWith("/accounts/") && method === "POST")
         return "Pocket berhasil direset";
+    if (path === "/accounts/order" && method === "PUT")
+        return null;
     if (path.startsWith("/accounts/") && method === "PUT")
         return "Berhasil mengubah pocket";
     if (path === "/categories" && method === "POST")

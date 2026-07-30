@@ -6,7 +6,7 @@
 
 import { ApiError, apiFetch, downloadUrl } from "../../lib/api";
 import type { Account, AiTrackedField, AppLanguage, AssistantContext, AssistantMessage, BudgetRow, CashFlowReportRow, Category, CategoryReportRow, ChildFrameState, DashboardSummary, GroupDetail, ManageTab, ManualDraft, MonthlyReportRow, ParsedManualTransaction, PocketVisual, Schedule, SocialActivity, SocialFriend, SocialGroup, SocialSummary, SocialWallet, Transaction, TransactionDetail, View, WalletDetail, WalletReminder } from "../../types/app";
-import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, HeartPulse, Landmark, Lightbulb, ListFilter, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
+import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, GripVertical, HeartPulse, Landmark, Lightbulb, ListFilter, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
 import type { Session } from "../../lib/api";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "../../lib/format";
@@ -1960,7 +1960,10 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
     const pocketOrderRef = useRef<string[]>([]);
     const draggedPocketIdRef = useRef<string | null>(null);
     const dragTargetPocketIdRef = useRef<string | null>(null);
+    const pocketDragMovedRef = useRef(false);
     const suppressPocketClickRef = useRef(false);
+    const [draggingPocketId, setDraggingPocketId] = useState<string | null>(null);
+    const [dropTargetPocketId, setDropTargetPocketId] = useState<string | null>(null);
     const [selectedPocketId, setSelectedPocketId] = useState(initialSelectedPocketId);
     const [pocketTransactionSearch, setPocketTransactionSearch] = useState("");
     const [pocketTransactionType, setPocketTransactionType] = useState<"all" | "income" | "expense">("all");
@@ -2536,6 +2539,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         event.currentTarget.setPointerCapture(event.pointerId);
         draggedPocketIdRef.current = pocketId;
         dragTargetPocketIdRef.current = pocketId;
+        pocketDragMovedRef.current = false;
+        setDraggingPocketId(pocketId);
+        setDropTargetPocketId(null);
         suppressPocketClickRef.current = true;
     };
     const updatePocketPointerDrag = (event: React.PointerEvent<HTMLElement>) => {
@@ -2549,7 +2555,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         if (!targetId || targetId === dragTargetPocketIdRef.current)
             return;
         movePocket(draggedId, targetId);
+        pocketDragMovedRef.current = true;
         dragTargetPocketIdRef.current = targetId;
+        setDropTargetPocketId(targetId);
     };
     const finishPocketPointerDrag = (event: React.PointerEvent<HTMLElement>) => {
         if (!draggedPocketIdRef.current)
@@ -2558,9 +2566,14 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         event.stopPropagation();
         if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
+        const shouldSave = pocketDragMovedRef.current;
         draggedPocketIdRef.current = null;
         dragTargetPocketIdRef.current = null;
-        savePocketOrder();
+        pocketDragMovedRef.current = false;
+        setDraggingPocketId(null);
+        setDropTargetPocketId(null);
+        if (shouldSave)
+            savePocketOrder();
         window.setTimeout(() => {
             suppressPocketClickRef.current = false;
         }, 0);
@@ -2895,10 +2908,7 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     const accountVisual = account.logo ? { logo: account.logo, background: account.background } : visuals[account.id];
                     const cardBackground = accountVisual?.background || "#16A34A";
                     const cardLogo = resolvePocketLogo(accountVisual?.logo, account.accountType);
-                    return (<button key={account.id} data-pocket-id={account.id} type="button" draggable={pocketTab === "mine"} onDragStart={() => { draggedPocketIdRef.current = account.id; }} onDragEnd={() => { draggedPocketIdRef.current = null; savePocketOrder(); }} onDragOver={(event) => event.preventDefault()} onDrop={() => {
-                            movePocket(draggedPocketIdRef.current ?? "", account.id);
-                            draggedPocketIdRef.current = null;
-                        }} className="ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white shadow-lg transition active:scale-[0.99] lg:rounded-lg" style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }} onClick={() => {
+                    return (<button key={account.id} data-pocket-id={account.id} type="button" className={`ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white shadow-lg transition-all duration-200 lg:rounded-lg ${draggingPocketId === account.id ? "z-20 scale-[1.03] opacity-80 ring-2 ring-white/80 shadow-2xl" : "active:scale-[0.99]"} ${dropTargetPocketId === account.id ? "ring-2 ring-emerald-300 ring-offset-2" : ""}`} style={{ background: `linear-gradient(135deg, ${cardBackground}, #064E3B)` }} onClick={() => {
                             if (suppressPocketClickRef.current)
                                 return;
                             setSelectedPocketId(account.id);
@@ -2919,8 +2929,8 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                           {cardLogo.startsWith("data:") ? (<img src={cardLogo} alt="" className="h-full w-full object-cover"/>) : (<span className="text-lg">{cardLogo}</span>)}
                         </span>
                         <div className="flex flex-col items-end gap-1">
-                          <span className={`rounded-full bg-white/14 px-2 py-1 text-[9px] font-semibold text-white/75 backdrop-blur ${pocketTab === "mine" ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`} onPointerDown={(event) => startPocketPointerDrag(event, account.id)} onPointerMove={updatePocketPointerDrag} onPointerUp={finishPocketPointerDrag} onPointerCancel={finishPocketPointerDrag}>
-                            {pocketTab === "mine" ? "Drag" : "Shared"}
+                          <span className={`flex h-8 w-8 items-center justify-center rounded-full bg-white/14 text-white/80 backdrop-blur ${pocketTab === "mine" ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""}`} role={pocketTab === "mine" ? "button" : undefined} aria-label={pocketTab === "mine" ? (language === "en" ? "Drag to reorder pocket" : "Tarik untuk mengurutkan pocket") : undefined} onPointerDown={(event) => startPocketPointerDrag(event, account.id)} onPointerMove={updatePocketPointerDrag} onPointerUp={finishPocketPointerDrag} onPointerCancel={finishPocketPointerDrag}>
+                            {pocketTab === "mine" ? <GripVertical size={16}/> : <span className="px-2 text-[9px] font-semibold">Shared</span>}
                           </span>
                           {hasMultipleMembers && (<button type="button" className="inline-flex items-center rounded-full bg-white/12 px-1.5 py-1 backdrop-blur transition hover:bg-white/18 active:scale-[0.98]" onClick={(event) => {
                                     event.stopPropagation();

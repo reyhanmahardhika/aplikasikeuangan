@@ -1102,7 +1102,7 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
         : (locale === "en-US" ? "Select date" : "Pilih tanggal");
     const todayValue = todayParts.value;
     return (<div ref={rootRef} className="relative min-w-0">
-      <button type="button" className={`flex w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-2 text-left transition lg:rounded-md ${open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`} onClick={() => setOpen((current) => !current)} aria-expanded={open}>
+      <button type="button" className={`flex h-11 w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-0 text-left transition lg:rounded-md ${open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`} onClick={() => setOpen((current) => !current)} aria-expanded={open}>
         <span className="min-w-0">
           {showLabel && <span className="block text-[10px] font-semibold uppercase text-slate-400">{label}</span>}
           <span className={`${showLabel ? "mt-1" : ""} block truncate text-xs font-semibold text-slate-800`}>{displayValue}</span>
@@ -1156,7 +1156,7 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
     </div>);
 }
 
-export function HistoryView({ accounts, language, request, onOpen, onChanged, token, initialAccountId, initialFromDate, focusTransactionId, onFocused, onRegisterRefresh }: {
+export function HistoryView({ accounts, language, request, onOpen, onChanged, token, initialAccountId, initialFromDate, focusTransactionId, onFocused, onBack, onRegisterRefresh }: {
     accounts: Account[];
     language: AppLanguage;
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
@@ -1167,14 +1167,17 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
     initialFromDate?: string;
     focusTransactionId?: string | null;
     onFocused?: () => void;
+    onBack: () => void;
     onRegisterRefresh?: (callback: () => Promise<void>) => void;
 }) {
     const [rows, setRows] = useState<Transaction[]>([]);
     const [search, setSearch] = useState("");
     const [type, setType] = useState("");
     const [accountId, setAccountId] = useState(initialAccountId ?? "");
-    const [fromDate, setFromDate] = useState(() => initialFromDate || currentMonthDateBounds().from);
-    const [toDate, setToDate] = useState(() => currentMonthDateBounds().to);
+    const [datePreset, setDatePreset] = useState<"all" | "today" | "last7" | "month" | "custom">(() => initialFromDate ? "custom" : "all");
+    const [fromDate, setFromDate] = useState(() => initialFromDate || "");
+    const [toDate, setToDate] = useState("");
+    const [showDateFilter, setShowDateFilter] = useState(false);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [highlightedTransactionId, setHighlightedTransactionId] = useState<string | null>(null);
@@ -1219,8 +1222,36 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
     }, [accountId, fromDate, onRegisterRefresh, search, toDate, type]);
     useEffect(() => {
         setAccountId(initialAccountId ?? "");
-        setFromDate(initialFromDate || currentMonthDateBounds().from);
+        setDatePreset(initialFromDate ? "custom" : "all");
+        setFromDate(initialFromDate || "");
+        setToDate("");
     }, [initialAccountId, initialFromDate]);
+    const applyDatePreset = (preset: "all" | "today" | "last7" | "month" | "custom") => {
+        setDatePreset(preset);
+        if (preset === "custom")
+            return;
+        const today = isoDateInput();
+        if (preset === "all") {
+            setFromDate("");
+            setToDate("");
+        }
+        else if (preset === "today") {
+            setFromDate(today);
+            setToDate(today);
+        }
+        else if (preset === "last7") {
+            const start = new Date(`${today}T12:00:00`);
+            start.setDate(start.getDate() - 6);
+            setFromDate(isoDateInput(start));
+            setToDate(today);
+        }
+        else {
+            const month = currentMonthDateBounds();
+            setFromDate(month.from);
+            setToDate(month.to);
+        }
+        setShowDateFilter(false);
+    };
     useEffect(() => {
         if (loading || !focusTransactionId)
             return;
@@ -1313,6 +1344,9 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
         await onChanged();
     };
     return (<section className="mx-auto max-w-6xl space-y-3 lg:space-y-4">
+      <button type="button" className="app-back-button" onClick={onBack}>
+        <ArrowLeft size={14}/> {language === "en" ? "Back" : "Kembali"}
+      </button>
       <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -1368,10 +1402,52 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
           </select>
         </label>
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <DateFilterPicker label="Dari" value={fromDate} onChange={setFromDate} language={language}/>
-          <DateFilterPicker label="Sampai" value={toDate} onChange={setToDate} language={language} align="right"/>
+        <div className="mt-3">
+          <button type="button" className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-semibold text-slate-700" onClick={() => setShowDateFilter(true)}>
+            <span className="inline-flex items-center gap-2">
+              <ListFilter size={15} className="text-[#16A34A]"/>
+              {language === "en" ? "Date filter" : "Filter tanggal"}
+            </span>
+            <span className="text-[#16A34A]">
+              {datePreset === "today" ? (language === "en" ? "Today" : "Hari ini")
+                : datePreset === "last7" ? (language === "en" ? "Last 7 days" : "7 hari terakhir")
+                    : datePreset === "month" ? (language === "en" ? "This month" : "Bulan ini")
+                        : datePreset === "custom" ? (language === "en" ? "Custom" : "Kustom")
+                            : (language === "en" ? "All dates" : "Semua tanggal")}
+            </span>
+          </button>
         </div>
+
+        {showDateFilter && (<>
+          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close date filter" : "Tutup filter tanggal"} onClick={() => setShowDateFilter(false)}/>
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">{language === "en" ? "Date filter" : "Filter tanggal"}</h2>
+                <p className="mt-1 text-xs text-slate-500">{language === "en" ? "Choose a transaction period." : "Pilih periode transaksi."}</p>
+              </div>
+              <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowDateFilter(false)}><X size={16}/></button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {[
+                { id: "all" as const, label: language === "en" ? "All dates" : "Semua tanggal" },
+                { id: "today" as const, label: language === "en" ? "Today" : "Hari ini" },
+                { id: "last7" as const, label: language === "en" ? "Last 7 days" : "7 hari terakhir" },
+                { id: "month" as const, label: language === "en" ? "This month" : "Bulan ini" },
+                { id: "custom" as const, label: language === "en" ? "Custom date" : "Tanggal kustom" }
+              ].map((option) => (<button key={option.id} type="button" className={`rounded-xl border px-3 py-2.5 text-xs font-semibold transition ${datePreset === option.id ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => applyDatePreset(option.id)}>
+                {option.label}
+              </button>))}
+            </div>
+            {datePreset === "custom" && (<div className="mt-3 grid grid-cols-2 gap-2">
+              <DateFilterPicker label={language === "en" ? "Start date" : "Tanggal mulai"} value={fromDate} onChange={setFromDate} language={language}/>
+              <DateFilterPicker label={language === "en" ? "End date" : "Tanggal akhir"} value={toDate} onChange={setToDate} language={language} align="right"/>
+            </div>)}
+            {datePreset === "custom" && (<button type="button" className="btn-primary mt-4 w-full" onClick={() => setShowDateFilter(false)}>
+              {language === "en" ? "Apply filter" : "Terapkan filter"}
+            </button>)}
+          </section>
+        </>)}
 
         <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
           <p className="text-[11px] font-bold text-slate-400">Export</p>

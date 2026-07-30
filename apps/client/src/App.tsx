@@ -735,7 +735,7 @@ function App() {
   useEffect(() => {
     let scrollEndTimer = 0;
     const updateScrollButton = () => {
-      setShowScrollTop(window.scrollY > 360);
+      setShowScrollTop(window.scrollY > 1);
       setIsScrolling(true);
       window.clearTimeout(scrollEndTimer);
       scrollEndTimer = window.setTimeout(() => setIsScrolling(false), 180);
@@ -908,6 +908,14 @@ function App() {
     setHistoryAccountId(accountId);
     setHistoryFromDate(fromDate ?? "");
     navigate("history", true);
+  };
+
+  const backFromHistory = () => {
+    if (historyParentView === "accounts") {
+      returnToPocketDetail(historyAccountId);
+      return;
+    }
+    navigate(historyParentView ?? "dashboard");
   };
 
   const startAccountTransfer = () => {
@@ -1389,9 +1397,10 @@ function App() {
               token={token!}
               initialAccountId={historyAccountId}
               initialFromDate={historyFromDate}
+              onBack={backFromHistory}
               focusTransactionId={historyFocusTransactionId}
               onFocused={() => setHistoryFocusTransactionId(null)}
-              onRegisterRefresh={(callback) => applyChildFrameState({ active: false, onBack: null, onRefresh: callback })}
+              onRegisterRefresh={(callback) => applyChildFrameState({ active: true, onBack: backFromHistory, onRefresh: callback })}
             />
           )}
           {view === "transactionDetail" && selectedTransaction && (

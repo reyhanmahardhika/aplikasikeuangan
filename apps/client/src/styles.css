@@ -64,7 +64,20 @@ textarea {
 }
 
 .input {
-  @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] text-slate-900 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 lg:rounded-md lg:px-3 lg:py-2;
+  @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] text-slate-900 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 lg:rounded-md lg:px-3;
+}
+
+input.input,
+select.input {
+  height: 44px;
+  min-height: 44px;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 1.25rem;
+}
+
+textarea.input {
+  @apply py-2.5 lg:py-2;
 }
 
 .input:focus {
@@ -74,11 +87,15 @@ textarea {
 
 /* Keep native date controls aligned and contained on iOS Safari/PWA. */
 input[type="date"],
-input[type="datetime-local"] {
-  display: block;
+input[type="datetime-local"],
+input[type="time"],
+input[type="month"] {
+  display: flex;
+  align-items: center;
   width: 100%;
   min-width: 0;
-  min-height: 42px;
+  height: 44px;
+  min-height: 44px;
   box-sizing: border-box;
   color-scheme: light;
   -webkit-appearance: none;
@@ -86,13 +103,22 @@ input[type="datetime-local"] {
 }
 
 input[type="date"]::-webkit-date-and-time-value,
-input[type="datetime-local"]::-webkit-date-and-time-value {
-  min-height: 1.25em;
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="month"]::-webkit-date-and-time-value {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
   text-align: left;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
   margin: 0;
   padding: 0;
 }

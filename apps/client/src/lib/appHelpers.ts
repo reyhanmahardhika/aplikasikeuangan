@@ -17,6 +17,10 @@ export function successMessageFor(path: string, method: string) {
         return "Berhasil menambah transaksi dari struk";
     if (path === "/accounts" && method === "POST")
         return "Berhasil menambah pocket";
+    if (/^\/accounts\/[^/]+\/collaborators$/.test(path) && method === "POST")
+        return "Undangan user berhasil dikirim";
+    if (/^\/accounts\/[^/]+\/collaborators\/[^/]+$/.test(path) && method === "DELETE")
+        return "User berhasil dihapus dari pocket";
     if (path.endsWith("/reset") && path.startsWith("/accounts/") && method === "POST")
         return "Pocket berhasil direset";
     if (path === "/accounts/order" && method === "PUT")

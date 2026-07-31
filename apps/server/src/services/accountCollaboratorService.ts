@@ -61,6 +61,12 @@ export async function inviteAccountCollaborator(
     const result = await db.query(
       `INSERT INTO account_collaborators (account_id, user_id, role, status, invited_by)
        VALUES ($1, $2, $3, 'pending', $4)
+       ON CONFLICT (account_id, user_id) DO UPDATE
+       SET role = EXCLUDED.role,
+           status = 'pending',
+           invited_by = EXCLUDED.invited_by,
+           invited_at = now(),
+           accepted_at = NULL
        RETURNING *`,
       [accountId, targetUserId, role, inviterId]
     );
@@ -68,7 +74,7 @@ export async function inviteAccountCollaborator(
       userId: inviterId,
       action: "CREATE",
       entityName: "AccountCollaborator",
-      entityId: result.rows[0].account_id + ":" + result.rows[0].user_id,
+      entityId: result.rows[0].account_id,
       newValue: result.rows[0]
     });
     return result.rows[0];
@@ -102,7 +108,7 @@ export async function respondAccountInvite(
       userId,
       action: "UPDATE",
       entityName: "AccountCollaborator",
-      entityId: accountId + ":" + userId,
+      entityId: accountId,
       newValue: updated.rows[0]
     });
     return updated.rows[0];
@@ -115,7 +121,7 @@ export async function removeAccountCollaborator(
   targetUserId: string
 ) {
   const result = await pool.query(
-    `SELECT ac.role, ac.status FROM account_collaborators ac
+    `SELECT ac.role, ac.status, a.user_id AS owner_user_id FROM account_collaborators ac
      JOIN accounts a ON a.id = ac.account_id
      WHERE ac.account_id = $1 AND ac.user_id = $2
      FOR UPDATE`,
@@ -124,6 +130,9 @@ export async function removeAccountCollaborator(
   if (!result.rowCount) throw notFound("Collaborator tidak ditemukan");
 
   const collaborator = result.rows[0];
+  if (collaborator.owner_user_id !== requesterId) {
+    throw forbidden("Hanya owner yang dapat menghapus user dari pocket");
+  }
   if (collaborator.role === "owner") throw badRequest("Tidak dapat menghapus owner");
 
   await pool.query(
@@ -134,7 +143,7 @@ export async function removeAccountCollaborator(
     userId: requesterId,
     action: "DELETE",
     entityName: "AccountCollaborator",
-    entityId: accountId + ":" + targetUserId
+    entityId: accountId
   });
   return { deleted: true };
 }

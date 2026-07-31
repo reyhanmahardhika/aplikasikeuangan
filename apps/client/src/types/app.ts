@@ -30,6 +30,7 @@ export type Account = {
     isSharedWalletAccount?: boolean;
     ownerUserId?: string | null;
     ownerName?: string | null;
+    ownerAvatarUrl?: string | null;
     canEdit?: boolean;
     allowNegative: boolean;
     isActive: boolean;

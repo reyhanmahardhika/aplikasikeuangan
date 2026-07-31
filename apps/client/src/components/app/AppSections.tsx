@@ -1178,12 +1178,13 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
     const [fromDate, setFromDate] = useState(() => initialFromDate || "");
     const [toDate, setToDate] = useState("");
     const [showDateFilter, setShowDateFilter] = useState(false);
+    const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "amount-desc" | "amount-asc">("newest");
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [highlightedTransactionId, setHighlightedTransactionId] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
     const transactionRefs = useRef(new Map<string, HTMLDivElement>());
-    const load = async (nextSearch = search, nextType = type, nextFromDate = fromDate, nextToDate = toDate, nextAccountId = accountId) => {
+    const load = async (nextSearch = search, nextType = type, nextFromDate = fromDate, nextToDate = toDate, nextAccountId = accountId, nextSortOrder = sortOrder) => {
         setLoading(true);
         setLoadError(null);
         try {
@@ -1198,6 +1199,8 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
                 params.set("from", dateFilterIso(nextFromDate, "start"));
             if (nextToDate)
                 params.set("to", dateFilterIso(nextToDate, "end"));
+            params.set("sort", nextSortOrder.startsWith("amount") ? "amount" : "transaction_date");
+            params.set("direction", nextSortOrder === "oldest" || nextSortOrder === "amount-asc" ? "asc" : "desc");
             const result = await request<{
                 data: Transaction[];
             }>(`/transactions?${params.toString()}`);
@@ -1213,13 +1216,13 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
     };
     useEffect(() => {
         const timer = window.setTimeout(() => {
-            load(search, type, fromDate, toDate, accountId).catch(console.error);
+            load(search, type, fromDate, toDate, accountId, sortOrder).catch(console.error);
         }, 300);
         return () => window.clearTimeout(timer);
-    }, [search, type, fromDate, toDate, accountId]);
+    }, [search, type, fromDate, toDate, accountId, sortOrder]);
     useEffect(() => {
-        onRegisterRefresh?.(() => load(search, type, fromDate, toDate, accountId));
-    }, [accountId, fromDate, onRegisterRefresh, search, toDate, type]);
+        onRegisterRefresh?.(() => load(search, type, fromDate, toDate, accountId, sortOrder));
+    }, [accountId, fromDate, onRegisterRefresh, search, sortOrder, toDate, type]);
     useEffect(() => {
         setAccountId(initialAccountId ?? "");
         setDatePreset(initialFromDate ? "custom" : "all");
@@ -1250,7 +1253,6 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
             setFromDate(month.from);
             setToDate(month.to);
         }
-        setShowDateFilter(false);
     };
     useEffect(() => {
         if (loading || !focusTransactionId)
@@ -1285,6 +1287,8 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
             params.set("from", dateFilterIso(fromDate, "start"));
         if (toDate)
             params.set("to", dateFilterIso(toDate, "end"));
+        params.set("sort", sortOrder.startsWith("amount") ? "amount" : "transaction_date");
+        params.set("direction", sortOrder === "oldest" || sortOrder === "amount-asc" ? "asc" : "desc");
         const response = await fetch(downloadUrl(`/transactions/export?${params.toString()}`), {
             headers: { Authorization: `Bearer ${token}` }
         });
@@ -1304,13 +1308,21 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
     const netTotal = totalIncome - totalExpense;
     const visibleIds = useMemo(() => rows.filter((row) => row.canManage !== false).map((row) => row.id), [rows]);
     const selectedCount = selectedIds.size;
+    const historyFilterCount = (accountId ? 1 : 0) + (datePreset !== "all" ? 1 : 0) + (sortOrder !== "newest" ? 1 : 0);
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
     const typeOptions = [
         { value: "", label: "Semua" },
         { value: "income", label: "Masuk" },
         { value: "expense", label: "Keluar" }
     ];
-    const groupedRows = groupTransactionsByDate(rows);
+    const groupedRows = sortOrder.startsWith("amount")
+        ? [{
+            key: `amount-${sortOrder}`,
+            label: language === "en" ? "Sorted by amount" : "Diurutkan berdasarkan nominal",
+            rows,
+            net: rows.reduce((sum, row) => sum + (row.transactionType === "income" ? Number(row.amount) : -Number(row.amount)), 0)
+        }]
+        : groupTransactionsByDate(rows);
     useEffect(() => {
         const visible = new Set(visibleIds);
         setSelectedIds((current) => {
@@ -1380,55 +1392,45 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
       </div>
 
       <div className="rounded-[22px] border border-white/80 bg-white p-3 shadow-soft lg:rounded-lg lg:border-slate-200">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-2.5 text-slate-400" size={15}/>
-          <input className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-9 py-2.5 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari transaksi"/>
-          {search && (<button type="button" className="absolute right-2 top-1.5 flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Bersihkan pencarian" title="Bersihkan pencarian" onClick={() => setSearch("")}>
-              <X size={14}/>
-            </button>)}
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15}/>
+            <input className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-9 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={language === "en" ? "Search transactions" : "Cari transaksi"}/>
+            {search && (<button type="button" className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Bersihkan pencarian" title="Bersihkan pencarian" onClick={() => setSearch("")}>
+                <X size={14}/>
+              </button>)}
+          </div>
+          <button type="button" className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${historyFilterCount > 0 ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-500"}`} onClick={() => setShowDateFilter(true)} aria-label={language === "en" ? "Transaction filter" : "Filter transaksi"}>
+            <ListFilter size={17}/>
+            {historyFilterCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#16A34A] px-1 text-[9px] font-bold text-white">{historyFilterCount}</span>}
+          </button>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 rounded-2xl bg-slate-100 p-1 lg:max-w-sm lg:rounded-md">
+        <div className="mt-2 grid grid-cols-3 rounded-xl bg-slate-100 p-1 lg:max-w-sm lg:rounded-md">
           {typeOptions.map((option) => (<button key={option.value} type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold transition lg:rounded-md ${type === option.value ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => applyType(option.value)}>
               {option.label}
             </button>))}
         </div>
 
-        <label className="mt-3 block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase text-slate-400">Pocket</span>
-          <select className="input" value={accountId} onChange={(event) => setAccountId(event.target.value)} aria-label="Filter berdasarkan pocket">
-            <option value="">Semua pocket</option>
-            {accounts.map((account) => (<option key={account.id} value={account.id}>{accountOptionLabel(account, { language })}</option>))}
-          </select>
-        </label>
-
-        <div className="mt-3">
-          <button type="button" className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs font-semibold text-slate-700" onClick={() => setShowDateFilter(true)}>
-            <span className="inline-flex items-center gap-2">
-              <ListFilter size={15} className="text-[#16A34A]"/>
-              {language === "en" ? "Date filter" : "Filter tanggal"}
-            </span>
-            <span className="text-[#16A34A]">
-              {datePreset === "today" ? (language === "en" ? "Today" : "Hari ini")
-                : datePreset === "last7" ? (language === "en" ? "Last 7 days" : "7 hari terakhir")
-                    : datePreset === "month" ? (language === "en" ? "This month" : "Bulan ini")
-                        : datePreset === "custom" ? (language === "en" ? "Custom" : "Kustom")
-                            : (language === "en" ? "All dates" : "Semua tanggal")}
-            </span>
-          </button>
-        </div>
-
         {showDateFilter && (<>
-          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close date filter" : "Tutup filter tanggal"} onClick={() => setShowDateFilter(false)}/>
-          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close transaction filter" : "Tutup filter transaksi"} onClick={() => setShowDateFilter(false)}/>
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-slate-950">{language === "en" ? "Date filter" : "Filter tanggal"}</h2>
-                <p className="mt-1 text-xs text-slate-500">{language === "en" ? "Choose a transaction period." : "Pilih periode transaksi."}</p>
+                <h2 className="text-base font-semibold text-slate-950">{language === "en" ? "Transaction filter" : "Filter transaksi"}</h2>
+                <p className="mt-1 text-xs text-slate-500">{language === "en" ? "Set pocket, period, and transaction order." : "Atur pocket, periode, dan urutan transaksi."}</p>
               </div>
               <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowDateFilter(false)}><X size={16}/></button>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <label className="mt-4 block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">Pocket</span>
+              <select className="input" value={accountId} onChange={(event) => setAccountId(event.target.value)} aria-label={language === "en" ? "Filter by pocket" : "Filter berdasarkan pocket"}>
+                <option value="">{language === "en" ? "All pockets" : "Semua pocket"}</option>
+                {accounts.map((account) => (<option key={account.id} value={account.id}>{accountOptionLabel(account, { language })}</option>))}
+              </select>
+            </label>
+            <p className="mt-4 text-xs font-semibold text-slate-700">{language === "en" ? "Period" : "Periode"}</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               {[
                 { id: "all" as const, label: language === "en" ? "All dates" : "Semua tanggal" },
                 { id: "today" as const, label: language === "en" ? "Today" : "Hari ini" },
@@ -1443,17 +1445,36 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
               <DateFilterPicker label={language === "en" ? "Start date" : "Tanggal mulai"} value={fromDate} onChange={setFromDate} language={language}/>
               <DateFilterPicker label={language === "en" ? "End date" : "Tanggal akhir"} value={toDate} onChange={setToDate} language={language} align="right"/>
             </div>)}
-            {datePreset === "custom" && (<button type="button" className="btn-primary mt-4 w-full" onClick={() => setShowDateFilter(false)}>
-              {language === "en" ? "Apply filter" : "Terapkan filter"}
-            </button>)}
+            <p className="mt-4 text-xs font-semibold text-slate-700">{language === "en" ? "Order" : "Urutan"}</p>
+            <div className="mt-2 space-y-2">
+              {[
+                { id: "newest" as const, label: language === "en" ? "Recent transactions" : "Transaksi terbaru" },
+                { id: "oldest" as const, label: language === "en" ? "Oldest transactions" : "Transaksi terlama" },
+                { id: "amount-desc" as const, label: language === "en" ? "Largest amount" : "Nominal paling besar" },
+                { id: "amount-asc" as const, label: language === "en" ? "Smallest amount" : "Nominal paling kecil" }
+              ].map((option) => (<button key={option.id} type="button" className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition ${sortOrder === option.id ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => setSortOrder(option.id)}>
+                {option.label}
+                {sortOrder === option.id && <CheckCircle2 size={14}/>}
+              </button>))}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" className="btn-secondary" onClick={() => {
+                setAccountId("");
+                setSortOrder("newest");
+                applyDatePreset("all");
+              }}>{language === "en" ? "Reset" : "Reset"}</button>
+              <button type="button" className="btn-primary" onClick={() => setShowDateFilter(false)}>
+                {language === "en" ? "Apply" : "Terapkan"}
+              </button>
+            </div>
           </section>
         </>)}
 
-        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-          <p className="text-[11px] font-bold text-slate-400">Export</p>
+        <div className="mt-2 flex items-center justify-end gap-2 border-t border-slate-100 pt-2">
+          <span className="mr-auto text-[10px] font-semibold text-slate-400">{language === "en" ? "Export data" : "Export data"}</span>
           <div className="flex gap-2">
-            <button className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => exportFile("csv")}><Download size={13}/> CSV</button>
-            <button className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => exportFile("excel")}><FileSpreadsheet size={13}/> Excel</button>
+            <button className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => exportFile("csv")}><Download size={12}/> CSV</button>
+            <button className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50" onClick={() => exportFile("excel")}><FileSpreadsheet size={12}/> Excel</button>
           </div>
         </div>
       </div>
@@ -1475,20 +1496,6 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
                 <Trash2 size={13}/> Hapus
               </button>
             </div>
-          </div>
-        </div>)}
-
-      {!loading && rows.length > 0 && selectedCount === 0 && (<div className="overflow-x-auto rounded-[20px] border border-white/80 bg-white/85 px-3 py-2 shadow-soft backdrop-blur lg:rounded-lg">
-          <div className="flex min-w-max items-center gap-2 text-[11px] font-semibold text-slate-500">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[#16A34A]">
-              <ChevronRight size={12}/> Tap detail
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-              <CheckCircle2 size={12}/> Tahan pilih
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-rose-500">
-              <ArrowLeft size={12}/> Swipe hapus
-            </span>
           </div>
         </div>)}
 
@@ -2015,8 +2022,9 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
     </div>);
 }
 
-export function AccountsView({ accounts, request, onChanged, onAddTransaction, onOpenTransactions, onChildFrameStateChange, initialView = "list", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
+export function AccountsView({ accounts, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onChildFrameStateChange, initialView = "list", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
     accounts: Account[];
+    currentUserId: string;
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
     onChanged: () => Promise<void>;
     onAddTransaction?: (accountId: string) => void;
@@ -2089,9 +2097,11 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
         userId: string;
         fullName: string;
         avatarUrl: string | null;
+        status: string;
     }>>>({});
     const pocketPreviewLoadingRef = useRef<Set<string>>(new Set());
     const [showPocketMembersPopup, setShowPocketMembersPopup] = useState(false);
+    const [removingPocketMemberId, setRemovingPocketMemberId] = useState<string | null>(null);
     const [showPocketInviteModal, setShowPocketInviteModal] = useState(false);
     const [scanQrOpen, setScanQrOpen] = useState(false);
     const [qrScannerError, setQrScannerError] = useState<string | null>(null);
@@ -2238,12 +2248,12 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             userId: selectedPocket.ownerUserId,
             fullName: selectedPocket.ownerName || selectedPocket.name,
             username: "",
-            avatarUrl: null as string | null,
+            avatarUrl: selectedPocket.ownerAvatarUrl ?? null,
             role: "owner",
             status: "accepted"
         } : null;
         const acceptedCollaborators = pocketCollaborators
-            .filter((member) => member.status === "accepted" && member.user_id !== selectedPocket.ownerUserId)
+            .filter((member) => member.status !== "rejected" && member.user_id !== selectedPocket.ownerUserId)
             .map((member) => ({
             userId: member.user_id,
             fullName: member.full_name,
@@ -2315,14 +2325,16 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 const owner = account.ownerUserId ? [{
                         userId: account.ownerUserId,
                         fullName: account.ownerName || account.name,
-                        avatarUrl: null as string | null
+                        avatarUrl: account.ownerAvatarUrl ?? null,
+                        status: "accepted"
                     }] : [];
                 const acceptedMembers = rows
-                    .filter((member) => member.status === "accepted" && member.user_id !== account.ownerUserId)
+                    .filter((member) => member.status !== "rejected" && member.user_id !== account.ownerUserId)
                     .map((member) => ({
                     userId: member.user_id,
                     fullName: member.full_name,
-                    avatarUrl: member.avatar_url
+                    avatarUrl: member.avatar_url,
+                    status: member.status
                 }));
                 setPocketMemberPreviewMap((current) => ({
                     ...current,
@@ -2496,10 +2508,9 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                     role: invitePermission
                 })
             });
-            setInviteSuccess(invitePermission === "member"
-                ? "Undangan terkirim. User ini bisa menabung dan memakai saldo pocket."
-                : "Undangan terkirim. User ini hanya bisa menabung di pocket.");
-            const rows = await request<Array<{
+            setShowPocketInviteModal(false);
+            setInviteSuccess(null);
+            request<Array<{
                 user_id: string;
                 role: string;
                 status: string;
@@ -2507,18 +2518,72 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                 email: string;
                 username: string;
                 avatar_url: string | null;
-            }>>(`/accounts/${selectedPocketId}/collaborators`);
+            }>>(`/accounts/${selectedPocketId}/collaborators`).then((rows) => {
             setPocketCollaborators(rows);
-            setInviteQuery("");
-            setInviteSearchResults([]);
-            setInviteSelectedUser(null);
-            setInvitePermission("member");
+            if (selectedPocket) {
+                const owner = selectedPocket.ownerUserId ? [{
+                    userId: selectedPocket.ownerUserId,
+                    fullName: selectedPocket.ownerName || selectedPocket.name,
+                    avatarUrl: selectedPocket.ownerAvatarUrl ?? null,
+                    status: "accepted"
+                }] : [];
+                const invitedMembers = rows
+                    .filter((member) => member.status !== "rejected" && member.user_id !== selectedPocket.ownerUserId)
+                    .map((member) => ({
+                    userId: member.user_id,
+                    fullName: member.full_name,
+                    avatarUrl: member.avatar_url,
+                    status: member.status
+                }));
+                setPocketMemberPreviewMap((current) => ({
+                    ...current,
+                    [selectedPocketId]: [...owner, ...invitedMembers]
+                }));
+            }
+            }).catch(() => undefined);
         }
         catch (err) {
             setInviteSuccess(err instanceof Error ? err.message : "Undangan gagal dikirim");
         }
         finally {
             setInviteSending(false);
+        }
+    };
+    const removePocketMember = async (memberId: string, memberName: string) => {
+        if (!selectedPocketId || selectedPocket?.ownerUserId !== currentUserId)
+            return;
+        const confirmation = language === "en"
+            ? `Remove ${memberName} from this Pocket?`
+            : `Hapus ${memberName} dari Pocket ini?`;
+        if (!window.confirm(confirmation))
+            return;
+        setRemovingPocketMemberId(memberId);
+        try {
+            await request(`/accounts/${selectedPocketId}/collaborators/${memberId}`, { method: "DELETE" });
+            const remaining = pocketCollaborators.filter((member) => member.user_id !== memberId);
+            setPocketCollaborators(remaining);
+            const ownerPreview = selectedPocket.ownerUserId ? [{
+                userId: selectedPocket.ownerUserId,
+                fullName: selectedPocket.ownerName || selectedPocket.name,
+                avatarUrl: selectedPocket.ownerAvatarUrl ?? null,
+                status: "accepted"
+            }] : [];
+            setPocketMemberPreviewMap((current) => ({
+                ...current,
+                [selectedPocketId]: [
+                    ...ownerPreview,
+                    ...remaining.filter((member) => member.status !== "rejected").map((member) => ({
+                        userId: member.user_id,
+                        fullName: member.full_name,
+                        avatarUrl: member.avatar_url,
+                        status: member.status
+                    }))
+                ]
+            }));
+            await onChanged();
+        }
+        finally {
+            setRemovingPocketMemberId(null);
         }
     };
     const handlePocketInviteScan = async (rawValue: string | null) => {
@@ -3016,18 +3081,6 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                           <span className={`flex h-8 w-8 items-center justify-center rounded-full text-white backdrop-blur transition-all duration-150 ${pocketTab === "mine" ? "cursor-grab touch-none select-none active:cursor-grabbing" : ""} ${isDraggingThisPocket ? "scale-110 bg-white/30 shadow-md" : "bg-white/14 text-white/80"}`} role={pocketTab === "mine" ? "button" : undefined} aria-label={pocketTab === "mine" ? (language === "en" ? "Drag to reorder pocket" : "Tarik untuk mengurutkan pocket") : undefined} onPointerDown={(event) => startPocketPointerDrag(event, account.id)} onPointerMove={updatePocketPointerDrag} onPointerUp={finishPocketPointerDrag} onPointerCancel={finishPocketPointerDrag}>
                             {pocketTab === "mine" ? <GripVertical className={isDraggingThisPocket ? "animate-pulse" : ""} size={17}/> : <span className="px-2 text-[9px] font-semibold">Shared</span>}
                           </span>
-                          {hasMultipleMembers && (<button type="button" className="inline-flex items-center rounded-full bg-white/12 px-1.5 py-1 backdrop-blur transition hover:bg-white/18 active:scale-[0.98]" onClick={(event) => {
-                                    event.stopPropagation();
-                                    setSelectedPocketId(account.id);
-                                    setShowPocketMembersPopup(true);
-                                }}>
-                              <div className="flex items-center -space-x-2">
-                                {memberPreview.slice(0, 3).map((member) => (<span key={member.userId} title={member.fullName} className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border-2 border-emerald-900/35 bg-emerald-50 text-[9px] font-semibold text-[#16A34A] shadow-sm">
-                                    {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-full w-full object-cover"/> : member.fullName.slice(0, 1).toUpperCase()}
-                                  </span>))}
-                              </div>
-                              <span className="ml-2 text-[9px] font-semibold text-white/85">+{memberPreview.length - 1}</span>
-                            </button>)}
                         </div>
                       </div>
                       <div className="mt-0.5">
@@ -3036,7 +3089,22 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                         <p className="mt-3 text-[10px] font-medium text-white/70">Saldo saat ini</p>
                         <p className="mt-0.5 text-lg font-semibold">{rupiah(account.currentBalance)}</p>
                       </div>
-                      
+                      {hasMultipleMembers && (<button type="button" className="absolute bottom-0 right-0 inline-flex items-center rounded-full bg-black/15 px-1.5 py-1 backdrop-blur transition hover:bg-black/20 active:scale-[0.98]" aria-label={language === "en" ? "View Pocket users" : "Lihat pengguna Pocket"} onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedPocketId(account.id);
+                                setAccountView("pocket-detail");
+                                setShowPocketMembersPopup(true);
+                            }}>
+                          <span className="flex items-center -space-x-1.5">
+                            {memberPreview.slice(0, 2).map((member) => (<span key={member.userId} title={member.fullName} className="relative flex h-5 w-5 items-center justify-center rounded-full border border-white/80 bg-emerald-50 text-[8px] font-semibold text-[#16A34A] shadow-sm">
+                                <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full">
+                                  {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-full w-full object-cover"/> : member.fullName.slice(0, 1).toUpperCase()}
+                                </span>
+                                {member.status === "pending" && <span className="absolute -bottom-1 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full border border-white bg-amber-400 text-[6px] font-bold leading-none text-amber-950 shadow-sm">P</span>}
+                              </span>))}
+                          </span>
+                          <span className="ml-1.5 text-[8px] font-semibold text-white/90">{memberPreview.length}</span>
+                        </button>)}
                     </div>
                   </button>);
                 })}
@@ -3085,8 +3153,11 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
             </div>
             {pocketMembers.length > 1 && (<div className="relative z-10 mt-4 flex items-center justify-between gap-3">
                 <div className="flex items-center -space-x-2">
-                  {pocketMembers.slice(0, 4).map((member) => (<button key={member.userId} type="button" className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-emerald-50 text-[11px] font-semibold text-[#16A34A]" onClick={() => setShowPocketMembersPopup(true)}>
-                      {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-full w-full object-cover"/> : member.fullName.slice(0, 1).toUpperCase()}
+                  {pocketMembers.slice(0, 4).map((member) => (<button key={member.userId} type="button" className="relative flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-emerald-50 text-[11px] font-semibold text-[#16A34A]" onClick={() => setShowPocketMembersPopup(true)}>
+                      <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full">
+                        {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-full w-full object-cover"/> : member.fullName.slice(0, 1).toUpperCase()}
+                      </span>
+                      {member.status === "pending" && <span className="absolute -bottom-1 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-white bg-amber-400 text-[8px] font-bold leading-none text-amber-950 shadow-sm">P</span>}
                     </button>))}
                   {pocketMembers.length > 4 && (<button type="button" className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-white text-[10px] font-semibold text-slate-700" onClick={() => setShowPocketMembersPopup(true)}>
                       +{pocketMembers.length - 4}
@@ -3096,24 +3167,46 @@ export function AccountsView({ accounts, request, onChanged, onAddTransaction, o
                   {pocketMembers.length} user
                 </button>
               </div>)}
-            {showPocketMembersPopup && (<div className="absolute inset-x-4 top-[calc(100%_-_8px)] z-20 rounded-[22px] border border-slate-100 bg-white p-3 text-slate-900 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-sm font-semibold">Pocket users</p>
-                  <button type="button" className="text-slate-400" onClick={() => setShowPocketMembersPopup(false)}>
-                    <X size={16}/>
+          </div>
+
+          {showPocketMembersPopup && (<>
+              <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close Pocket users" : "Tutup pengguna Pocket"} onClick={() => setShowPocketMembersPopup(false)}/>
+              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 text-slate-900 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-950">Pengguna Pocket</h2>
+                    <p className="mt-1 text-xs text-slate-500">{pocketMembers.length} {language === "en" ? "users have access to this Pocket." : "user memiliki akses ke Pocket ini."}</p>
+                  </div>
+                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowPocketMembersPopup(false)}>
+                    <X size={17}/>
                   </button>
                 </div>
-                <div className="space-y-2">
-                  {pocketMembers.map((member) => (<div key={member.userId} className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                      {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-10 w-10 rounded-xl object-cover"/> : <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-sm font-semibold text-[#16A34A]">{member.fullName.slice(0, 1).toUpperCase()}</span>}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-slate-950">{member.fullName}</p>
-                        <p className="truncate text-[11px] text-slate-500">{member.role}</p>
-                      </div>
-                    </div>))}
+                <div className="mt-4 max-h-[52vh] space-y-2 overflow-y-auto overscroll-contain">
+                  {pocketMembers.map((member) => {
+                    const isOwner = member.role === "owner" || member.userId === selectedPocket.ownerUserId;
+                    const canRemove = selectedPocket.ownerUserId === currentUserId && !isOwner;
+                    const roleLabel = isOwner
+                        ? "Owner Pocket"
+                        : member.status === "pending"
+                            ? "Menunggu konfirmasi"
+                            : member.role === "viewer"
+                                ? (language === "en" ? "Can save only" : "Hanya bisa nabung")
+                                : (language === "en" ? "Can spend money" : "Bisa spend uang");
+                    return (<div key={member.userId} className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
+                        {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-11 w-11 rounded-2xl object-cover"/> : <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-sm font-semibold text-[#16A34A] shadow-sm">{member.fullName.slice(0, 1).toUpperCase()}</span>}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-slate-950">{member.fullName}</p>
+                          {member.username && <p className="truncate text-[11px] text-slate-500">@{member.username}</p>}
+                          <p className={`mt-0.5 text-[11px] font-medium ${member.status === "pending" ? "text-amber-600" : "text-[#16A34A]"}`}>{roleLabel}</p>
+                        </div>
+                        {canRemove && (<button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600 transition hover:bg-rose-100 disabled:opacity-50" aria-label={language === "en" ? `Remove ${member.fullName}` : `Hapus ${member.fullName}`} disabled={removingPocketMemberId === member.userId} onClick={() => removePocketMember(member.userId, member.fullName)}>
+                            {removingPocketMemberId === member.userId ? <Loader2 size={16} className="animate-spin"/> : <Trash2 size={16}/>} 
+                          </button>)}
+                      </div>);
+                })}
                 </div>
-              </div>)}
-          </div>
+              </section>
+            </>)}
 
           <div className="grid grid-cols-3 gap-2">
             <button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" disabled={transferableAccounts.length < 2} onClick={() => {

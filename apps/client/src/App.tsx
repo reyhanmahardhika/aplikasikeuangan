@@ -1419,6 +1419,7 @@ function App() {
           {view === "accounts" && (
             <AccountsView
               accounts={accounts}
+              currentUserId={session!.user.id}
               request={request}
               onChanged={refreshCore}
               initialView={accountsInitialView}

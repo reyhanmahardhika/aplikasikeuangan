@@ -39,11 +39,19 @@ export async function listAccounts(userId: string) {
             ) AS "isSharedWalletAccount",
             a.user_id AS "ownerUserId",
             u.full_name AS "ownerName",
+            u.avatar_url AS "ownerAvatarUrl",
             (a.user_id = $1) AS "canEdit",
             a.is_active AS "isActive", a.created_at AS "createdAt", a.updated_at AS "updatedAt"
      FROM accounts a
      JOIN users u ON u.id = a.user_id
      WHERE a.user_id = $1
+        OR EXISTS (
+          SELECT 1
+          FROM account_collaborators ac
+          WHERE ac.account_id = a.id
+            AND ac.user_id = $1
+            AND ac.status = 'accepted'
+        )
      ORDER BY a.is_active DESC, a.display_order ASC, a.created_at ASC`,
     [userId]
   );

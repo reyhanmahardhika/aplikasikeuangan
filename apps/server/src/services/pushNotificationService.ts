@@ -75,7 +75,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
           keys: { p256dh: row.p256dh, auth: row.auth }
         },
         JSON.stringify(payload),
-        { TTL: 60 * 60 * 24 }
+        { TTL: 60 * 60 * 24 * 7, urgency: "high" }
       );
       return true;
     } catch (error: any) {
@@ -92,34 +92,79 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
 
 export async function sendDueSchedulePushes() {
   if (!pushConfigured) return;
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: config.timeZone, year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(new Date());
+  const addFrequency = (dateValue: string, frequency: string) => {
+    const [year, month, day] = dateValue.slice(0, 10).split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (frequency === "daily") date.setUTCDate(date.getUTCDate() + 1);
+    else if (frequency === "weekly") date.setUTCDate(date.getUTCDate() + 7);
+    else {
+      const targetYear = frequency === "yearly" ? year + 1 : year + Math.floor(month / 12);
+      const targetMonth = frequency === "yearly" ? month - 1 : month % 12;
+      const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+      date.setTime(Date.UTC(targetYear, targetMonth, Math.min(day, lastDay)));
+    }
+    return date.toISOString().slice(0, 10);
+  };
+
+  const staleSchedules = await pool.query(
+    `SELECT id, next_due_date::text AS "nextDueDate", frequency,
+            expiry_date::text AS "expiryDate"
+     FROM schedules
+     WHERE is_active = true AND next_due_date < $1::date`,
+    [today]
+  );
+  for (const schedule of staleSchedules.rows) {
+    let nextDate = String(schedule.nextDueDate).slice(0, 10);
+    do nextDate = addFrequency(nextDate, schedule.frequency);
+    while (nextDate < today);
+    const expired = Boolean(schedule.expiryDate && nextDate > String(schedule.expiryDate).slice(0, 10));
+    await pool.query(
+      `UPDATE schedules SET next_due_date = $1, is_active = $2, updated_at = now() WHERE id = $3`,
+      [nextDate, !expired, schedule.id]
+    );
+  }
+
   const dueSchedules = await pool.query(
     `SELECT s.id, s.user_id AS "userId", s.title, s.amount::text,
-            s.next_due_date AS "nextDueDate"
+            s.next_due_date::text AS "nextDueDate", COALESCE(u.preferred_language, 'id') AS language
      FROM schedules s
+     JOIN users u ON u.id = s.user_id
      WHERE s.is_active = true
-       AND s.next_due_date <= (CURRENT_DATE + INTERVAL '3 days')::date
+       AND (s.expiry_date IS NULL OR s.next_due_date <= s.expiry_date)
+       AND s.next_due_date BETWEEN $1::date AND ($1::date + INTERVAL '3 days')::date
        AND NOT EXISTS (
          SELECT 1 FROM schedule_push_deliveries d
          WHERE d.schedule_id = s.id
            AND d.user_id = s.user_id
            AND d.due_date = s.next_due_date
-       )`
+       )`,
+    [today]
   );
 
   for (const schedule of dueSchedules.rows) {
-    const dueDate = new Date(schedule.nextDueDate);
-    const today = new Date();
-    dueDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    const days = Math.round((dueDate.getTime() - today.getTime()) / 86_400_000);
-    const timing = days < 0 ? "sudah lewat jatuh tempo" : days === 0 ? "jatuh tempo hari ini" : `jatuh tempo ${days} hari lagi`;
+    const dayNumber = (value: string) => {
+      const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+      return Date.UTC(year, month - 1, day) / 86_400_000;
+    };
+    const dueDate = String(schedule.nextDueDate).slice(0, 10);
+    const days = dayNumber(dueDate) - dayNumber(today);
+    const isEnglish = schedule.language === "en";
+    const timing = days === 0
+      ? (isEnglish ? "due today" : "jatuh tempo hari ini")
+      : (isEnglish ? `due in ${days} days` : `jatuh tempo ${days} hari lagi`);
+    const formattedDate = new Intl.DateTimeFormat(isEnglish ? "en-US" : "id-ID", {
+      timeZone: "UTC", day: "2-digit", month: "short", year: "numeric"
+    }).format(new Date(`${dueDate}T00:00:00Z`));
     const amount = schedule.amount
       ? `Rp${Number(schedule.amount).toLocaleString("id-ID")}`
       : null;
 
     const delivered = await sendPushToUser(schedule.userId, {
       title: schedule.title,
-      body: [timing, amount].filter(Boolean).join(" - "),
+      body: [`${timing} (${formattedDate})`, amount].filter(Boolean).join(" - "),
       url: "/?view=manage",
       tag: `schedule-${schedule.id}-${String(schedule.nextDueDate).slice(0, 10)}`
     });

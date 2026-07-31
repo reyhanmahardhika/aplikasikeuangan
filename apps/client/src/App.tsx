@@ -42,7 +42,7 @@ function App() {
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as View | null;
-    return requested && ["dashboard", "manual", "history", "reports", "assistant", "manage", "profile"].includes(requested)
+    return requested && ["dashboard", "manual", "history", "reports", "assistant", "manage", "profile", "notifications"].includes(requested)
       ? requested
       : "dashboard";
   });
@@ -955,6 +955,8 @@ function App() {
     "Detail transaksi";
   const activeNavigationView = view === "manual" && Boolean(manualInitialAccountId)
     ? "accounts"
+    : view === "profile"
+      ? "manage"
     : (view === "history" || view === "transactionDetail") && historyParentView === "accounts"
       ? "accounts"
       : view;
@@ -980,7 +982,7 @@ function App() {
       return true;
     }
     if (view === "profile") {
-      navigate(profileReturnViewRef.current ?? "dashboard");
+      navigate("manage");
       return true;
     }
     if (view === "accounts" || view === "categories" || view === "budgets") {
@@ -1212,7 +1214,7 @@ function App() {
                 type="button"
                 className="mobile-icon-btn"
                 aria-label={language === "en" ? "Notifications" : "Notifikasi"}
-                onClick={() => setNotificationsOpen((open) => !open)}
+                onClick={() => navigate("notifications")}
               >
                 <Bell size={18} />
                 {unreadNotificationCount > 0 && <NotificationBadge count={unreadNotificationCount} />}
@@ -1233,20 +1235,8 @@ function App() {
             language={language}
             unreadCount={unreadNotificationCount}
             onLanguageChange={setLanguage}
-            onNotifications={() => setNotificationsOpen((open) => !open)}
-            onProfile={() => openChildView("profile")}
-          />
-        )}
-
-        {notificationsOpen && (
-          <NotificationCenter
-            language={language}
-            items={notificationItems}
-            pushStatus={pushStatus}
-            onClose={() => setNotificationsOpen(false)}
-            onEnablePush={() => syncPushSubscription(true).catch((error) => setNotice(error instanceof Error ? error.message : "Push notification gagal diaktifkan"))}
-            onMarkAllRead={() => markAllNotificationsRead().catch((error) => setNotice(error instanceof Error ? error.message : "Notifikasi gagal diperbarui"))}
-            onOpen={(item) => openNotification(item).catch((error) => setNotice(error instanceof Error ? error.message : "Notifikasi gagal dibuka"))}
+            onNotifications={() => navigate("notifications")}
+            onProfile={() => navigate("manage")}
           />
         )}
 
@@ -1302,7 +1292,7 @@ function App() {
         <main
           className={
             view === "assistant"
-              ? "fixed inset-x-0 bottom-24 top-[4.25rem] overflow-hidden px-4 py-2 lg:static lg:inset-auto lg:overflow-visible lg:px-8 lg:py-6"
+              ? "fixed inset-x-0 bottom-[calc(72px+env(safe-area-inset-bottom))] top-0 overflow-hidden p-0 lg:static lg:inset-auto lg:overflow-visible lg:px-8 lg:py-6"
               : "px-4 pb-28 pt-3 lg:px-8 lg:py-6"
           }
           style={backSwipeOffset > 0 || backSwipeSettling ? {
@@ -1453,6 +1443,16 @@ function App() {
           )}
           {view === "reports" && <ReportsView request={request} />}
           {view === "assistant" && <AssistantView request={request} language={language} onNavigate={navigate} context={assistantContext} />}
+          {view === "notifications" && (
+            <NotificationCenter
+              language={language}
+              items={notificationItems}
+              pushStatus={pushStatus}
+              onEnablePush={() => syncPushSubscription(true).catch((error) => setNotice(error instanceof Error ? error.message : "Push notification gagal diaktifkan"))}
+              onMarkAllRead={() => markAllNotificationsRead().catch((error) => setNotice(error instanceof Error ? error.message : "Notifikasi gagal diperbarui"))}
+              onOpen={(item) => openNotification(item).catch((error) => setNotice(error instanceof Error ? error.message : "Notifikasi gagal dibuka"))}
+            />
+          )}
           {view === "profile" && (
             <ProfileView
               session={activeSession}
@@ -1461,6 +1461,7 @@ function App() {
               onInstall={installApp}
               showInstall={!installedAsApp}
               onLogout={logout}
+              onBack={() => navigate("manage")}
             />
           )}
             </>
@@ -1472,6 +1473,7 @@ function App() {
           activeView={activeNavigationView}
           language={language}
           isScrolling={isScrolling}
+          unreadNotificationCount={unreadNotificationCount}
           onNavigate={(nextView) => {
             if (nextView === "assistant") {
               openAssistant();

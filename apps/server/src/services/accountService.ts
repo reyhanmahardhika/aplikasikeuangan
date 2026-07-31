@@ -32,7 +32,10 @@ export async function listAccounts(userId: string) {
     `SELECT a.id, a.name, a.account_type AS "accountType", a.initial_balance AS "initialBalance",
             a.current_balance AS "currentBalance", a.currency, a.allow_negative AS "allowNegative",
             a.provider_name AS "providerName", a.account_number AS "accountNumber",
+            a.account_holder_name AS "accountHolderName",
             a.display_order AS "displayOrder",
+            a.target_balance::text AS "targetBalance", a.target_date::text AS "targetDate",
+            EXISTS (SELECT 1 FROM pocket_auto_budget_rules abr WHERE abr.account_id=a.id AND abr.is_active=true) AS "autoBudgetingEnabled",
             EXISTS (
               SELECT 1 FROM shared_wallets w
               WHERE w.storage_account_id = a.id AND w.is_active = true
@@ -58,6 +61,77 @@ export async function listAccounts(userId: string) {
   return result.rows;
 }
 
+export async function getAccountTarget(userId: string, accountId: string) {
+  const accountResult = await pool.query(
+    `SELECT a.id, a.user_id AS "ownerUserId", a.current_balance::text AS "currentBalance",
+            a.target_balance::text AS "targetBalance", a.target_date::text AS "targetDate"
+     FROM accounts a
+     WHERE a.id = $1 AND (
+       a.user_id = $2 OR EXISTS (
+         SELECT 1 FROM account_collaborators ac
+         WHERE ac.account_id = a.id AND ac.user_id = $2 AND ac.status = 'accepted'
+       )
+     )`,
+    [accountId, userId]
+  );
+  if (!accountResult.rowCount) throw notFound("Pocket tidak ditemukan");
+
+  const contributions = await pool.query(
+    `WITH members AS (
+       SELECT a.user_id AS user_id, 'owner'::text AS role
+       FROM accounts a WHERE a.id = $1
+       UNION ALL
+       SELECT ac.user_id, ac.role
+       FROM account_collaborators ac
+       WHERE ac.account_id = $1 AND ac.status = 'accepted'
+     )
+     SELECT m.user_id AS "userId", u.full_name AS "fullName", u.username,
+            u.avatar_url AS "avatarUrl", m.role,
+            (
+              CASE WHEN m.role = 'owner' THEN (SELECT initial_balance FROM accounts WHERE id = $1) ELSE 0 END
+              + COALESCE(SUM(
+                  CASE
+                    WHEN t.transaction_type = 'income' THEN t.amount - COALESCE(t.fee_amount, 0)
+                    ELSE -(t.amount + COALESCE(t.fee_amount, 0))
+                  END
+                ), 0)
+            )::text AS amount
+     FROM members m
+     JOIN users u ON u.id = m.user_id
+     LEFT JOIN transactions t ON t.account_id = $1 AND t.user_id = m.user_id
+     GROUP BY m.user_id, u.full_name, u.username, u.avatar_url, m.role
+     ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, u.full_name`,
+    [accountId]
+  );
+  return { ...accountResult.rows[0], contributions: contributions.rows };
+}
+
+export async function updateAccountTarget(
+  userId: string,
+  accountId: string,
+  payload: { targetBalance: unknown; targetDate: string }
+) {
+  const targetBalance = normalizeMoney(payload.targetBalance);
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(new Date());
+  if (payload.targetDate < today) throw badRequest("Target date tidak boleh sebelum hari ini");
+  const result = await pool.query(
+    `UPDATE accounts
+     SET target_balance = $1, target_date = $2, updated_at = now()
+     WHERE id = $3 AND user_id = $4
+     RETURNING id, current_balance::text AS "currentBalance",
+               target_balance::text AS "targetBalance", target_date::text AS "targetDate"`,
+    [targetBalance, payload.targetDate, accountId, userId]
+  );
+  if (!result.rowCount) throw forbidden("Hanya owner yang dapat mengatur target Pocket");
+  await writeAuditLog(pool, {
+    userId, action: "UPDATE", entityName: "AccountTarget", entityId: accountId,
+    newValue: result.rows[0]
+  });
+  return result.rows[0];
+}
+
 export async function createAccount(userId: string, payload: {
   name: string;
   accountType: string;
@@ -65,18 +139,19 @@ export async function createAccount(userId: string, payload: {
   currency?: string;
   providerName?: string | null;
   accountNumber?: string | null;
+  accountHolderName?: string | null;
   allowNegative?: boolean;
   isActive?: boolean;
 }) {
   const initialBalance = normalizeNonNegativeMoney(payload.initialBalance);
   const result = await pool.query(
     `INSERT INTO accounts (user_id, name, account_type, initial_balance, current_balance, currency,
-                           provider_name, account_number, allow_negative, is_active, display_order)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9,
+                           provider_name, account_number, account_holder_name, allow_negative, is_active, display_order)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10,
              COALESCE((SELECT max(display_order) + 1 FROM accounts WHERE user_id = $1), 0))
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
-               provider_name AS "providerName", account_number AS "accountNumber",
+               provider_name AS "providerName", account_number AS "accountNumber", account_holder_name AS "accountHolderName",
                is_active AS "isActive"`,
     [
       userId,
@@ -86,6 +161,7 @@ export async function createAccount(userId: string, payload: {
       payload.currency ?? "IDR",
       payload.providerName || null,
       payload.accountNumber || null,
+      payload.accountHolderName || null,
       payload.allowNegative ?? false,
       payload.isActive ?? true
     ]
@@ -137,6 +213,7 @@ export async function updateAccount(userId: string, accountId: string, payload: 
     currency: payload.currency ?? account.currency,
     providerName: payload.providerName === undefined ? account.provider_name : payload.providerName,
     accountNumber: payload.accountNumber === undefined ? account.account_number : payload.accountNumber,
+    accountHolderName: payload.accountHolderName === undefined ? account.account_holder_name : payload.accountHolderName,
     allowNegative: payload.allowNegative ?? account.allow_negative,
     isActive: payload.isActive ?? account.is_active
   };
@@ -154,17 +231,17 @@ export async function updateAccount(userId: string, accountId: string, payload: 
              END
            )
            FROM transactions t
-           WHERE t.account_id = $9
+           WHERE t.account_id = $10
          ), 0),
-         currency = $4, provider_name = $5, account_number = $6,
-         allow_negative = $7, is_active = $8, updated_at = now()
-     WHERE id = $9 AND user_id = $10
+         currency = $4, provider_name = $5, account_number = $6, account_holder_name = $7,
+         allow_negative = $8, is_active = $9, updated_at = now()
+     WHERE id = $10 AND user_id = $11
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
-               provider_name AS "providerName", account_number AS "accountNumber",
+               provider_name AS "providerName", account_number AS "accountNumber", account_holder_name AS "accountHolderName",
                is_active AS "isActive"`,
     [next.name, next.accountType, next.initialBalance, next.currency, next.providerName || null,
-      next.accountNumber || null, next.allowNegative, next.isActive, accountId, userId]
+      next.accountNumber || null, next.accountHolderName || null, next.allowNegative, next.isActive, accountId, userId]
   );
 
   await writeAuditLog(pool, { userId, action: "UPDATE", entityName: "Account", entityId: accountId, previousValue: account, newValue: result.rows[0] });

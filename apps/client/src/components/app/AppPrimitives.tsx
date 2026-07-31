@@ -1,5 +1,14 @@
-import { Loader2 } from "lucide-react";
-import type { JSX } from "react";
+import { CalendarDays, Loader2 } from "lucide-react";
+import type { InputHTMLAttributes, JSX } from "react";
+
+export function DateInput({ className = "", ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  return (
+    <span className="relative block w-full">
+      <input {...props} type="date" className={`input date-input pr-11 ${className}`.trim()} />
+      <CalendarDays className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} aria-hidden="true" />
+    </span>
+  );
+}
 
 export function Field({ label, hint, children }: {
   label: string;

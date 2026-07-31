@@ -27,11 +27,12 @@ export function queueDebugLog(event: string, data: unknown) {
   }, 350);
 }
 
-export function MobileBottomNav({ view, activeView, language, isScrolling, onNavigate }: {
+export function MobileBottomNav({ view, activeView, language, isScrolling, unreadNotificationCount = 0, onNavigate }: {
   view: View;
   activeView?: View;
   language: AppLanguage;
   isScrolling: boolean;
+  unreadNotificationCount?: number;
   onNavigate: (view: View) => void;
 }) {
   const resolvedView = activeView ?? view;
@@ -39,20 +40,15 @@ export function MobileBottomNav({ view, activeView, language, isScrolling, onNav
     item.id === "accounts"
       ? resolvedView === "accounts"
       : item.id === "manage"
-        ? resolvedView === "manage" || resolvedView === "categories" || resolvedView === "budgets"
+        ? resolvedView === "manage" || resolvedView === "categories" || resolvedView === "budgets" || resolvedView === "profile"
         : resolvedView === item.id;
 
   return (
     <nav className="mobile-bottom-nav lg:hidden" aria-label={language === "en" ? "Main navigation" : "Navigasi utama"}>
       <div className="mobile-bottom-nav-shell">
         <div className="mobile-bottom-nav-surface" aria-hidden="true" />
-        <div className="mobile-bottom-nav-menus">
-          <div className="mobile-bottom-nav-side grid grid-cols-2">
-            {mobileNavigation.slice(0, 2).map((item) => <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate} />)}
-          </div>
-          <div className="mobile-bottom-nav-side grid grid-cols-2">
-            {mobileNavigation.slice(2).map((item) => <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} onNavigate={onNavigate} />)}
-          </div>
+        <div className="mobile-bottom-nav-menus !grid grid-cols-5">
+          {mobileNavigation.map((item) => <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} badgeCount={item.id === "notifications" ? unreadNotificationCount : 0} onNavigate={onNavigate} />)}
         </div>
       </div>
     </nav>
@@ -120,7 +116,7 @@ export function AddActionSheet({ language, onClose, onTransaction, onTransfer }:
   );
 }
 
-export function MobileNavButton({ item, language, active, onNavigate }: {
+export function MobileNavButton({ item, language, active, badgeCount = 0, onNavigate }: {
   item: {
     id: View;
     label: string;
@@ -128,13 +124,15 @@ export function MobileNavButton({ item, language, active, onNavigate }: {
   };
   language: AppLanguage;
   active: boolean;
+  badgeCount?: number;
   onNavigate: (view: View) => void;
 }) {
   const Icon = item.icon;
   return (
     <button className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-[10px] font-semibold transition ${active ? "text-[#16A34A]" : "text-slate-400"}`} onClick={() => onNavigate(item.id)} aria-current={active ? "page" : undefined}>
-      <span className={`flex h-7 w-8 items-center justify-center rounded-xl transition ${active ? "bg-emerald-50" : "bg-transparent"}`}>
+      <span className={`relative flex h-7 w-8 items-center justify-center rounded-xl transition ${active ? "bg-emerald-50" : "bg-transparent"}`}>
         <Icon size={18} strokeWidth={active ? 2.5 : 1.9} />
+        {badgeCount > 0 && <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-bold text-white">{badgeCount > 9 ? "9+" : badgeCount}</span>}
       </span>
       <span className="max-w-full truncate">{mobileNavLabel(item.id, item.label, language)}</span>
     </button>
@@ -150,7 +148,8 @@ export function mobileNavLabel(view: View, fallback: string, language: AppLangua
     assistant: "Copilot",
     reports: "Insights",
     social: "Social",
-    manage: "Settings"
+    manage: "Settings",
+    notifications: "Notifications"
   };
   return labels[view] ?? fallback;
 }

@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from "react";
+import { DateInput } from "./app/AppPrimitives";
 import {
   useUpdateWallet,
   useUpdateWalletMember,
@@ -308,8 +309,7 @@ export function GoldWalletEntryForm({ walletId, onSuccess }: GoldWalletEntryForm
 
       <div className="form-group">
         <label>Tanggal Transaksi</label>
-        <input
-          type="date"
+        <DateInput
           value={transactionDate}
           onChange={(e) => setTransactionDate(e.target.value)}
           required

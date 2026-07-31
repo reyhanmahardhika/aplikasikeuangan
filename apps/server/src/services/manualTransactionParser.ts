@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { pool } from "../db/pool.js";
 import { badRequest } from "../utils/errors.js";
-import { fromCents, normalizeMoney } from "../utils/money.js";
+import { fromCents, normalizeMoney, normalizeNonNegativeMoney } from "../utils/money.js";
 
 type TransactionType = "income" | "expense";
 
@@ -21,6 +21,7 @@ export type ParsedManualTransaction = {
   transactionType: TransactionType;
   transactionDate: string;
   amount: string;
+  feeAmount: string;
   categoryId: string | null;
   categoryName: string | null;
   accountId: string | null;
@@ -237,6 +238,7 @@ const manualParseSchema = {
     transactionType: { type: "string", enum: ["income", "expense"] },
     transactionDate: { type: "string", description: "ISO date string" },
     amount: { type: "string", description: "Decimal string, for example 15000.00" },
+    feeAmount: { type: "string", description: "Separate admin or service fee as a decimal string; use 0.00 when absent" },
     categoryName: { type: ["string", "null"] },
     merchantName: { type: ["string", "null"] },
     paymentMethod: { type: ["string", "null"] },
@@ -248,6 +250,7 @@ const manualParseSchema = {
     "transactionType",
     "transactionDate",
     "amount",
+    "feeAmount",
     "categoryName",
     "merchantName",
     "paymentMethod",
@@ -359,6 +362,13 @@ function parseHumanAmount(text: string) {
 
   if (!matches.length) return null;
   return matches.sort((a, b) => Number(b.cents - a.cents))[0];
+}
+
+export function parseFeeAmount(text: string) {
+  const match = text.match(/\b(?:biaya\s+admin(?:istrasi)?|admin(?:nya)?|service\s+fee|fee)\s*(?:sebesar\s*)?(?:rp\s*)?\d+(?:[.,]\d{1,3})*\s*(?:rb|ribu|k|jt|juta|mio|m|ratus|puluh)?\b/i);
+  if (!match) return null;
+  const parsed = parseHumanAmount(match[0]);
+  return parsed ? { ...parsed, phrase: match[0] } : null;
 }
 
 function inferTransactionType(text: string): TransactionType {
@@ -505,6 +515,7 @@ async function parseWithOpenAI(text: string, categories: CategoryOption[]): Prom
             `Gunakan kategori yang paling cocok dari daftar ini: ${categoryNames}. ` +
             `Pahami istilah lokal Indonesia seperti e-money/emoney, flazz, tapcash, brizzi, kmt, mrt, krl, gojek, grab, qris. ` +
             `Nominal gaji, gajian, salary, payroll, upah, atau wage wajib menjadi transactionType income dan categoryName Gaji. ` +
+            `Pisahkan biaya admin/service fee ke feeAmount. Contoh "beli kopi 25k admin 2k" berarti amount 25000.00 dan feeAmount 2000.00. Jika tidak ada biaya, isi feeAmount 0.00. ` +
             `merchantName harus berupa nama sumber atau merchant yang utuh, bukan satu kata generik. Contoh "makan di sarune cafe" menjadi "Sarune Cafe", dan "Gaji bulan juli" menjadi "Gaji bulan Juli". ` +
             `Jika nominal seperti 15k/15rb/15.000 artikan sebagai 15000.00. Isi null bila tidak yakin.`
         },
@@ -566,14 +577,16 @@ export async function parseNaturalTransaction(userId: string, textInput: string,
 
   const isSalary = salaryPattern.test(text);
   const transactionType = isSalary ? "income" : aiParsed?.transactionType ?? inferTransactionType(text);
-  const amountCandidate = parseHumanAmount(text);
+  const feeCandidate = parseFeeAmount(text);
+  const amountCandidate = parseHumanAmount(feeCandidate ? text.replace(feeCandidate.phrase, " ") : text);
   const amount = aiParsed?.amount ? normalizeMoney(aiParsed.amount) : amountCandidate?.amount ?? "";
+  const feeAmount = feeCandidate?.amount ?? (aiParsed?.feeAmount ? normalizeNonNegativeMoney(aiParsed.feeAmount) : "0.00");
   const { method, accountHints } = inferPayment(text);
   const paymentMethod = aiParsed?.paymentMethod ?? method;
   const categoryName = isSalary ? "Gaji" : aiParsed?.categoryName ?? findCategoryName(text, transactionType);
   const category = pickCategory(categories, categoryName, transactionType);
   const account = pickAccount(accounts, text, defaultAccountId, accountHints);
-  const inferredMerchant = inferMerchant(text, amountCandidate?.raw, paymentMethod);
+  const inferredMerchant = inferMerchant(feeCandidate ? text.replace(feeCandidate.phrase, " ") : text, amountCandidate?.raw, paymentMethod);
   const merchantName = preferMerchant(aiParsed?.merchantName, inferredMerchant, isSalary);
   const transactionDate = aiParsed?.transactionDate ? localIsoDate(new Date(aiParsed.transactionDate)) : parseDate(text);
 
@@ -594,6 +607,7 @@ export async function parseNaturalTransaction(userId: string, textInput: string,
     transactionType,
     transactionDate,
     amount,
+    feeAmount,
     categoryId: category?.id ?? null,
     categoryName: category?.name ?? categoryName ?? null,
     accountId: account?.id ?? null,

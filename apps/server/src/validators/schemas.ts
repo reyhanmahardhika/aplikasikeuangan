@@ -64,14 +64,31 @@ export const accountSchema = z.object({
   initialBalance: nonNegativeMoney,
   currency: z.string().length(3).default("IDR"),
   providerName: z.string().trim().max(120).optional().nullable(),
-  accountNumber: z.string().trim().max(120).optional().nullable(),
+    accountNumber: z.string().trim().max(120).optional().nullable(),
+    accountHolderName: z.string().trim().max(160).optional().nullable(),
   allowNegative: z.boolean().default(false),
   isActive: z.boolean().default(true)
 });
 
 export const accountUpdateSchema = accountSchema.partial();
 export const accountResetSchema = z.object({
-  initialBalance: nonNegativeMoney.optional()
+    initialBalance: nonNegativeMoney.optional()
+  });
+export const accountTargetSchema = z.object({
+    targetBalance: money,
+    targetDate: z.string().date()
+  });
+export const accountAutoBudgetSchema = z.object({
+  amount: money,
+  frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
+  dayOfWeek: z.number().int().min(1).max(7).optional().nullable(),
+  dayOfMonth: z.number().int().min(1).max(31).optional().nullable(),
+  monthOfYear: z.number().int().min(1).max(12).optional().nullable(),
+  expiryDate: z.string().date().optional().nullable()
+}).superRefine((value, context) => {
+  if (value.frequency === "weekly" && !value.dayOfWeek) context.addIssue({ code: "custom", path: ["dayOfWeek"], message: "Hari wajib dipilih" });
+  if ((value.frequency === "monthly" || value.frequency === "yearly") && !value.dayOfMonth) context.addIssue({ code: "custom", path: ["dayOfMonth"], message: "Tanggal wajib dipilih" });
+  if (value.frequency === "yearly" && !value.monthOfYear) context.addIssue({ code: "custom", path: ["monthOfYear"], message: "Bulan wajib dipilih" });
 });
 
 export const categorySchema = z.object({
@@ -94,6 +111,7 @@ export const transactionSchema = z.object({
   transactionType: z.enum(["income", "expense"]),
   transactionDate: z.string().datetime().or(z.string().date()),
   amount: money,
+  feeAmount: z.union([z.string(), z.number()]).optional().default(0),
   categoryId: uuid.optional().nullable(),
   merchantName: z.string().max(180).optional().nullable(),
   paymentMethod: z.string().max(80).optional().nullable(),
@@ -118,9 +136,11 @@ export const transferSchema = z.object({
 });
 
 export const scheduleSchema = z.object({
-  title: z.string().min(2).max(160),
-  scheduleType: z.enum(["transaction", "transfer", "topup"]),
-  dueDay: z.number().int().min(1).max(31),
+    title: z.string().min(2).max(160),
+    scheduleType: z.enum(["transaction", "transfer", "topup"]),
+    frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
+    expiryDate: z.string().date().optional().nullable(),
+    dueDay: z.number().int().min(1).max(31),
   nextDueDate: z.string().date(),
   amount: money.optional().nullable(),
   accountId: uuid.optional().nullable(),

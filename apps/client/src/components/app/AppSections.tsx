@@ -6,7 +6,7 @@
 
 import { ApiError, apiFetch, downloadUrl } from "../../lib/api";
 import type { Account, AiTrackedField, AppLanguage, AssistantContext, AssistantMessage, BudgetRow, CashFlowReportRow, Category, CategoryReportRow, ChildFrameState, DashboardSummary, GroupDetail, ManageTab, ManualDraft, MonthlyReportRow, ParsedManualTransaction, PocketVisual, Schedule, SocialActivity, SocialFriend, SocialGroup, SocialSummary, SocialWallet, Transaction, TransactionDetail, View, WalletDetail, WalletReminder } from "../../types/app";
-import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, GripVertical, HeartPulse, Landmark, Lightbulb, ListFilter, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
+import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, GripVertical, HeartPulse, Landmark, Lightbulb, ListFilter, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
 import type { Session } from "../../lib/api";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "../../lib/format";
@@ -20,7 +20,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { AuthView, GoogleLogo, loadAuthScript } from "./AppAuth";
 import { queueDebugLog } from "./AppChrome";
 import { categoryPalette, DashboardMetric, DashboardView, ExpenseDonut, handleMoneyInput, MiniCashFlowChart } from "./AppDashboard";
-import { DataErrorState, EmptyState, Field, LoadingState } from "./AppPrimitives";
+import { DataErrorState, DateInput, EmptyState, Field, LoadingState } from "./AppPrimitives";
 export { AddActionSheet, appNavigationLabel, MobileBottomNav, MobileNavButton, mobileNavLabel } from "./AppChrome";
 export { AuthView, GoogleLogo, loadAuthScript } from "./AppAuth";
 export { categoryPalette, DashboardMetric, DashboardView, ExpenseDonut, handleMoneyInput, MiniCashFlowChart } from "./AppDashboard";
@@ -165,11 +165,12 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         accountId: (editing?.accountId ?? initialAccountId) || "",
         transactionDate: editing ? editing.transactionDate.slice(0, 10) : isoDateInput(),
         amount: moneyInputValue(editing?.amount),
+        feeAmount: moneyInputValue(editing?.feeAmount ?? "0"),
         categoryId: editing?.categoryId ?? "",
         merchantName: editing?.merchantName ?? "",
         paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === (editing?.accountId ?? initialAccountId))),
         notes: editing?.notes ?? ""
-    }), [accounts, editing?.accountId, editing?.amount, editing?.categoryId, editing?.id, editing?.merchantName, editing?.notes, editing?.transactionDate, initialAccountId]);
+    }), [accounts, editing?.accountId, editing?.amount, editing?.categoryId, editing?.feeAmount, editing?.id, editing?.merchantName, editing?.notes, editing?.transactionDate, initialAccountId]);
     const [draft, setDraft] = useState<ManualDraft>(initialDraft);
     const [formVersion, setFormVersion] = useState(0);
     const [freeText, setFreeText] = useState("");
@@ -204,8 +205,10 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         expense: "Expense",
         date: "Date",
         amount: "Amount",
+        fee: "Admin/fee",
         account: "Account",
         currentBalance: "Current balance",
+        balanceAfter: "Balance after transaction",
         category: "Category",
         uncategorized: "Uncategorized",
         merchant: "Source or merchant",
@@ -230,8 +233,10 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         expense: "Pengeluaran",
         date: "Tanggal",
         amount: "Nominal",
+        fee: "Admin/fee",
         account: "Pocket",
         currentBalance: "Saldo saat ini",
+        balanceAfter: "Saldo setelah transaksi",
         category: "Kategori",
         uncategorized: "Tanpa kategori",
         merchant: "Sumber atau merchant",
@@ -336,6 +341,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                 accountId: draft.accountId,
                 transactionDate: parsed.transactionDate.slice(0, 10),
                 amount: moneyInputValue(parsed.amount),
+                feeAmount: moneyInputValue(parsed.feeAmount),
                 categoryId: parsed.categoryId ?? "",
                 merchantName: parsed.merchantName ?? "",
                 paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === draft.accountId)),
@@ -372,6 +378,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             transactionType: ["transactiontype", "type", "tipe"],
             transactionDate: ["transactiondate", "date", "tanggal"],
             amount: ["amount", "nominal", "jumlah"],
+            feeAmount: ["feeamount", "fee", "admin", "biayaadmin"],
             accountId: ["account", "accountid", "akun"],
             categoryId: ["category", "categoryid", "kategori"],
             merchantName: ["merchant", "merchantname", "source", "sumber"],
@@ -422,6 +429,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             transactionType,
             transactionDate: dateFilterIso(String(form.get("transactionDate")), "start"),
             amount: String(form.get("amount")),
+            feeAmount: String(form.get("feeAmount") || "0"),
             categoryId: String(form.get("categoryId") || "") || null,
             merchantName: String(form.get("merchantName") || "") || null,
             paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === draft.accountId)) || null,
@@ -448,7 +456,18 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     const filteredCategories = categories.filter((category) => category.categoryType === transactionType);
     const selectedAccount = accounts.find((account) => account.id === draft.accountId);
     const selectedBudget = budgets.find((budget) => budget.categoryId === draft.categoryId);
-    const nextExpenseAmount = transactionType === "expense" ? Number(String(draft.amount).replace(/[^\d]/g, "")) : 0;
+    const amountValue = Number(String(draft.amount).replace(/[^\d]/g, ""));
+    const feeValue = Number(String(draft.feeAmount).replace(/[^\d]/g, ""));
+    const balanceDelta = (accountType: string, type: "income" | "expense", amount: number, fee: number) => accountType === "credit_card"
+        ? (type === "expense" ? amount : -amount) + fee
+        : (type === "income" ? amount : -amount) - fee;
+    const previousDelta = editing && selectedAccount
+        ? balanceDelta(selectedAccount.accountType, editing.transactionType, moneyValue(editing.amount), moneyValue(editing.feeAmount))
+        : 0;
+    const balanceAfterTransaction = selectedAccount
+        ? moneyValue(selectedAccount.currentBalance) - previousDelta + balanceDelta(selectedAccount.accountType, transactionType, amountValue, feeValue)
+        : 0;
+    const nextExpenseAmount = transactionType === "expense" ? amountValue + feeValue : feeValue;
     const budgetAfterUse = selectedBudget ? moneyValue(selectedBudget.used) + nextExpenseAmount : 0;
     const budgetAfterPercent = selectedBudget && moneyValue(selectedBudget.budgetAmount) > 0 ? Math.round((budgetAfterUse / moneyValue(selectedBudget.budgetAmount)) * 100) : 0;
     return (<section className="mx-auto max-w-4xl space-y-3 lg:space-y-5">
@@ -560,23 +579,23 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         </div>
         <form key={formVersion} className="grid gap-3 p-4 md:grid-cols-2 lg:p-5" onSubmit={submit}>
           <div className="md:col-span-2">
-            <Field label={language === "en" ? "Transaction pocket" : "Pocket transaksi"}>
-              {selectedAccount ? (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-md">
+            {selectedAccount ? (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-md">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
+                      <p className="mb-1.5 text-[10px] font-medium text-[#15803D]">{language === "en" ? "This transaction will use this pocket." : "Transaksi ini akan menggunakan pocket ini."}</p>
                       <p className="truncate text-sm font-semibold text-slate-950">{selectedAccount.name}</p>
                       <p className="mt-0.5 truncate text-[11px] text-slate-500">{[accountTypeLabel(selectedAccount.accountType), selectedAccount.providerName].filter(Boolean).join(" · ")}</p>
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-[10px] text-slate-400">{copy.currentBalance}</p>
                       <p className="mt-0.5 text-xs font-bold text-slate-900">{rupiah(selectedAccount.currentBalance)}</p>
+                      <p className="mt-1.5 text-[10px] text-slate-400">{copy.balanceAfter}</p>
+                      <p className={`mt-0.5 text-xs font-bold ${balanceAfterTransaction < 0 ? "text-rose-600" : "text-[#15803D]"}`}>{rupiah(balanceAfterTransaction)}</p>
                     </div>
                   </div>
-                  <p className="mt-2 text-[11px] font-medium text-[#15803D]">{language === "en" ? "This transaction will use this pocket." : "Transaksi ini akan menggunakan pocket ini."}</p>
                 </div>) : (<p className="rounded-2xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                   {language === "en" ? "Open this form from a pocket detail first." : "Buka form transaksi melalui detail pocket terlebih dahulu."}
                 </p>)}
-            </Field>
           </div>
           <Field label={copy.date} hint={<AiFieldBadge status={aiFieldStatus("transactionDate")} language={language}/>}>
             <div>
@@ -589,6 +608,12 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
           </Field>
           <Field label={copy.amount} hint={<AiFieldBadge status={aiFieldStatus("amount")} language={language}/>}>
             <input className="input" name="amount" inputMode="numeric" min="1" value={draft.amount} onChange={updateAmount} required/>
+          </Field>
+          <Field label={copy.fee} hint={<AiFieldBadge status={aiFieldStatus("feeAmount")} language={language}/>}>
+            <input className="input" name="feeAmount" inputMode="numeric" value={draft.feeAmount} onChange={(event) => {
+            markFieldChanged("feeAmount");
+            setDraft((current) => ({ ...current, feeAmount: formatRupiahInput(event.target.value) }));
+        }} placeholder={language === "en" ? "Optional, example: 2,500" : "Opsional, contoh: 2.500"}/>
           </Field>
           <Field label={copy.category} hint={<AiFieldBadge status={aiFieldStatus("categoryId")} language={language}/>}>
             <select className="input" name="categoryId" value={draft.categoryId} onChange={(event) => {
@@ -749,6 +774,7 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
     }, [transaction.receiptId, token]);
     const detailRows = [
         ["Tanggal", localDate(transaction.transactionDate)],
+        ["Admin/fee", rupiah(transaction.feeAmount ?? 0)],
         ["Pocket", transaction.accountName ?? "-"],
         ["Metode", transaction.paymentMethod ?? "-"],
         ["Kategori", transaction.categoryName ?? "Tanpa kategori"],
@@ -991,7 +1017,7 @@ export function ReceiptView({ accounts, categories, request, onDone }: {
               <input className="input" name="merchantName" defaultValue={parsed.merchantName ?? ""} required/>
             </Field>
             <Field label="Tanggal">
-              <input className="input" type="date" name="transactionDate" defaultValue={parsed.transactionDate ?? isoDateInput()} required/>
+                <DateInput name="transactionDate" defaultValue={parsed.transactionDate ?? isoDateInput()} required/>
             </Field>
             <Field label="Total pembayaran">
               <input className="input" name="amount" defaultValue={parsed.total ?? ""} required/>
@@ -1098,7 +1124,7 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
         String(date.getUTCDate()).padStart(2, "0")
     ].join("-");
     const displayValue = selectedDate
-        ? new Intl.DateTimeFormat(locale, { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" }).format(selectedDate)
+        ? `${String(selectedDate.getUTCDate()).padStart(2, "0")} ${new Intl.DateTimeFormat(locale, { timeZone: "UTC", month: "short" }).format(selectedDate)} ${selectedDate.getUTCFullYear()}`
         : (locale === "en-US" ? "Select date" : "Pilih tanggal");
     const todayValue = todayParts.value;
     return (<div ref={rootRef} className="relative min-w-0">
@@ -1110,26 +1136,26 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
         <CalendarDays size={15} className="shrink-0 text-slate-400"/>
       </button>
 
-      {open && (<div className={`absolute top-[calc(100%+8px)] z-40 w-[min(18rem,calc(100vw-2.5rem))] rounded-[20px] border border-slate-100 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.18)] ${align === "right" ? "right-0" : "left-0"}`}>
+      {open && (<div className={`fixed inset-x-6 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-[80] mx-auto max-h-[calc(100dvh-9rem)] max-w-xs overflow-y-auto rounded-[20px] border border-slate-100 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.18)] sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-[calc(100%+8px)] sm:z-40 sm:mx-0 sm:w-[min(18rem,calc(100vw-2.5rem))] sm:max-h-none sm:max-w-none sm:overflow-visible ${align === "right" ? "sm:right-0" : "sm:left-0"}`}>
           <div className="flex items-center justify-between">
-            <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month - 1, 1, 12)))} aria-label="Bulan sebelumnya">
+            <button type="button" className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month - 1, 1, 12)))} aria-label="Bulan sebelumnya">
               <ChevronLeft size={18}/>
             </button>
             <p className="text-sm font-semibold text-slate-900">
               {new Intl.DateTimeFormat(locale, { timeZone: "UTC", month: "long", year: "numeric" }).format(visibleMonth)}
             </p>
-            <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month + 1, 1, 12)))} aria-label="Bulan berikutnya">
+            <button type="button" className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month + 1, 1, 12)))} aria-label="Bulan berikutnya">
               <ChevronRight size={18}/>
             </button>
           </div>
           <div className="mt-2 grid grid-cols-7">
-            {weekdayLabels.map((day, index) => (<span key={`${day}-${index}`} className="flex h-8 items-center justify-center text-[10px] font-semibold text-slate-400">{day}</span>))}
+            {weekdayLabels.map((day, index) => (<span key={`${day}-${index}`} className="flex h-7 items-center justify-center text-[10px] font-semibold text-slate-400">{day}</span>))}
             {days.map((date) => {
                 const dateValue = toValue(date);
                 const selected = dateValue === value;
                 const today = dateValue === todayValue;
                 const currentMonth = date.getUTCMonth() === month;
-                return (<button key={dateValue} type="button" className={`mx-auto flex h-9 w-9 items-center justify-center rounded-xl text-xs transition ${selected
+                return (<button key={dateValue} type="button" className={`mx-auto flex h-8 w-8 items-center justify-center rounded-xl text-[11px] transition ${selected
                         ? "bg-[#16A34A] font-semibold text-white shadow-sm"
                         : today
                             ? "bg-emerald-50 font-semibold text-[#16A34A]"
@@ -1144,13 +1170,21 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
             })}
           </div>
           <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
-            {allowClear ? (<button type="button" className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50" onClick={() => onChange("")}>
+            {allowClear ? (<button type="button" className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50" onClick={() => {
+                onChange("");
+                setOpen(false);
+            }}>
                 {language === "en" ? "Clear" : "Hapus"}
               </button>) : <span />}
-            <button type="button" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
+            <div className="flex items-center gap-1.5">
+              <button type="button" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
                 onChange(todayValue);
                 setOpen(false);
             }}>{language === "en" ? "Today" : "Hari ini"}</button>
+              <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200" onClick={() => setOpen(false)}>
+                <X size={13}/> {language === "en" ? "Close" : "Tutup"}
+              </button>
+            </div>
           </div>
         </div>)}
     </div>);
@@ -1622,7 +1656,11 @@ export const pocketEMoneyOptions = [
     "Nobu e-money"
 ];
 
-export const pocketCardColors = ["#16A34A", "#0F766E", "#111827", "#2563EB", "#7C3AED", "#E11D48"];
+export const pocketCardColors = [
+    "#16A34A", "#047857", "#0F766E", "#0891B2", "#2563EB", "#1D4ED8",
+    "#4F46E5", "#7C3AED", "#9333EA", "#DB2777", "#E11D48", "#EA580C",
+    "#D97706", "#854D0E", "#475569", "#111827"
+];
 export const pocketStickerOptions = [
     "\u{1F60E}", "\u{1F4B3}", "\u{1F4B8}", "\u{1F3E6}", "\u{1FA99}", "\u{1F6CD}\u{FE0F}",
     "\u{2615}", "\u{1F695}", "\u{1F3AF}", "\u{1F4C8}", "\u{1F31F}", "\u{1F389}",
@@ -1633,6 +1671,32 @@ export const pocketStickerOptions = [
     "\u{1F436}", "\u{1F431}", "\u{1F331}", "\u{1F33B}", "\u{1F525}", "\u{26A1}",
     "\u{2764}\u{FE0F}", "\u{1F48E}", "\u{1F680}", "\u{1F3C6}", "\u{2705}", "\u{1F512}"
 ];
+
+const pocketProviderBrandColors: Record<string, string> = {
+    BCA: "#0060AF", Mandiri: "#003D79", BRI: "#00529C", BNI: "#F15A23",
+    "CIMB Niaga": "#A71930", Danamon: "#00A650", PermataBank: "#007A5E",
+    Maybank: "#FFC600", OCBC: "#E31837", "Panin Bank": "#0072BC", BTN: "#00529B",
+    "Bank Syariah Indonesia": "#00A39B", Jago: "#F15A24", SeaBank: "#F36F21",
+    "blu by BCA Digital": "#00AEEF", GoPay: "#00AED6", OVO: "#4C3494", DANA: "#118EEA",
+    ShopeePay: "#EE4D2D", LinkAja: "#E31E24", Sakuku: "#E21B2D", AstraPay: "#662D91",
+    "Flazz BCA": "#0060AF", "Mandiri e-money": "#003D79", "BNI TapCash": "#F15A23",
+    "BRI BRIZZI": "#00529C", JakCard: "#E31E24", MegaCash: "#17479E", "KMT KAI Commuter": "#EE6B23"
+};
+
+export function providerLogoSticker(provider: string) {
+    const shortName = provider
+        .replace(/\b(bank|wallet|digital|e-?money|commerce|by|kai|commuter)\b/gi, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .split(" ")
+        .slice(0, 2)
+        .map((part) => part.slice(0, 5))
+        .join(" ");
+    const background = pocketProviderBrandColors[provider] ?? "#0F766E";
+    const foreground = background === "#FFC600" ? "#111827" : "#FFFFFF";
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="${background}"/><text x="64" y="68" fill="${foreground}" font-family="Arial,sans-serif" font-size="${shortName.length > 7 ? 22 : 28}" font-weight="700" text-anchor="middle" dominant-baseline="middle">${shortName}</text></svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 export const pocketVisualStorageKey = "finance-ai-pocket-visuals";
 
@@ -1808,7 +1872,7 @@ export function ManageView({ accounts, categories, language, request, onNavigate
         <div className="relative flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase text-[#16A34A]">{isEnglish ? "Settings" : "Atur"}</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isEnglish ? "Finance & reminders" : "Keuangan & pengingat"}</h2>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isEnglish ? "App settings" : "Pengaturan aplikasi"}</h2>
             <p className="mt-1 text-xs text-slate-500">{isEnglish ? "All essential settings in one place." : "Semua pengaturan penting dalam satu tempat."}</p>
           </div>
           <button type="button" className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[#16A34A] px-3.5 text-xs font-semibold text-white shadow-sm transition active:scale-95" onClick={() => setShowQuickActions((current) => !current)} aria-expanded={showQuickActions}>
@@ -1843,6 +1907,16 @@ export function ManageView({ accounts, categories, language, request, onNavigate
                 <ChevronRight size={19} className="shrink-0 text-slate-300"/>
               </button>);
         })}
+          <button type="button" className="ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border border-slate-100 bg-white p-3 text-left transition hover:border-emerald-100 hover:bg-slate-50 lg:rounded-md" onClick={() => onNavigate("profile")}>
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
+              <UserRound size={23}/>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-slate-950">{isEnglish ? "Profile & security" : "Profil & keamanan"}</span>
+              <span className="mt-1 block truncate text-[11px] text-slate-500">{isEnglish ? "Personal data, profile barcode, and password" : "Data pribadi, barcode profil, dan password"}</span>
+            </span>
+            <ChevronRight size={19} className="shrink-0 text-slate-300"/>
+          </button>
         </div>
       </div>
 
@@ -1886,14 +1960,17 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
         setError(null);
         const formElement = event.currentTarget;
         const form = new FormData(formElement);
+        const nextDueDate = String(form.get("nextDueDate"));
         try {
             await request(editingSchedule ? `/schedules/${editingSchedule.id}` : "/schedules", {
                 method: editingSchedule ? "PUT" : "POST",
                 body: JSON.stringify({
                     title: String(form.get("title")),
                     scheduleType: String(form.get("scheduleType")),
-                    dueDay: Number(form.get("dueDay")),
-                    nextDueDate: String(form.get("nextDueDate")),
+                    frequency: String(form.get("frequency")),
+                    expiryDate: String(form.get("expiryDate") || "") || null,
+                    dueDay: Number(nextDueDate.slice(8, 10)),
+                    nextDueDate,
                     amount: String(form.get("amount") || "") || null,
                     accountId: String(form.get("accountId") || "") || null,
                     destinationAccountId: String(form.get("destinationAccountId") || "") || null,
@@ -1907,8 +1984,8 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
             await load();
             setScheduleView("list");
         }
-        catch {
-            setError(null);
+        catch (err) {
+            setError(err instanceof Error ? err.message : "Jadwal gagal disimpan");
         }
     };
     const remove = async (id: string) => {
@@ -1933,6 +2010,10 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
                     <p className="truncate text-sm font-semibold text-slate-950">{schedule.title}</p>
                     <p className="mt-0.5 text-xs text-slate-500">
                       {localDate(schedule.nextDueDate)} {schedule.amount ? `- ${rupiah(schedule.amount)}` : ""}
+                    </p>
+                    <p className="mt-1 text-[11px] font-medium text-[#16A34A]">
+                      {{ daily: "Harian", weekly: "Mingguan", monthly: "Bulanan", yearly: "Tahunan" }[schedule.frequency]}
+                      {schedule.expiryDate ? ` · Berakhir ${localDate(schedule.expiryDate)}` : ""}
                     </p>
                   </div>
                   <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${scheduleTone(schedule.reminderStatus)}`}>
@@ -1983,13 +2064,23 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
                 <option value="topup">Top up</option>
               </select>
             </Field>
-            <Field label="Tanggal rutin">
-              <input className="input" name="dueDay" type="number" min={1} max={31} defaultValue={editingSchedule?.dueDay ?? 1} required/>
+            <Field label="Frekuensi">
+              <select className="input" name="frequency" defaultValue={editingSchedule?.frequency ?? "monthly"} required>
+                <option value="daily">Harian</option>
+                <option value="weekly">Mingguan</option>
+                <option value="monthly">Bulanan</option>
+                <option value="yearly">Tahunan</option>
+              </select>
             </Field>
           </div>
-          <Field label="Jatuh tempo berikutnya">
-            <input className="input" name="nextDueDate" type="date" defaultValue={editingSchedule?.nextDueDate ? isoDateInput(new Date(editingSchedule.nextDueDate)) : isoDateInput()} required/>
-          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Jatuh tempo berikutnya">
+              <DateInput name="nextDueDate" defaultValue={editingSchedule?.nextDueDate?.slice(0, 10) ?? isoDateInput()} required/>
+            </Field>
+            <Field label="Tanggal berakhir">
+              <DateInput name="expiryDate" min={editingSchedule?.nextDueDate?.slice(0, 10) ?? isoDateInput()} defaultValue={editingSchedule?.expiryDate?.slice(0, 10) ?? ""}/>
+            </Field>
+          </div>
           <Field label="Nominal">
             <input className="input" name="amount" inputMode="numeric" placeholder="Opsional" defaultValue={moneyInputValue(editingSchedule?.amount)} onInput={handleMoneyInput}/>
           </Field>
@@ -2056,9 +2147,37 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
     const [pocketTransactionCustomStart, setPocketTransactionCustomStart] = useState("");
     const [pocketTransactionCustomEnd, setPocketTransactionCustomEnd] = useState("");
     const [pocketTransactionSort, setPocketTransactionSort] = useState<"newest" | "oldest" | "amount-desc" | "amount-asc">("newest");
+    const [pocketTransactionMemberId, setPocketTransactionMemberId] = useState("all");
     const [pocketTransactionRows, setPocketTransactionRows] = useState<Transaction[]>([]);
     const [pocketTransactionLoading, setPocketTransactionLoading] = useState(false);
     const [targetBalanceDraft, setTargetBalanceDraft] = useState("");
+    const [targetDateDraft, setTargetDateDraft] = useState("");
+    const [showTargetBalanceModal, setShowTargetBalanceModal] = useState(false);
+    const [targetBalanceSaving, setTargetBalanceSaving] = useState(false);
+    const [showAutoBudgetModal, setShowAutoBudgetModal] = useState(false);
+    const [autoBudgetSaving, setAutoBudgetSaving] = useState(false);
+    const [autoBudgetRule, setAutoBudgetRule] = useState<{
+        id: string; amount: string; frequency: "daily" | "weekly" | "monthly" | "yearly";
+        dayOfWeek: number | null; dayOfMonth: number | null; monthOfYear: number | null;
+        expiryDate: string | null; nextRunDate: string;
+    } | null>(null);
+    const [autoBudgetDraft, setAutoBudgetDraft] = useState({
+        amount: "", frequency: "monthly" as "daily" | "weekly" | "monthly" | "yearly",
+        dayOfWeek: 1, dayOfMonth: 1, monthOfYear: 1, expiryDate: "", noExpiry: true
+    });
+    const [targetDetails, setTargetDetails] = useState<{
+        currentBalance: string;
+        targetBalance: string | null;
+        targetDate: string | null;
+        contributions: Array<{
+            userId: string;
+            fullName: string;
+            username: string;
+            avatarUrl: string | null;
+            role: string;
+            amount: string;
+        }>;
+    } | null>(null);
     const [inviteQuery, setInviteQuery] = useState("");
     const [inviteSearchResults, setInviteSearchResults] = useState<Array<{
         id: string;
@@ -2115,6 +2234,12 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
     const [pocketHolderDraft, setPocketHolderDraft] = useState("");
     const [pocketLogoDraft, setPocketLogoDraft] = useState("??");
     const [pocketBackgroundDraft, setPocketBackgroundDraft] = useState("#16A34A");
+    const pocketProviderOptions = pocketTypeDraft === "bank"
+        ? pocketBankOptions
+        : pocketTypeDraft === "e_wallet"
+            ? pocketEWalletOptions
+            : pocketEMoneyOptions;
+    const pocketProviderStickerOptions = pocketTypeDraft === "cash" ? [] : pocketProviderOptions;
     const pocketGalleryInputRef = useRef<HTMLInputElement>(null);
     const [showPocketLogoMenu, setShowPocketLogoMenu] = useState(false);
     const [showPocketStickerPicker, setShowPocketStickerPicker] = useState(false);
@@ -2219,6 +2344,8 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 if (pocketTransactionCustomEnd && transactionDate > pocketTransactionCustomEnd)
                     return false;
             }
+            if (pocketTransactionMemberId !== "all" && transaction.userId !== pocketTransactionMemberId)
+                return false;
             if (!query) {
                 return true;
             }
@@ -2238,9 +2365,9 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             const dateComparison = new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime();
             return pocketTransactionSort === "oldest" ? dateComparison : -dateComparison;
         });
-    }, [pocketTransactionCustomEnd, pocketTransactionCustomStart, pocketTransactionDatePreset, pocketTransactionRows, pocketTransactionSearch, pocketTransactionSort, pocketTransactionType]);
+    }, [pocketTransactionCustomEnd, pocketTransactionCustomStart, pocketTransactionDatePreset, pocketTransactionMemberId, pocketTransactionRows, pocketTransactionSearch, pocketTransactionSort, pocketTransactionType]);
     const recentPocketTransactions = useMemo(() => filteredPocketTransactions.slice(0, 20), [filteredPocketTransactions]);
-    const pocketTransactionFilterCount = (pocketTransactionDatePreset !== "all" ? 1 : 0) + (pocketTransactionSort !== "newest" ? 1 : 0);
+    const pocketTransactionFilterCount = (pocketTransactionDatePreset !== "all" ? 1 : 0) + (pocketTransactionSort !== "newest" ? 1 : 0) + (pocketTransactionMemberId !== "all" ? 1 : 0);
     const pocketMembers = useMemo(() => {
         if (!selectedPocket)
             return [];
@@ -2264,6 +2391,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         }));
         return owner ? [owner, ...acceptedCollaborators] : acceptedCollaborators;
     }, [pocketCollaborators, selectedPocket]);
+    const activePocketMembers = useMemo(() => pocketMembers.filter((member) => member.status === "accepted"), [pocketMembers]);
     const loadPocketTransactions = async (accountId = selectedPocketId) => {
         if (!accountId) {
             setPocketTransactionRows([]);
@@ -2290,6 +2418,93 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             setPocketTransactionLoading(false);
         }
     };
+    const loadPocketTarget = async (accountId = selectedPocketId) => {
+        if (!accountId) {
+            setTargetDetails(null);
+            return;
+        }
+        const details = await request<{
+            currentBalance: string;
+            targetBalance: string | null;
+            targetDate: string | null;
+            contributions: Array<{ userId: string; fullName: string; username: string; avatarUrl: string | null; role: string; amount: string }>;
+        }>(`/accounts/${accountId}/target`);
+        setTargetDetails(details);
+    };
+    const openTargetBalanceModal = () => {
+        setError(null);
+        setTargetBalanceDraft(moneyInputValue(targetDetails?.targetBalance ?? selectedPocket?.targetBalance ?? ""));
+        setTargetDateDraft(targetDetails?.targetDate?.slice(0, 10) ?? selectedPocket?.targetDate?.slice(0, 10) ?? "");
+        setShowTargetBalanceModal(true);
+    };
+    const savePocketTarget = async () => {
+        if (!selectedPocketId || !targetBalanceDraft || !targetDateDraft)
+            return;
+        setTargetBalanceSaving(true);
+        try {
+            await request(`/accounts/${selectedPocketId}/target`, {
+                method: "PUT",
+                body: JSON.stringify({
+                    targetBalance: targetBalanceDraft.replace(/\./g, ""),
+                    targetDate: targetDateDraft
+                })
+            });
+            setShowTargetBalanceModal(false);
+            await Promise.all([onChanged(), loadPocketTarget(selectedPocketId)]);
+        }
+        finally {
+            setTargetBalanceSaving(false);
+        }
+    };
+    const loadAutoBudget = async (accountId = selectedPocketId) => {
+        if (!accountId) return setAutoBudgetRule(null);
+        setAutoBudgetRule(await request<typeof autoBudgetRule>(`/accounts/${accountId}/auto-budget`));
+    };
+    const openAutoBudgetModal = () => {
+        setError(null);
+        setAutoBudgetDraft({
+            amount: moneyInputValue(autoBudgetRule?.amount ?? ""),
+            frequency: autoBudgetRule?.frequency ?? "monthly",
+            dayOfWeek: autoBudgetRule?.dayOfWeek ?? 1,
+            dayOfMonth: autoBudgetRule?.dayOfMonth ?? 1,
+            monthOfYear: autoBudgetRule?.monthOfYear ?? 1,
+            expiryDate: autoBudgetRule?.expiryDate ?? "",
+            noExpiry: !autoBudgetRule?.expiryDate
+        });
+        setShowAutoBudgetModal(true);
+    };
+    const saveAutoBudget = async () => {
+        if (!selectedPocketId || !autoBudgetDraft.amount) return;
+        setAutoBudgetSaving(true);
+        try {
+            await request(`/accounts/${selectedPocketId}/auto-budget`, {
+                method: "PUT",
+                body: JSON.stringify({
+                    amount: autoBudgetDraft.amount.replace(/\./g, ""), frequency: autoBudgetDraft.frequency,
+                    dayOfWeek: autoBudgetDraft.frequency === "weekly" ? autoBudgetDraft.dayOfWeek : null,
+                    dayOfMonth: ["monthly", "yearly"].includes(autoBudgetDraft.frequency) ? autoBudgetDraft.dayOfMonth : null,
+                    monthOfYear: autoBudgetDraft.frequency === "yearly" ? autoBudgetDraft.monthOfYear : null,
+                    expiryDate: autoBudgetDraft.noExpiry ? null : autoBudgetDraft.expiryDate || null
+                })
+            });
+            setShowAutoBudgetModal(false);
+            await Promise.all([loadAutoBudget(selectedPocketId), onChanged()]);
+        } finally {
+            setAutoBudgetSaving(false);
+        }
+    };
+    const removeAutoBudget = async () => {
+        if (!selectedPocketId) return;
+        setAutoBudgetSaving(true);
+        try {
+            await request(`/accounts/${selectedPocketId}/auto-budget`, { method: "DELETE" });
+            setShowAutoBudgetModal(false);
+            setAutoBudgetRule(null);
+            await onChanged();
+        } finally {
+            setAutoBudgetSaving(false);
+        }
+    };
     useEffect(() => {
         if (accountView !== "pocket-detail" || !selectedPocketId) {
             setPocketTransactionRows([]);
@@ -2297,6 +2512,8 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             return;
         }
         loadPocketTransactions(selectedPocketId).catch(() => undefined);
+        loadPocketTarget(selectedPocketId).catch(() => setTargetDetails(null));
+        loadAutoBudget(selectedPocketId).catch(() => setAutoBudgetRule(null));
     }, [accountView, selectedPocketId]);
     useEffect(() => {
         const previewTargets = accounts.filter((account) => Boolean(account.ownerUserId));
@@ -2633,11 +2850,11 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         const accountNumberParts = splitAccountNumberHolder(editingAccount?.accountNumber);
         const savedType = editingAccount?.accountType;
         setPocketNameDraft(editingAccount?.name ?? "");
-        setPocketTypeDraft(savedType === "cash" || savedType === "bank" || savedType === "e_wallet" ? savedType : "e_money");
+        setPocketTypeDraft(savedType === "cash" || savedType === "bank" || savedType === "e_wallet" || savedType === "e_money" ? savedType : "bank");
         setPocketInitialBalanceDraft(editingAccount ? moneyInputValue(editingAccount.initialBalance) : "");
         setPocketProviderDraft(editingAccount?.providerName ?? "");
         setPocketNumberDraft(accountNumberParts.number);
-        setPocketHolderDraft(accountNumberParts.holder);
+        setPocketHolderDraft(editingAccount?.accountHolderName ?? accountNumberParts.holder);
         // Gunakan logo dan background dari server jika tersedia, jika tidak gunakan localStorage atau default
         const visuals = loadPocketVisuals();
         const accountVisual = editingAccount?.logo ? { logo: editingAccount.logo, background: editingAccount.background } : visuals[editingAccount?.id ?? ""];
@@ -2778,7 +2995,6 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         const selectedPocketType = pocketTypeDraft;
         const accountNumber = pocketNumberDraft.trim();
         const accountHolderName = pocketHolderDraft.trim();
-        const accountNumberPayload = accountHolderName && selectedPocketType !== "e_money" ? `${accountNumber} · ${accountHolderName}` : accountNumber;
         try {
             const payload = {
                 name: pocketNameDraft.trim(),
@@ -2786,7 +3002,8 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 initialBalance: String(form.get("initialBalance") || pocketInitialBalanceDraft),
                 currency: "IDR",
                 providerName: selectedPocketType === "cash" ? null : pocketProviderDraft.trim() || null,
-                accountNumber: selectedPocketType === "cash" ? null : accountNumberPayload || null,
+                accountNumber: selectedPocketType === "cash" ? null : accountNumber || null,
+                accountHolderName: selectedPocketType === "cash" || selectedPocketType === "e_money" ? null : accountHolderName || null,
                 allowNegative: false,
                 logo: pocketLogoDraft || null,
                 background: pocketBackgroundDraft || null
@@ -2825,7 +3042,8 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             return;
         event.target.value = "";
         setError(null);
-        if (!file.type.startsWith("image/")) {
+        const isHeic = /\.hei[cf]$/i.test(file.name) || /image\/hei[cf]/i.test(file.type);
+        if (!file.type.startsWith("image/") && !isHeic) {
             setError("File logo harus berupa gambar.");
             return;
         }
@@ -2834,13 +3052,18 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             return;
         }
         try {
+            let readableFile: Blob = file;
+            if (isHeic) {
+                const converted = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+                readableFile = Array.isArray(converted) ? converted[0] : converted;
+            }
             const source = await new Promise<string>((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => typeof reader.result === "string"
                     ? resolve(reader.result)
                     : reject(new Error("Gambar tidak dapat dibaca."));
                 reader.onerror = () => reject(reader.error ?? new Error("Gambar tidak dapat dibaca."));
-                reader.readAsDataURL(file);
+                reader.readAsDataURL(readableFile);
             });
             const image = await new Promise<HTMLImageElement>((resolve, reject) => {
                 const nextImage = new Image();
@@ -3235,21 +3458,58 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               <p className="mt-0.5 text-[11px] text-slate-500">Buy, pay, receive money</p>
             </button>
             {/* Tampilkan set target balance hanya jika pocket belum memiliki target balance */}
-            {!selectedPocket.targetBalance && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={() => setTargetBalanceDraft(targetBalanceDraft || moneyInputValue(selectedPocket.currentBalance))}>
+            {selectedPocket.canEdit !== false && !selectedPocket.targetBalance && !targetDetails?.targetBalance && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openTargetBalanceModal}>
                 <TrendingUp className="text-violet-700" size={18}/>
                 <p className="mt-2 text-sm font-semibold">Set target balance</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">Plan pocket balance</p>
               </button>)}
-            {/* Tampilkan set auto-budgeting hanya jika user belum mengatur auto budgeting pada pocket ini */}
-            {!selectedPocket.autoBudgetingEnabled && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={() => {
-                    // TODO: Buka modal untuk mengatur auto-budgeting
-                    console.log("Open auto-budgeting setup for pocket:", selectedPocket.id);
-                }}>
+            {selectedPocket.canEdit !== false && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openAutoBudgetModal}>
                 <Settings className="text-amber-600" size={18}/>
-                <p className="mt-2 text-sm font-semibold">Set auto-budgeting</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">Automate your budget</p>
+                <p className="mt-2 text-sm font-semibold">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">{autoBudgetRule ? `${rupiah(autoBudgetRule.amount)} · ${autoBudgetRule.frequency}` : (language === "en" ? "Automate your budget" : "Otomatiskan budgeting")}</p>
               </button>)}
           </div>
+
+          {targetDetails?.targetBalance && (() => {
+            const targetAmount = moneyValue(targetDetails.targetBalance);
+            const currentAmount = moneyValue(selectedPocket.currentBalance);
+            const progress = targetAmount > 0 ? Math.min(100, Math.max(0, currentAmount / targetAmount * 100)) : 0;
+            const remaining = Math.max(0, targetAmount - currentAmount);
+            return (<section className="rounded-[22px] border border-emerald-100 bg-white p-4 shadow-soft lg:rounded-lg">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#16A34A]">Target balance</p>
+                    <h3 className="mt-1 text-lg font-semibold text-slate-950">{rupiah(targetAmount)}</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">Target date: {localDate(targetDetails.targetDate)}</p>
+                  </div>
+                  {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={openTargetBalanceModal}>
+                      <Settings size={14}/> Edit target
+                    </button>)}
+                </div>
+                <div className="mt-4">
+                  <div className="mb-2 flex items-end justify-between gap-3">
+                    <div><p className="text-[11px] text-slate-500">Saldo terkumpul</p><p className="mt-0.5 text-sm font-semibold text-slate-950">{rupiah(currentAmount)}</p></div>
+                    <p className="text-right text-xs font-semibold text-[#16A34A]">{Math.round(progress)}%</p>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-emerald-50"><div className="h-full rounded-full bg-[#16A34A] transition-all" style={{ width: `${progress}%` }}/></div>
+                  <p className="mt-2 text-[11px] text-slate-500">{remaining > 0 ? `Kurang ${rupiah(remaining)} untuk mencapai target.` : "Target balance sudah tercapai."}</p>
+                </div>
+                {targetDetails.contributions.length > 1 && (<div className="mt-4 border-t border-slate-100 pt-4">
+                  <div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold text-slate-900">{language === "en" ? "Member contributions" : "Kontribusi anggota"}</p><span className="text-[10px] text-slate-400">{language === "en" ? "Net contribution" : "Kontribusi bersih"}</span></div>
+                  <div className="space-y-2">
+                    {targetDetails.contributions.map((member) => {
+                    const memberAmount = moneyValue(member.amount);
+                    const contributionPercent = targetAmount > 0 ? memberAmount / targetAmount * 100 : 0;
+                    return (<div key={member.userId} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2.5">
+                        {member.avatarUrl ? <img src={member.avatarUrl} alt="" className="h-9 w-9 rounded-xl object-cover"/> : <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-xs font-semibold text-[#16A34A]">{member.fullName.slice(0, 1).toUpperCase()}</span>}
+                        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-slate-900">{member.fullName}</p><p className="truncate text-[10px] text-slate-500">{member.role === "owner" ? "Owner" : `@${member.username}`}</p></div>
+                        <div className="shrink-0 text-right"><p className={`text-xs font-semibold ${memberAmount < 0 ? "text-rose-600" : "text-[#16A34A]"}`}>{rupiah(member.amount)}</p><p className={`mt-0.5 text-[10px] font-semibold ${contributionPercent < 0 ? "text-rose-500" : "text-slate-500"}`}>{Math.round(contributionPercent)}%</p></div>
+                      </div>);
+                })}
+                  </div>
+                </div>)}
+              </section>);
+        })()}
 
           <div className="min-w-0 overflow-hidden rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
             <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
@@ -3261,7 +3521,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                   <button type="button" className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold ${pocketTransactionFilterCount > 0 ? "bg-emerald-50 text-[#16A34A]" : "text-slate-500 hover:bg-slate-50"}`} onClick={() => setShowPocketTransactionFilter(true)}>
                     <ListFilter size={13}/> Filter{pocketTransactionFilterCount > 0 ? ` (${pocketTransactionFilterCount})` : ""}
                   </button>
-                  <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => loadPocketTransactions().catch(() => undefined)} disabled={pocketTransactionLoading}>
+                  <button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => Promise.all([loadPocketTransactions(), loadPocketTarget()]).catch(() => undefined)} disabled={pocketTransactionLoading}>
                     {pocketTransactionLoading ? <Loader2 size={13} className="animate-spin"/> : <ArrowLeftRight size={13}/>} Refresh
                   </button>
               </div>
@@ -3295,7 +3555,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-slate-900">{transaction.merchantName || transaction.categoryName || "Untitled transaction"}</p>
-                              <p className="truncate text-[11px] text-slate-500">{[transaction.categoryName, transaction.paymentMethod, localDate(transaction.transactionDate)].filter(Boolean).join(" • ")}</p>
+                              <p className="truncate text-[11px] text-slate-500">{[activePocketMembers.length > 1 ? transaction.userFullName : null, transaction.categoryName, transaction.paymentMethod, localDate(transaction.transactionDate)].filter(Boolean).join(" · ")}</p>
                             </div>
                           </div>
                         </div>
@@ -3323,6 +3583,14 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                   </button>
                 </div>
 
+                {activePocketMembers.length > 1 && (<div className="mt-4">
+                    <p className="text-xs font-semibold text-slate-700">Member</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button type="button" className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${pocketTransactionMemberId === "all" ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => setPocketTransactionMemberId("all")}>{language === "en" ? "All members" : "Semua member"}</button>
+                      {activePocketMembers.map((member) => (<button key={member.userId} type="button" className={`truncate rounded-xl border px-3 py-2 text-xs font-semibold transition ${pocketTransactionMemberId === member.userId ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 bg-white text-slate-600"}`} onClick={() => setPocketTransactionMemberId(member.userId)} title={member.fullName}>{member.fullName}</button>))}
+                    </div>
+                  </div>)}
+
                 <div className="mt-4">
                   <p className="text-xs font-semibold text-slate-700">Periode</p>
                   <div className="mt-2 grid grid-cols-2 gap-2">
@@ -3338,10 +3606,10 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                   </div>
                   {pocketTransactionDatePreset === "custom" && (<div className="mt-3 grid grid-cols-2 gap-2">
                       <Field label="Dari tanggal">
-                        <input className="input" type="date" value={pocketTransactionCustomStart} onChange={(event) => setPocketTransactionCustomStart(event.target.value)}/>
+                        <DateInput value={pocketTransactionCustomStart} onChange={(event) => setPocketTransactionCustomStart(event.target.value)}/>
                       </Field>
                       <Field label="Sampai tanggal">
-                        <input className="input" type="date" min={pocketTransactionCustomStart || undefined} value={pocketTransactionCustomEnd} onChange={(event) => setPocketTransactionCustomEnd(event.target.value)}/>
+                        <DateInput min={pocketTransactionCustomStart || undefined} value={pocketTransactionCustomEnd} onChange={(event) => setPocketTransactionCustomEnd(event.target.value)}/>
                       </Field>
                     </div>)}
                 </div>
@@ -3367,6 +3635,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     setPocketTransactionCustomStart("");
                     setPocketTransactionCustomEnd("");
                     setPocketTransactionSort("newest");
+                    setPocketTransactionMemberId("all");
                 }}>
                     Reset
                   </button>
@@ -3378,13 +3647,81 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             </>)}
 
 
-          {targetBalanceDraft !== "" && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
-              <SectionHeader title="Target balance" caption="Target tersimpan lokal sebagai rencana pocket."/>
-              <input className="input" inputMode="numeric" value={targetBalanceDraft} onChange={(event) => setTargetBalanceDraft(formatRupiahInput(event.target.value))} placeholder="Contoh: 5.000.000"/>
-              <button className="btn-primary mt-2 w-full" type="button">Save target</button>
-            </div>)}
-
         </section>)}
+      {accountView === "pocket-detail" && selectedPocket && showTargetBalanceModal && (<>
+          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label="Tutup target balance" onClick={() => setShowTargetBalanceModal(false)}/>
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
+            <div className="flex items-start justify-between gap-3">
+              <div><h2 className="text-base font-semibold text-slate-950">{targetDetails?.targetBalance ? "Edit target balance" : "Set target balance"}</h2><p className="mt-1 text-xs text-slate-500">Tentukan saldo yang ingin dicapai dan batas waktunya.</p></div>
+              <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowTargetBalanceModal(false)}><X size={17}/></button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <Field label="Target balance">
+                <input className="input" inputMode="numeric" value={targetBalanceDraft} onChange={(event) => setTargetBalanceDraft(formatRupiahInput(event.target.value))} placeholder="Contoh: 5.000.000" autoFocus required/>
+              </Field>
+              <Field label="Target date">
+                <DateFilterPicker label="Target date" value={targetDateDraft} onChange={setTargetDateDraft} language={language} showLabel={false} allowClear/>
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className="btn-secondary w-full" onClick={() => setShowTargetBalanceModal(false)}>Batal</button>
+                <button type="button" className="btn-primary w-full" disabled={targetBalanceSaving || !targetBalanceDraft || !targetDateDraft} onClick={() => savePocketTarget().catch((err) => setError(err instanceof Error ? err.message : "Target gagal disimpan"))}>
+                  {targetBalanceSaving ? <Loader2 size={16} className="animate-spin"/> : <TrendingUp size={16}/>} Simpan target
+                </button>
+              </div>
+              {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs text-rose-600">{error}</p>}
+            </div>
+          </section>
+        </>)}
+      {accountView === "pocket-detail" && selectedPocket && showAutoBudgetModal && (<>
+          <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close auto budgeting" : "Tutup auto budgeting"} onClick={() => setShowAutoBudgetModal(false)}/>
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[calc(100dvh-7rem)] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
+            <div className="flex items-start justify-between gap-3">
+              <div><h2 className="text-base font-semibold text-slate-950">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{language === "en" ? "The selected Pocket will be automatically debited at 07:00 when sufficient balance is available." : "Saldo pocket yang dipilih akan didebit otomatis pukul 07.00 jika saldo tersedia."}</p></div>
+              <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowAutoBudgetModal(false)}><X size={17}/></button>
+            </div>
+            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#15803D]">{language === "en" ? "Source pocket" : "Pocket asal"}</p>
+              <div className="mt-1 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold text-slate-950">{selectedPocket.name}</span><span className="text-xs font-bold text-slate-900">{rupiah(selectedPocket.currentBalance)}</span></div>
+              <p className="mt-1.5 text-[11px] leading-4 text-slate-500">{language === "en" ? "The debit is recorded as an Auto budgeting expense in this Pocket's transaction history." : "Debit dicatat sebagai pengeluaran Auto budgeting pada riwayat transaksi pocket ini."}</p>
+            </div>
+            <div className="mt-4 space-y-3">
+              <Field label={language === "en" ? "Amount" : "Nominal"}>
+                <input className="input" inputMode="numeric" value={autoBudgetDraft.amount} onChange={(event) => setAutoBudgetDraft((current) => ({ ...current, amount: formatRupiahInput(event.target.value) }))} placeholder="Contoh: 100.000" autoFocus/>
+              </Field>
+              <Field label={language === "en" ? "Frequency" : "Frekuensi"}>
+                <select className="input" value={autoBudgetDraft.frequency} onChange={(event) => setAutoBudgetDraft((current) => ({ ...current, frequency: event.target.value as typeof current.frequency }))}>
+                  <option value="daily">{language === "en" ? "Daily" : "Harian"}</option><option value="weekly">{language === "en" ? "Weekly" : "Mingguan"}</option><option value="monthly">{language === "en" ? "Monthly" : "Bulanan"}</option><option value="yearly">{language === "en" ? "Yearly" : "Tahunan"}</option>
+                </select>
+              </Field>
+              {autoBudgetDraft.frequency === "weekly" && (<Field label={language === "en" ? "Execution day" : "Hari pelaksanaan"}>
+                  <select className="input" value={autoBudgetDraft.dayOfWeek} onChange={(event) => setAutoBudgetDraft((current) => ({ ...current, dayOfWeek: Number(event.target.value) }))}>
+                    {(language === "en" ? ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] : ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]).map((day, index) => <option key={day} value={index + 1}>{day}</option>)}
+                  </select>
+                </Field>)}
+              {autoBudgetDraft.frequency === "monthly" && (<Field label={language === "en" ? "Execution date" : "Tanggal pelaksanaan"}>
+                  <select className="input" value={autoBudgetDraft.dayOfMonth} onChange={(event) => setAutoBudgetDraft((current) => ({ ...current, dayOfMonth: Number(event.target.value) }))}>{Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select>
+                </Field>)}
+              {autoBudgetDraft.frequency === "yearly" && (<div className="grid grid-cols-2 gap-2">
+                  <Field label={language === "en" ? "Month" : "Bulan"}><select className="input" value={autoBudgetDraft.monthOfYear} onChange={(event) => setAutoBudgetDraft((current) => ({ ...current, monthOfYear: Number(event.target.value) }))}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{new Intl.DateTimeFormat(language === "en" ? "en-US" : "id-ID", { month: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2026, index, 1)))}</option>)}</select></Field>
+                  <Field label={language === "en" ? "Date" : "Tanggal"}><select className="input" value={autoBudgetDraft.dayOfMonth} onChange={(event) => setAutoBudgetDraft((current) => ({ ...current, dayOfMonth: Number(event.target.value) }))}>{Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></Field>
+                </div>)}
+              <div>
+                <p className="text-xs font-semibold text-slate-600">{language === "en" ? "Expiry" : "Masa berlaku"}</p>
+                <div className="mt-1 grid grid-cols-2 rounded-2xl bg-slate-100 p-1">
+                  <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${autoBudgetDraft.noExpiry ? "bg-white text-[#15803D] shadow-sm" : "text-slate-500"}`} onClick={() => setAutoBudgetDraft((current) => ({ ...current, noExpiry: true, expiryDate: "" }))}>{language === "en" ? "No expiry" : "Tanpa batas"}</button>
+                  <button type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold ${!autoBudgetDraft.noExpiry ? "bg-white text-[#15803D] shadow-sm" : "text-slate-500"}`} onClick={() => setAutoBudgetDraft((current) => ({ ...current, noExpiry: false }))}>{language === "en" ? "Choose date" : "Pilih tanggal"}</button>
+                </div>
+              </div>
+              {!autoBudgetDraft.noExpiry && <DateFilterPicker label={language === "en" ? "Expiry date" : "Tanggal berakhir"} value={autoBudgetDraft.expiryDate} onChange={(value) => setAutoBudgetDraft((current) => ({ ...current, expiryDate: value }))} language={language} allowClear/>}
+              {autoBudgetRule?.nextRunDate && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-500">{language === "en" ? "Next debit" : "Debit berikutnya"}: <strong>{localDate(autoBudgetRule.nextRunDate)}</strong></p>}
+              {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs text-rose-600">{error}</p>}
+              <div className={`grid gap-2 ${autoBudgetRule ? "grid-cols-2" : ""}`}>
+                {autoBudgetRule && <button type="button" className="btn-secondary w-full text-rose-600" disabled={autoBudgetSaving} onClick={() => removeAutoBudget().catch((err) => setError(err instanceof Error ? err.message : "Auto budgeting gagal dihapus"))}><Trash2 size={15}/> {language === "en" ? "Disable" : "Nonaktifkan"}</button>}
+                <button type="button" className="btn-primary w-full" disabled={autoBudgetSaving || !autoBudgetDraft.amount || (!autoBudgetDraft.noExpiry && !autoBudgetDraft.expiryDate)} onClick={() => saveAutoBudget().catch((err) => setError(err instanceof Error ? err.message : "Auto budgeting gagal disimpan"))}>{autoBudgetSaving ? <Loader2 size={16} className="animate-spin"/> : <CheckCircle2 size={16}/>} {language === "en" ? "Save" : "Simpan"}</button>
+              </div>
+            </div>
+          </section>
+        </>)}
       {accountView === "pocket-detail" && selectedPocket && showPocketInviteModal && (<>
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Close invite user" onClick={() => setShowPocketInviteModal(false)}/>
           <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
@@ -3489,7 +3826,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
 
-          <input id="pocket-logo-upload" ref={pocketGalleryInputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handlePocketImage}/>
+          <input id="pocket-logo-upload" ref={pocketGalleryInputRef} className="sr-only" type="file" accept="image/*,.heic,.heif" onChange={handlePocketImage}/>
 
           <div className="flex-1 space-y-4">
             <div className="relative overflow-hidden rounded-[24px] p-4 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${pocketBackgroundDraft}, #064E3B)` }}>
@@ -3503,7 +3840,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     {pocketLogoDraft.startsWith("data:") ? <img src={pocketLogoDraft} alt="" className="h-full w-full object-cover"/> : <span className="flex h-full w-full items-center justify-center text-[34px] leading-none">{pocketLogoDraft}</span>}
                   </button>
                 </div>
-                <div className="flex flex-wrap justify-end gap-1.5">
+                <div className="flex max-h-[62px] max-w-[190px] flex-wrap justify-end gap-1.5 overflow-y-auto rounded-xl bg-black/10 p-1.5">
                   {pocketCardColors.map((color) => (<button key={color} type="button" className={`h-6 w-6 rounded-full border-2 ${pocketBackgroundDraft === color ? "border-white" : "border-white/40"}`} style={{ backgroundColor: color }} onClick={() => setPocketBackgroundDraft(color)} aria-label={`Pilih warna ${color}`}/>))}
                 </div>
               </div>
@@ -3534,9 +3871,12 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             }}>
                       Sticker
                     </button>
-                    <label htmlFor="pocket-logo-upload" className="flex min-h-14 cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50" onClick={() => setShowPocketLogoMenu(false)}>
+                    <button type="button" className="flex min-h-14 cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-sm font-semibold text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50" onClick={() => {
+                pocketGalleryInputRef.current?.click();
+                setShowPocketLogoMenu(false);
+            }}>
                       Upload gambar
-                    </label>
+                    </button>
                   </div>
                 </div>
               </>)}
@@ -3552,13 +3892,28 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                       <X size={14}/>
                     </button>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 overflow-y-auto pr-1 sm:grid-cols-5">
+                  <div className="overflow-y-auto pr-1">
+                    {pocketProviderStickerOptions.length > 0 && (<div className="mb-4">
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Logo {pocketTypeDraft === "bank" ? "bank" : pocketTypeDraft === "e_wallet" ? "e-wallet" : "e-money"}</p>
+                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+                          {pocketProviderStickerOptions.map((provider) => (<button key={provider} type="button" className="flex min-h-[72px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-100 bg-slate-50 p-2 transition hover:border-emerald-100 hover:bg-emerald-50" onClick={() => {
+                    setPocketLogoDraft(providerLogoSticker(provider));
+                    setShowPocketStickerPicker(false);
+                }} title={provider}>
+                              <img src={providerLogoSticker(provider)} alt="" className="h-9 w-9 rounded-xl object-cover"/>
+                              <span className="w-full truncate text-center text-[9px] font-semibold text-slate-600">{provider}</span>
+                            </button>))}
+                        </div>
+                      </div>)}
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Sticker umum</p>
+                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
                     {pocketStickerOptions.map((sticker) => (<button key={sticker} type="button" className="flex aspect-square min-h-12 items-center justify-center rounded-2xl border border-slate-100 bg-slate-50 text-[28px] transition hover:border-emerald-100 hover:bg-emerald-50" onClick={() => {
                 setPocketLogoDraft(sticker);
                 setShowPocketStickerPicker(false);
             }}>
                         <span className="leading-none">{sticker}</span>
                       </button>))}
+                    </div>
                   </div>
                 </div>
               </>)}
@@ -3585,18 +3940,19 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
 
             {pocketTypeDraft !== "cash" && (<div className="space-y-3 rounded-[22px] bg-[#F8FAFC] p-3">
                 <Field label={pocketTypeDraft === "bank" ? "Pilih Bank" : pocketTypeDraft === "e_wallet" ? "Pilih e-wallet" : "Pilih e-money"}>
-                  <input className="input" name="providerName" list={pocketTypeDraft === "bank" ? "pocket-bank-options" : pocketTypeDraft === "e_wallet" ? "pocket-ewallet-options" : "pocket-emoney-options"} placeholder={pocketTypeDraft === "bank" ? "Cari bank..." : pocketTypeDraft === "e_wallet" ? "Cari e-wallet..." : "Cari e-money..."} value={pocketProviderDraft} onChange={(event) => setPocketProviderDraft(event.target.value)} required/>
-                </Field>
-                <datalist id="pocket-bank-options">{pocketBankOptions.map((option) => <option key={option} value={option}/>)}</datalist>
-                <datalist id="pocket-ewallet-options">{pocketEWalletOptions.map((option) => <option key={option} value={option}/>)}</datalist>
-                <datalist id="pocket-emoney-options">{pocketEMoneyOptions.map((option) => <option key={option} value={option}/>)}</datalist>
-
-                <Field label={pocketTypeDraft === "bank" ? "Nomor rekening" : pocketTypeDraft === "e_wallet" ? "Nomor e-wallet" : "Nomor e-money"}>
-                  <input className="input" name="accountNumber" inputMode="numeric" placeholder="Nomor akun" value={pocketNumberDraft} onChange={(event) => setPocketNumberDraft(event.target.value)} required/>
+                  <select className="input" name="providerName" value={pocketProviderDraft} onChange={(event) => setPocketProviderDraft(event.target.value)} required>
+                    <option value="" disabled>{pocketTypeDraft === "bank" ? "Pilih bank" : pocketTypeDraft === "e_wallet" ? "Pilih e-wallet" : "Pilih e-money"}</option>
+                    {pocketProviderDraft && !pocketProviderOptions.includes(pocketProviderDraft) && <option value={pocketProviderDraft}>{pocketProviderDraft}</option>}
+                    {pocketProviderOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
                 </Field>
 
-                {pocketTypeDraft !== "e_money" && (<Field label="Atas nama">
-                    <input className="input" name="accountHolderName" placeholder="Nama pemilik rekening" value={pocketHolderDraft} onChange={(event) => setPocketHolderDraft(event.target.value)} required/>
+                <Field label={`${pocketTypeDraft === "bank" ? (language === "en" ? "Account number" : "Nomor rekening") : pocketTypeDraft === "e_wallet" ? (language === "en" ? "E-wallet number" : "Nomor e-wallet") : (language === "en" ? "E-money number" : "Nomor e-money")} (${language === "en" ? "optional" : "opsional"})`}>
+                  <input className="input" name="accountNumber" inputMode="numeric" placeholder={language === "en" ? "Account number (optional)" : "Nomor akun (opsional)"} value={pocketNumberDraft} onChange={(event) => setPocketNumberDraft(event.target.value)}/>
+                </Field>
+
+                {pocketTypeDraft !== "e_money" && (<Field label={language === "en" ? "Account holder (optional)" : "Atas nama (opsional)"}>
+                    <input className="input" name="accountHolderName" placeholder={language === "en" ? "Account holder name (optional)" : "Nama pemilik (opsional)"} value={pocketHolderDraft} onChange={(event) => setPocketHolderDraft(event.target.value)}/>
                   </Field>)}
               </div>)}
 
@@ -3624,22 +3980,28 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 }}>
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
-          <div className="mb-4 rounded-[22px] border border-slate-100 bg-[#F8FAFC] p-3 lg:rounded-md">
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <button type="button" disabled={transferMode === "out"} onClick={() => setTransferPocketPicker("source")} className={`rounded-2xl bg-white px-3 py-3 text-left shadow-sm lg:rounded-md ${transferMode === "out" ? "cursor-default" : "transition hover:ring-2 hover:ring-emerald-100 active:scale-[0.99]"}`}>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{transferFormCopy.sourceLabel}</p>
-                <p className="mt-1 truncate text-sm font-semibold text-slate-950">{sourceAccount?.name ?? "-"}</p>
-                {transferMode !== "out" && <p className="mt-1 text-[11px] text-slate-500">Pilih pocket asal.</p>}
-                <p className="mt-2 text-xs font-semibold text-slate-700">{sourceAccount ? rupiah(sourceAccount.currentBalance) : "-"}</p>
+          <div className="mb-4 rounded-[24px] border border-slate-100 bg-[#F8FAFC] p-2.5 lg:rounded-md">
+            <div className="relative grid grid-cols-2 gap-2.5">
+              <button type="button" disabled={transferMode === "out"} onClick={() => setTransferPocketPicker("source")} className={`relative min-h-[118px] rounded-[18px] border px-3 py-3 pb-11 text-left shadow-sm lg:rounded-md ${transferMode === "in" ? "order-2" : "order-1"} ${transferMode === "out" ? "cursor-default border-slate-100 bg-white" : "border-emerald-200 bg-emerald-50/60 transition hover:border-emerald-300 active:scale-[0.99]"}`}>
+                <p className="text-[10px] font-semibold text-slate-400">{transferFormCopy.sourceLabel}</p>
+                <p className="mt-1.5 truncate text-sm font-semibold text-slate-950">{sourceAccount?.name ?? "-"}</p>
+                {transferMode !== "out" && <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#16A34A] shadow-sm">Pilih pocket asal</span>}
+                <div className="absolute inset-x-3 bottom-3">
+                  <p className="text-[9px] text-slate-400">Saldo saat ini</p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-slate-800">{sourceAccount ? rupiah(sourceAccount.currentBalance) : "-"}</p>
+                </div>
               </button>
-              <span className={`flex h-10 w-10 items-center justify-center rounded-full ${transferMode === "in" ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
-                {transferMode === "in" ? <ArrowDownLeft size={18}/> : <ArrowUpRight size={18}/>}
+              <span className={`pointer-events-none absolute left-1/2 top-1/2 z-10 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-[#F8FAFC] shadow-sm ${transferMode === "in" ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
+                {transferMode === "in" ? <ArrowLeft size={17}/> : <ArrowRight size={17}/>}
               </span>
-              <button type="button" disabled={transferMode === "in"} onClick={() => setTransferPocketPicker("destination")} className={`rounded-2xl bg-white px-3 py-3 text-left shadow-sm lg:rounded-md ${transferMode === "in" ? "cursor-default" : "transition hover:ring-2 hover:ring-emerald-100 active:scale-[0.99]"}`}>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{transferFormCopy.destinationLabel}</p>
-                <p className="mt-1 truncate text-sm font-semibold text-slate-950">{destinationAccount?.name ?? "-"}</p>
-                {transferMode !== "in" && <p className="mt-1 text-[11px] text-slate-500">Pilih pocket tujuan.</p>}
-                <p className="mt-2 text-xs font-semibold text-slate-700">{destinationAccount ? rupiah(destinationAccount.currentBalance) : "-"}</p>
+              <button type="button" disabled={transferMode === "in"} onClick={() => setTransferPocketPicker("destination")} className={`relative min-h-[118px] rounded-[18px] border px-3 py-3 pb-11 text-left shadow-sm lg:rounded-md ${transferMode === "in" ? "order-1" : "order-2"} ${transferMode === "in" ? "cursor-default border-slate-100 bg-white" : "border-emerald-200 bg-emerald-50/60 transition hover:border-emerald-300 active:scale-[0.99]"}`}>
+                <p className="text-[10px] font-semibold text-slate-400">{transferFormCopy.destinationLabel}</p>
+                <p className="mt-1.5 truncate text-sm font-semibold text-slate-950">{destinationAccount?.name ?? "-"}</p>
+                {transferMode !== "in" && <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#16A34A] shadow-sm">Pilih pocket tujuan</span>}
+                <div className="absolute inset-x-3 bottom-3">
+                  <p className="text-[9px] text-slate-400">Saldo saat ini</p>
+                  <p className="mt-0.5 truncate text-xs font-semibold text-slate-800">{destinationAccount ? rupiah(destinationAccount.currentBalance) : "-"}</p>
+                </div>
               </button>
             </div>
           </div>
@@ -3651,7 +4013,10 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <input className="input h-11" name="amount" inputMode="numeric" placeholder="100000" value={transferDraft.amount} onChange={(event) => setTransferDraft((current) => ({ ...current, amount: formatRupiahInput(event.target.value) }))} required/>
               </Field>
               <Field label="Tanggal">
-                <input className="input h-11" name="transferDate" type="date" value={transferDraft.transferDate} onChange={(event) => setTransferDraft((current) => ({ ...current, transferDate: event.target.value }))} required/>
+                <div>
+                  <input type="hidden" name="transferDate" value={transferDraft.transferDate}/>
+                  <DateFilterPicker label="Tanggal" value={transferDraft.transferDate} onChange={(value) => setTransferDraft((current) => ({ ...current, transferDate: value }))} language={language} showLabel={false} allowClear/>
+                </div>
               </Field>
             </div>
             <Field label="Fee/admin">
@@ -3695,7 +4060,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 </p>)}
             </div>
             <input className="input h-11" name="notes" placeholder="Catatan transfer (opsional)" value={transferDraft.notes} onChange={(event) => setTransferDraft((current) => ({ ...current, notes: event.target.value }))}/>
-            <button className="btn-primary w-full" disabled={transferableAccounts.length < 2 || transferAttachmentLoading || transferParseLoading}>
+            <button className="btn-primary w-full" disabled={!transferDraft.transferDate || transferableAccounts.length < 2 || transferAttachmentLoading || transferParseLoading}>
               <ArrowLeftRight size={16}/> {transferFormCopy.submitLabel}
             </button>
           </div>
@@ -4503,8 +4868,8 @@ export function AssistantView({ request, language, onNavigate, context }: {
         form.reset();
         await sendMessage(message);
     };
-    return (<section className="mx-auto flex h-full min-h-0 max-w-3xl flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:h-[calc(100vh-8rem)] lg:rounded-lg lg:border-slate-200">
-      <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-3 lg:px-5 lg:py-4">
+    return (<section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-white lg:h-[calc(100vh-7rem)]">
+      <div className="shrink-0 border-b border-slate-100 bg-white px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] lg:px-5 lg:py-4">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-lg">
             <Bot size={20}/>
@@ -4516,8 +4881,8 @@ export function AssistantView({ request, language, onNavigate, context }: {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 px-3 py-4 lg:px-5">
-        <div className="space-y-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50/70 px-3 py-4 lg:px-8">
+        <div className="mx-auto max-w-4xl space-y-3">
           {messages.map((message, index) => {
             const isUser = message.role === "user";
             const responseTone = message.tone ?? "neutral";
@@ -4575,7 +4940,7 @@ export function AssistantView({ request, language, onNavigate, context }: {
       </div>
 
       <form className="shrink-0 border-t border-slate-100 bg-white p-3" onSubmit={submit}>
-        <div className="flex items-center gap-2">
+        <div className="mx-auto flex max-w-4xl items-center gap-2">
           <input className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md" name="message" placeholder={copy.placeholder} autoComplete="off" disabled={loading}/>
           <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#16A34A] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(22,163,74,0.22)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md" disabled={loading}>
             {loading ? <Loader2 className="animate-spin" size={16}/> : <Bot size={16}/>}
@@ -6603,19 +6968,21 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
     </section>);
 }
 
-export function ProfileView({ session, request, onProfileUpdated, onInstall, showInstall, onLogout }: {
+export function ProfileView({ session, request, onProfileUpdated, onInstall, showInstall, onLogout, onBack }: {
     session: Session;
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
     onProfileUpdated: (user: Session["user"]) => void;
     onInstall: () => Promise<void>;
     showInstall: boolean;
     onLogout?: () => void;
+    onBack: () => void;
 }) {
     const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
     const [profileMessage, setProfileMessage] = useState<string | null>(null);
     const [avatarUrl, setAvatarUrl] = useState(session.user.avatarUrl ?? "");
     const [profileQrDataUrl, setProfileQrDataUrl] = useState("");
     const [isEditingProfile, setIsEditingProfile] = useState(false);
+    const [isEditingPassword, setIsEditingPassword] = useState(false);
     useEffect(() => {
         setAvatarUrl(session.user.avatarUrl ?? "");
     }, [session.user.avatarUrl]);
@@ -6700,30 +7067,34 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
             });
             setPasswordMessage("Password berhasil diubah.");
             formElement.reset();
+            setIsEditingPassword(false);
         }
         catch (err) {
             setPasswordMessage(err instanceof Error ? err.message : "Password gagal diubah");
         }
     };
-    return (<div className="mx-auto grid max-w-5xl gap-3 xl:grid-cols-[0.85fr_1.15fr]">
-      <section className="rounded-[26px] bg-[#16A34A] p-4 text-white shadow-[0_18px_42px_rgba(22,163,74,0.18)] lg:rounded-lg lg:p-5">
+    return (<div className="mx-auto max-w-3xl space-y-3">
+      <div className="flex items-center">
+        <button type="button" className="app-back-button" onClick={onBack}><ArrowLeft size={14}/> Kembali</button>
+      </div>
+      <section className="overflow-hidden rounded-[26px] border border-emerald-100 bg-gradient-to-br from-white to-emerald-50 p-4 text-slate-950 shadow-soft lg:rounded-lg lg:p-5">
         <div className="flex items-start gap-3">
-          {avatarUrl ? (<img className="h-14 w-14 shrink-0 rounded-2xl object-cover ring-2 ring-white/20 lg:rounded-lg" src={avatarUrl} alt="Foto profil"/>) : (<span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-lg font-semibold lg:rounded-lg">{session.user.fullName.slice(0, 1).toUpperCase()}</span>)}
+          {avatarUrl ? (<img className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-4 ring-white shadow-sm lg:rounded-lg" src={avatarUrl} alt="Foto profil"/>) : (<span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-xl font-semibold text-[#16A34A] lg:rounded-lg">{session.user.fullName.slice(0, 1).toUpperCase()}</span>)}
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase text-white/60">Profil</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#16A34A]">Profil</p>
             <h2 className="mt-1 truncate text-xl font-semibold">{session.user.nickname || session.user.fullName}</h2>
-            {session.user.title && <p className="truncate text-xs text-emerald-100">{session.user.title}</p>}
-            <p className="mt-0.5 truncate text-xs font-semibold text-white/70">{session.user.email}</p>
+            {session.user.title && <p className="truncate text-xs text-slate-500">{session.user.title}</p>}
+            <p className="mt-0.5 truncate text-xs font-medium text-slate-500">{session.user.email}</p>
           </div>
         </div>
         <dl className="mt-5 grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md"><dt className="font-bold text-white/60">Mata uang</dt><dd className="mt-1 font-semibold">IDR</dd></div>
-          <div className="rounded-2xl bg-white/12 px-3 py-2 lg:rounded-md"><dt className="font-bold text-white/60">Akun</dt><dd className="mt-1 font-semibold">Aktif</dd></div>
+          <div className="rounded-2xl border border-white bg-white/80 px-3 py-2 lg:rounded-md"><dt className="font-medium text-slate-400">Mata uang</dt><dd className="mt-1 font-semibold text-slate-900">IDR</dd></div>
+          <div className="rounded-2xl border border-white bg-white/80 px-3 py-2 lg:rounded-md"><dt className="font-medium text-slate-400">Status akun</dt><dd className="mt-1 font-semibold text-[#16A34A]">Aktif</dd></div>
         </dl>
-        {showInstall && (<button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-white/15 lg:rounded-md" onClick={onInstall}>
+        {showInstall && (<button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-100 bg-white px-4 py-2.5 text-xs font-semibold text-[#16A34A] transition hover:bg-emerald-50 lg:rounded-md" onClick={onInstall}>
             <Download size={15}/> Pasang aplikasi
           </button>)}
-        {onLogout && (<button type="button" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#16A34A] transition hover:bg-emerald-50 lg:hidden" onClick={onLogout}>
+        {onLogout && (<button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 lg:hidden" onClick={onLogout}>
             <LogOut size={16}/> Logout
           </button>)}
       </section>
@@ -6796,15 +7167,21 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
             </div>
           </form>)}
 
-        <form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submitPassword}>
-          <SectionHeader title="Keamanan akun" caption="Ubah password secara berkala agar akun tetap aman."/>
-          <div className="space-y-3">
+        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+          <SectionHeader title="Keamanan akun" caption="Kelola password untuk melindungi akun Anda." action={!isEditingPassword ? (<button type="button" className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => {
+                    setPasswordMessage(null);
+                    setIsEditingPassword(true);
+                }}><ShieldCheck size={14}/> Ubah password</button>) : undefined}/>
+          {!isEditingPassword ? (<div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#16A34A] shadow-sm"><ShieldCheck size={18}/></span>
+              <div><p className="text-xs font-semibold text-slate-900">Password tersimpan</p><p className="mt-0.5 text-[11px] text-slate-500">Tekan Ubah password jika ingin menggantinya.</p></div>
+            </div>) : (<form className="space-y-3" onSubmit={submitPassword}>
             <Field label="Password saat ini"><input className="input" name="currentPassword" type="password" placeholder="Masukkan password lama" required/></Field>
             <Field label="Password baru"><input className="input" name="newPassword" type="password" placeholder="Minimal 8 karakter" minLength={8} required/></Field>
-            <button className="btn-secondary w-full"><CheckCircle2 size={16}/> Simpan password</button>
+            <div className="grid grid-cols-2 gap-2"><button type="button" className="btn-secondary w-full" onClick={() => setIsEditingPassword(false)}>Batal</button><button className="btn-primary w-full"><CheckCircle2 size={16}/> Simpan</button></div>
             {passwordMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-md">{passwordMessage}</p>}
-          </div>
-        </form>
+          </form>)}
+        </section>
       </div>
     </div>);
 }

@@ -60,6 +60,7 @@ export type Account = {
   currency: string;
   providerName?: string | null;
   accountNumber?: string | null;
+  accountHolderName?: string | null;
   isSharedWalletAccount?: boolean;
   ownerUserId?: string | null;
   ownerName?: string | null;
@@ -67,6 +68,7 @@ export type Account = {
   allowNegative: boolean;
   isActive: boolean;
   targetBalance?: string | null;
+  targetDate?: string | null;
   autoBudgetingEnabled?: boolean;
   logo?: string | null;
   background?: string | null;
@@ -85,12 +87,15 @@ export type Transaction = {
   transactionType: 'income' | 'expense';
   transactionDate: string;
   amount: string;
+  feeAmount?: string;
   categoryName?: string;
   accountName?: string;
   merchantName?: string;
   paymentMethod?: string;
   notes?: string;
   sourceType?: string;
+  userId?: string;
+  userFullName?: string;
   canManage?: boolean;
 };
 
@@ -108,6 +113,8 @@ export type Schedule = {
   id: string;
   title: string;
   scheduleType: 'transaction' | 'transfer' | 'topup';
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  expiryDate?: string | null;
   dueDay: number;
   nextDueDate: string;
   amount?: string | null;
@@ -171,6 +178,7 @@ export type ManualDraft = {
   accountId: string;
   transactionDate: string;
   amount: string;
+  feeAmount: string;
   categoryId: string;
   merchantName: string;
   paymentMethod: string;
@@ -181,6 +189,7 @@ export type ParsedManualTransaction = {
   transactionType: 'income' | 'expense';
   transactionDate: string;
   amount: string;
+  feeAmount: string;
   categoryId: string | null;
   categoryName: string | null;
   accountId: string | null;
@@ -197,6 +206,7 @@ export type AiTrackedField =
   | 'transactionType'
   | 'transactionDate'
   | 'amount'
+  | 'feeAmount'
   | 'accountId'
   | 'categoryId'
   | 'merchantName'

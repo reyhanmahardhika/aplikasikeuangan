@@ -12,6 +12,7 @@ export type TransactionInput = {
   transactionType: TransactionType;
   transactionDate: string;
   amount: unknown;
+  feeAmount?: unknown;
   categoryId?: string | null;
   merchantName?: string | null;
   paymentMethod?: string | null;
@@ -53,6 +54,7 @@ function toListQuery(
   if (filters.accountId && !options.skipAccountFilter) add("t.account_id = ?", filters.accountId);
   if (filters.paymentMethod) add("t.payment_method = ?", filters.paymentMethod);
   if (filters.sourceType) add("t.source_type = ?", filters.sourceType);
+  if (filters.userId) add("t.user_id = ?", filters.userId);
   if (filters.from) add("t.transaction_date >= ?", filters.from);
   if (filters.to) add("t.transaction_date <= ?", filters.to);
 
@@ -135,17 +137,30 @@ export async function listTransactions(userId: string, query: Record<string, unk
   const page = Math.max(Number(query.page ?? 1), 1);
   const limit = Math.min(Math.max(Number(query.limit ?? 20), 1), 100);
   const offset = (page - 1) * limit;
-  const { where, values, sort, direction } = toListQuery(query, userId);
+  const accountScoped = Boolean(query.accountId);
+  const { where, values, sort, direction } = toListQuery(query, userId, accountScoped ? {
+    baseWhere: [`EXISTS (
+      SELECT 1 FROM accounts access_account
+      WHERE access_account.id = t.account_id AND (
+        access_account.user_id = $1 OR EXISTS (
+          SELECT 1 FROM account_collaborators ac
+          WHERE ac.account_id = access_account.id AND ac.user_id = $1 AND ac.status = 'accepted'
+        )
+      )
+    )`],
+    baseValues: [userId]
+  } : {});
 
   const [rows, count] = await Promise.all([
     pool.query(
       `SELECT t.id, t.transaction_type AS "transactionType", t.transaction_date AS "transactionDate",
-              t.amount::text, t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod",
+              t.amount::text, t.fee_amount::text AS "feeAmount", t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod",
               t.notes, t.source_type AS "sourceType", t.status,
-              a.name AS "accountName", c.name AS "categoryName",
+              a.name AS "accountName", c.name AS "categoryName", t.user_id AS "userId", u.full_name AS "userFullName",
               (t.user_id = $${values.length + 3}) AS "canManage"
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
+       JOIN users u ON u.id = t.user_id
        LEFT JOIN categories c ON c.id = t.category_id
        WHERE ${where}
        ORDER BY ${sort} ${direction}, t.created_at DESC
@@ -168,7 +183,7 @@ export async function listTransactions(userId: string, query: Record<string, unk
 export async function getTransaction(userId: string, transactionId: string, db: DbClient = pool) {
   const transaction = await db.query(
     `SELECT t.id, t.account_id AS "accountId", t.transaction_type AS "transactionType",
-            t.transaction_date AS "transactionDate", t.amount::text, t.category_id AS "categoryId",
+            t.transaction_date AS "transactionDate", t.amount::text, t.fee_amount::text AS "feeAmount", t.category_id AS "categoryId",
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
             t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
             t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName",
@@ -197,16 +212,20 @@ export async function getTransaction(userId: string, transactionId: string, db: 
 export async function createTransaction(userId: string, input: TransactionInput, externalClient?: PoolClient) {
   const work = async (client: PoolClient) => {
     const amount = normalizeMoney(input.amount);
+    const feeAmount = normalizeNonNegativeMoney(input.feeAmount ?? 0);
     await ensureCategoryOwned(client, userId, input.categoryId);
     await ensureReceiptOwned(client, userId, input.receiptId);
     const account = await lockAccount(client, userId, input.accountId);
     await applyAccountDelta(client, account, transactionDelta(account.account_type, input.transactionType, amount));
+    if (feeAmount !== "0.00") {
+      await applyAccountDelta(client, account, transactionDelta(account.account_type, "expense", feeAmount));
+    }
 
     const result = await client.query(
       `INSERT INTO transactions
        (user_id, account_id, transaction_type, transaction_date, amount, category_id, merchant_name,
-        payment_method, notes, source_type, receipt_id, attachment_url, status, visibility)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        fee_amount, payment_method, notes, source_type, receipt_id, attachment_url, status, visibility)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING id, transaction_type AS "transactionType", transaction_date AS "transactionDate", amount::text`,
       [
         userId,
@@ -216,6 +235,7 @@ export async function createTransaction(userId: string, input: TransactionInput,
         amount,
         input.categoryId ?? null,
         input.merchantName ?? null,
+        feeAmount,
         input.paymentMethod ?? null,
         input.notes ?? null,
         input.sourceType ?? "manual",
@@ -248,20 +268,27 @@ export async function updateTransaction(userId: string, transactionId: string, i
       previousAccount,
       negate(transactionDelta(previousAccount.account_type, previous.transaction_type, previous.amount))
     );
+    if (normalizeNonNegativeMoney(previous.fee_amount ?? 0) !== "0.00") {
+      await applyAccountDelta(client, previousAccount, negate(transactionDelta(previousAccount.account_type, "expense", previous.fee_amount)));
+    }
 
     const amount = normalizeMoney(input.amount);
+    const feeAmount = normalizeNonNegativeMoney(input.feeAmount ?? 0);
     await ensureCategoryOwned(client, userId, input.categoryId);
     await ensureReceiptOwned(client, userId, input.receiptId);
     const account = await lockAccount(client, userId, input.accountId);
     await applyAccountDelta(client, account, transactionDelta(account.account_type, input.transactionType, amount));
+    if (feeAmount !== "0.00") {
+      await applyAccountDelta(client, account, transactionDelta(account.account_type, "expense", feeAmount));
+    }
 
     await client.query(
       `UPDATE transactions
        SET account_id = $1, transaction_type = $2, transaction_date = $3, amount = $4,
-           category_id = $5, merchant_name = $6, payment_method = $7, notes = $8,
-           source_type = $9, receipt_id = $10, attachment_url = $11, status = $12,
-           visibility = $13, updated_at = now()
-       WHERE id = $14 AND user_id = $15`,
+           category_id = $5, merchant_name = $6, fee_amount = $7, payment_method = $8, notes = $9,
+           source_type = $10, receipt_id = $11, attachment_url = $12, status = $13,
+           visibility = $14, updated_at = now()
+       WHERE id = $15 AND user_id = $16`,
       [
         input.accountId,
         input.transactionType,
@@ -269,6 +296,7 @@ export async function updateTransaction(userId: string, transactionId: string, i
         amount,
         input.categoryId ?? null,
         input.merchantName ?? null,
+        feeAmount,
         input.paymentMethod ?? null,
         input.notes ?? null,
         input.sourceType ?? "manual",
@@ -301,6 +329,9 @@ export async function deleteTransaction(userId: string, transactionId: string) {
       previousAccount,
       negate(transactionDelta(previousAccount.account_type, previous.transaction_type, previous.amount))
     );
+    if (normalizeNonNegativeMoney(previous.fee_amount ?? 0) !== "0.00") {
+      await applyAccountDelta(client, previousAccount, negate(transactionDelta(previousAccount.account_type, "expense", previous.fee_amount)));
+    }
     await client.query("DELETE FROM transactions WHERE id = $1 AND user_id = $2", [transactionId, userId]);
     await writeAuditLog(client, { userId, action: "DELETE", entityName: "Transaction", entityId: transactionId, previousValue: previous });
     return { deleted: true };

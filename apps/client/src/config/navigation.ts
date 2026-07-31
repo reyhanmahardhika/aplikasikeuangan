@@ -1,7 +1,7 @@
 /* Generated from App.tsx. Review before commit. */
 
 import type { LucideIcon } from "lucide-react";
-import { Bot, CircleDollarSign, Home, LayoutDashboard, LineChart, ReceiptText, Settings, Tags, Wallet } from "lucide-react";
+import { Bell, Bot, CircleDollarSign, Home, LayoutDashboard, LineChart, ReceiptText, Settings, Tags, Wallet } from "lucide-react";
 import type { View } from "../types/app";
 
 export const navigation: Array<{
@@ -16,7 +16,8 @@ export const navigation: Array<{
     { id: "budgets", label: "Anggaran", icon: CircleDollarSign },
     { id: "reports", label: "Laporan", icon: LineChart },
     { id: "assistant", label: "Kopilot Keuangan", icon: Bot },
-    { id: "profile", label: "Profil", icon: Settings }
+    { id: "notifications", label: "Pemberitahuan", icon: Bell },
+    { id: "manage", label: "Settings", icon: Settings }
 ];
 
 export const mobileNavigation: Array<{
@@ -27,5 +28,6 @@ export const mobileNavigation: Array<{
     { id: "dashboard", label: "Home", icon: Home },
     { id: "accounts", label: "Pocket", icon: Wallet },
     { id: "assistant", label: "Copilot", icon: Bot },
+    { id: "notifications", label: "Notifikasi", icon: Bell },
     { id: "manage", label: "Settings", icon: Settings }
 ];

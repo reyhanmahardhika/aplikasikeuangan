@@ -8,6 +8,20 @@ import { createPocketHistoryShare, getPublicPocketHistory, getPublicPocketHistor
 export const pocketHistoryShareRoutes = Router();
 export const publicPocketHistoryRoutes = Router();
 
+function contentTypeFromFileName(fileName: string) {
+  const extension = path.extname(fileName).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  if ([".heic", ".heif"].includes(extension)) return "image/heic";
+  if (extension === ".mp4") return "video/mp4";
+  if (extension === ".mov") return "video/quicktime";
+  if (extension === ".webm") return "video/webm";
+  if (extension === ".pdf") return "application/pdf";
+  return "application/octet-stream";
+}
+
 pocketHistoryShareRoutes.post("/:id/history-shares", requireAuth, asyncHandler(async (req, res) => {
   const input = z.object({
     dateFrom: z.string().date(),
@@ -34,5 +48,11 @@ publicPocketHistoryRoutes.get("/pocket-history/:token/transactions/:transactionI
   const token = z.string().uuid().parse(req.params.token);
   const transactionId = z.string().uuid().parse(req.params.transactionId);
   const file = await getPublicPocketHistoryAttachment(token, transactionId);
-  res.sendFile(path.resolve(file.file_url));
+  res.sendFile(path.resolve(file.file_url), {
+    headers: {
+      "Content-Type": contentTypeFromFileName(file.file_name),
+      "Content-Disposition": `inline; filename="${file.file_name.replace(/"/g, "")}"`,
+      "Cache-Control": "private, max-age=300"
+    }
+  });
 }));

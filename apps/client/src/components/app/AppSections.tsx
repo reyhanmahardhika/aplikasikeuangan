@@ -2136,7 +2136,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
     </div>);
 }
 
-export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onOpenTransaction, onChildFrameStateChange, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
+export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onOpenTransaction, onChildFrameStateChange, onNotice, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
     accounts: Account[];
     categories: Category[];
     currentUserId: string;
@@ -2146,6 +2146,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
     onOpenTransactions: (accountId: string, fromDate?: string) => void;
     onOpenTransaction?: (accountId: string, transactionId: string) => void;
     onChildFrameStateChange?: (state: ChildFrameState) => void;
+    onNotice?: (notice: { message: string; type: "success" | "error" }) => void;
     initialView?: "list" | "account-form" | "transfer-form" | "pocket-detail";
     initialTab?: "mine" | "shared";
     initialSelectedPocketId?: string;
@@ -2520,6 +2521,12 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
             return;
         }
         await navigator.clipboard.writeText(shareHistoryLink);
+        onNotice?.({ message: language === "en" ? "Pocket history share link copied." : "Link share history pocket berhasil disalin.", type: "success" });
+    };
+    const copyShareHistoryLink = async (url = shareHistoryLink) => {
+        if (!url) return;
+        await navigator.clipboard.writeText(url);
+        onNotice?.({ message: language === "en" ? "Pocket history share link copied." : "Link share history pocket berhasil disalin.", type: "success" });
     };
     const openMutationImportModal = () => {
         setError(null);
@@ -3956,7 +3963,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                   <Field label={language === "en" ? "Link validity (days)" : "Masa berlaku link (hari)"}><input className="input" type="number" min={1} max={30} value={shareHistoryExpiry} onChange={(event) => setShareHistoryExpiry(Math.max(1, Math.min(30, Number(event.target.value) || 7)))}/></Field>
                   <p className="rounded-2xl bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">{language === "en" ? "Default 7 days, maximum 30 days. Anyone with the link can view this recap until it expires." : "Default 7 hari, maksimal 30 hari. Siapa pun yang memiliki link dapat melihat ringkasan sampai kedaluwarsa."}</p>
                   <button type="button" className="btn-primary w-full" disabled={shareHistorySaving || !shareHistoryBounds.from || !shareHistoryBounds.to} onClick={() => createHistoryShare().catch((reason) => setError(reason instanceof Error ? reason.message : "Gagal membuat link"))}>{shareHistorySaving ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>} {language === "en" ? "Create share link" : "Buat link berbagi"}</button>
-                </div>) : (<div className="mt-4 space-y-3"><div className="rounded-[20px] border border-emerald-100 bg-emerald-50 p-4 text-center"><CheckCircle2 className="mx-auto text-[#16A34A]" size={28}/><p className="mt-2 text-sm font-bold text-slate-900">{language === "en" ? "Your link is ready!" : "Link siap dibagikan!"}</p><p className="mt-1 break-all text-[11px] text-slate-500">{shareHistoryLink}</p></div><button type="button" className="btn-primary w-full" onClick={() => shareGeneratedHistoryLink().catch(() => navigator.clipboard.writeText(shareHistoryLink))}><Share2 size={16}/> {language === "en" ? "Share link" : "Bagikan link"}</button><button type="button" className="btn-secondary w-full" onClick={() => navigator.clipboard.writeText(shareHistoryLink)}>{language === "en" ? "Copy link" : "Salin link"}</button><button type="button" className="w-full text-center text-xs font-semibold text-violet-600" onClick={() => setShareHistoryLink("")}>{language === "en" ? "Create another link" : "Buat link lainnya"}</button></div>)}
+                </div>) : (<div className="mt-4 space-y-3"><div className="rounded-[20px] border border-emerald-100 bg-emerald-50 p-4 text-center"><CheckCircle2 className="mx-auto text-[#16A34A]" size={28}/><p className="mt-2 text-sm font-bold text-slate-900">{language === "en" ? "Your link is ready!" : "Link siap dibagikan!"}</p><p className="mt-1 break-all text-[11px] text-slate-500">{shareHistoryLink}</p></div><button type="button" className="btn-primary w-full" onClick={() => shareGeneratedHistoryLink().catch(() => copyShareHistoryLink())}><Share2 size={16}/> {language === "en" ? "Share link" : "Bagikan link"}</button><button type="button" className="btn-secondary w-full" onClick={() => copyShareHistoryLink()}>{language === "en" ? "Copy link" : "Salin link"}</button><button type="button" className="w-full text-center text-xs font-semibold text-violet-600" onClick={() => setShareHistoryLink("")}>{language === "en" ? "Create another link" : "Buat link lainnya"}</button></div>)}
                 <div className="mt-5 border-t border-slate-100 pt-4">
                   <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-slate-900">{language === "en" ? "Active links" : "Link yang sedang aktif"}</p><p className="mt-0.5 text-[11px] text-slate-500">{language === "en" ? "Links that can still be opened by guests." : "Link yang masih bisa dibuka oleh guest."}</p></div><span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-600">{activeHistoryShares.length}</span></div>
                   <div className="mt-3 space-y-2">
@@ -3964,7 +3971,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                       const url = `${window.location.origin}/?pocketShare=${share.token}`;
                       return (<div key={share.token} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
                         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold text-slate-900">{localDate(share.dateFrom)} – {localDate(share.dateTo)}</p><p className="mt-1 text-[10px] text-slate-500">{share.transactionType === "income" ? (language === "en" ? "Income" : "Pemasukan") : share.transactionType === "expense" ? (language === "en" ? "Expense" : "Pengeluaran") : (language === "en" ? "All transactions" : "Semua transaksi")} · {share.categoryName ?? (language === "en" ? "All categories" : "Semua kategori")} · {language === "en" ? "expires" : "berakhir"} {localDate(share.expiresAt)}</p></div><span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-4 ring-emerald-100"/></div>
-                        <div className="mt-3 grid grid-cols-3 gap-2"><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>{language === "en" ? "Preview" : "Lihat"}</button><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => navigator.clipboard.writeText(url)}>{language === "en" ? "Copy" : "Salin"}</button><button type="button" className="rounded-xl bg-violet-600 px-2 py-2 text-[10px] font-bold text-white" onClick={() => navigator.share ? navigator.share({ title: selectedPocket.name, url }) : navigator.clipboard.writeText(url)}>{language === "en" ? "Share" : "Bagikan"}</button></div>
+                        <div className="mt-3 grid grid-cols-3 gap-2"><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>{language === "en" ? "Preview" : "Lihat"}</button><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => copyShareHistoryLink(url)}>{language === "en" ? "Copy" : "Salin"}</button><button type="button" className="rounded-xl bg-violet-600 px-2 py-2 text-[10px] font-bold text-white" onClick={() => navigator.share ? navigator.share({ title: selectedPocket.name, url }).catch(() => copyShareHistoryLink(url)) : copyShareHistoryLink(url)}>{language === "en" ? "Share" : "Bagikan"}</button></div>
                       </div>);
                     }) : <p className="rounded-2xl bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">{language === "en" ? "No active links yet." : "Belum ada link yang aktif."}</p>}
                   </div>

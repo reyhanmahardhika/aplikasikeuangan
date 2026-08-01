@@ -87,7 +87,31 @@ export async function getReceiptResult(userId: string, receiptId: string) {
 }
 
 export async function getReceiptFile(userId: string, receiptId: string) {
-  const result = await pool.query("SELECT file_url, file_name FROM receipts WHERE id = $1 AND user_id = $2", [receiptId, userId]);
+  const result = await pool.query(
+    `SELECT r.file_url, r.file_name
+     FROM receipts r
+     WHERE r.id = $1
+       AND (
+         r.user_id = $2
+         OR EXISTS (
+           SELECT 1
+           FROM transactions t
+           JOIN accounts a ON a.id = t.account_id
+           WHERE t.receipt_id = r.id
+             AND (
+               a.user_id = $2
+               OR EXISTS (
+                 SELECT 1
+                 FROM account_collaborators ac
+                 WHERE ac.account_id = a.id
+                   AND ac.user_id = $2
+                   AND ac.status = 'accepted'
+               )
+             )
+         )
+       )`,
+    [receiptId, userId]
+  );
   if (!result.rowCount) throw notFound("Struk tidak ditemukan");
   return result.rows[0] as { file_url: string; file_name: string };
 }

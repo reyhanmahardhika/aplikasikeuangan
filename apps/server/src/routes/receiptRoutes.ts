@@ -9,6 +9,20 @@ import { confirmReceipt, getReceiptFile, getReceiptResult, processReceipt, uploa
 export const receiptRoutes = Router();
 receiptRoutes.use(requireAuth);
 
+function contentTypeFromFileName(fileName: string) {
+  const extension = path.extname(fileName).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  if ([".heic", ".heif"].includes(extension)) return "image/heic";
+  if (extension === ".mp4") return "video/mp4";
+  if (extension === ".mov") return "video/quicktime";
+  if (extension === ".webm") return "video/webm";
+  if (extension === ".pdf") return "application/pdf";
+  return "application/octet-stream";
+}
+
 receiptRoutes.post(
   "/upload",
   receiptUpload.single("receipt"),
@@ -35,7 +49,13 @@ receiptRoutes.get(
   "/:id/file",
   asyncHandler(async (req, res) => {
     const file = await getReceiptFile(req.user!.id, req.params.id as string);
-    res.sendFile(path.resolve(file.file_url));
+    res.sendFile(path.resolve(file.file_url), {
+      headers: {
+        "Content-Type": contentTypeFromFileName(file.file_name),
+        "Content-Disposition": `inline; filename="${file.file_name.replace(/"/g, "")}"`,
+        "Cache-Control": "private, max-age=300"
+      }
+    });
   })
 );
 

@@ -1556,6 +1556,7 @@ function App() {
                   setNotice(error instanceof Error ? error.message : "Gagal membuka detail transaksi");
                 });
               }}
+              onNotice={setNotice}
               onChildFrameStateChange={applyChildFrameState}
             />
           )}

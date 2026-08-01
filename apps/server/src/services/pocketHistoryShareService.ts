@@ -1,5 +1,6 @@
 import { pool } from "../db/pool.js";
 import { forbidden, notFound } from "../utils/errors.js";
+import { downloadReceiptObject } from "./storageService.js";
 
 export async function createPocketHistoryShare(userId: string, accountId: string, input: {
   dateFrom: string;
@@ -116,7 +117,7 @@ export async function getPublicPocketHistory(token: string) {
 
 export async function getPublicPocketHistoryAttachment(token: string, transactionId: string) {
   const result = await pool.query(
-    `SELECT r.file_url, r.file_name
+    `SELECT r.file_url, r.file_name, r.storage_path, r.file_data, r.content_type
      FROM pocket_history_shares s
      JOIN transactions t ON t.account_id=s.account_id AND t.id=$2
      JOIN receipts r ON r.id=t.receipt_id
@@ -127,5 +128,9 @@ export async function getPublicPocketHistoryAttachment(token: string, transactio
     [token, transactionId]
   );
   if (!result.rowCount) throw notFound("Attachment tidak tersedia atau link sudah kedaluwarsa");
-  return result.rows[0] as { file_url: string; file_name: string };
+  const row = result.rows[0] as { file_url: string; file_name: string; storage_path: string | null; file_data: Buffer | null; content_type: string | null };
+  if (row.storage_path) {
+    row.file_data = await downloadReceiptObject(row.storage_path);
+  }
+  return row;
 }

@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { Express } from "express";
 import { pool, withDbTransaction } from "../db/pool.js";
 import { badRequest, conflict, notFound } from "../utils/errors.js";
@@ -8,26 +10,81 @@ import { createTransaction } from "./transactionService.js";
 import { parseReceiptText } from "./receiptParser.js";
 import { runOcr } from "./ocrService.js";
 import { writeAuditLog } from "./auditService.js";
+import { downloadReceiptObject, uploadReceiptObject } from "./storageService.js";
+import { compressAttachment } from "./attachmentCompressionService.js";
 
-async function hashFile(path: string) {
-  const buffer = await fs.readFile(path);
+function contentTypeFromFileName(fileName: string, fallback?: string) {
+  const extension = path.extname(fileName).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  if ([".heic", ".heif"].includes(extension)) return "image/heic";
+  if (extension === ".mp4") return "video/mp4";
+  if (extension === ".mov") return "video/quicktime";
+  if (extension === ".webm") return "video/webm";
+  if (extension === ".pdf") return "application/pdf";
+  return fallback || "application/octet-stream";
+}
+
+async function getUploadBuffer(file: Express.Multer.File) {
+  if (file.buffer) return file.buffer;
+  if (file.path) return fs.readFile(file.path);
+  throw badRequest("File struk tidak dapat dibaca");
+}
+
+async function hashBuffer(buffer: Buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function safeStorageName(fileName: string) {
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function receiptBufferFromStorage(receipt: { storage_path: string | null; file_data: Buffer | null }) {
+  if (receipt.storage_path) {
+    return downloadReceiptObject(receipt.storage_path);
+  }
+  return receipt.file_data;
+}
+
+async function withReceiptTempFile<T>(receipt: { id: string; file_name: string; file_url: string; storage_path: string | null; file_data: Buffer | null }, callback: (filePath: string) => Promise<T>) {
+  const fileBuffer = await receiptBufferFromStorage(receipt);
+  if (!fileBuffer) {
+    return callback(receipt.file_url);
+  }
+  const extension = path.extname(receipt.file_name) || ".upload";
+  const filePath = path.join(os.tmpdir(), `receipt-${receipt.id}-${Date.now()}${extension}`);
+  await fs.writeFile(filePath, fileBuffer);
+  try {
+    return await callback(filePath);
+  } finally {
+    await fs.rm(filePath, { force: true });
+  }
 }
 
 export async function uploadReceipt(userId: string, file?: Express.Multer.File) {
   if (!file) throw badRequest("File struk diperlukan");
-  const fileHash = await hashFile(file.path);
+  const fileBuffer = await getUploadBuffer(file);
+  const compressedFile = await compressAttachment(file.originalname, contentTypeFromFileName(file.originalname, file.mimetype), fileBuffer);
+  const fileHash = await hashBuffer(compressedFile.buffer);
+  const contentType = compressedFile.contentType;
+  const receiptId = crypto.randomUUID();
+  const storagePath = await uploadReceiptObject(`${userId}/${receiptId}/${Date.now()}-${safeStorageName(compressedFile.fileName)}`, compressedFile.buffer, contentType);
 
   const result = await pool.query(
-    `INSERT INTO receipts (user_id, file_name, file_url, file_hash, processing_status)
-     VALUES ($1, $2, $3, $4, 'uploaded')
+    `INSERT INTO receipts (id, user_id, file_name, file_url, file_hash, storage_path, file_data, content_type, processing_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'uploaded')
      RETURNING id, file_name AS "fileName", processing_status AS "processingStatus", created_at AS "createdAt"`,
-    [userId, file.originalname, file.path, fileHash]
+    [receiptId, userId, compressedFile.fileName, storagePath ? `supabase://${storagePath}` : `db://receipts/${receiptId}`, fileHash, storagePath, storagePath ? null : compressedFile.buffer, contentType]
   );
   await writeAuditLog(pool, { userId, action: "UPLOAD", entityName: "Receipt", entityId: result.rows[0].id });
   return {
     ...result.rows[0],
-    fileUrl: `/api/receipts/${result.rows[0].id}/file`
+    fileUrl: `/api/receipts/${result.rows[0].id}/file`,
+    originalSize: compressedFile.originalSize,
+    storedSize: compressedFile.storedSize,
+    compressed: compressedFile.compressed
   };
 }
 
@@ -39,7 +96,7 @@ export async function processReceipt(userId: string, receiptId: string) {
 
   await pool.query("UPDATE receipts SET processing_status = 'processing' WHERE id = $1", [receiptId]);
   try {
-    const rawText = await runOcr(row.file_url, row.file_name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image");
+    const rawText = await withReceiptTempFile(row, (filePath) => runOcr(filePath, contentTypeFromFileName(row.file_name, row.content_type)));
     const parsed = await parseReceiptText(rawText);
     const status = parsed.confidenceScore < 0.7 ? "needs_review" : "processed";
     await pool.query(
@@ -80,7 +137,7 @@ export async function getReceiptResult(userId: string, receiptId: string) {
 
 export async function getReceiptFile(userId: string, receiptId: string) {
   const result = await pool.query(
-    `SELECT r.file_url, r.file_name
+    `SELECT r.file_url, r.file_name, r.storage_path, r.file_data, r.content_type
      FROM receipts r
      WHERE r.id = $1
        AND (
@@ -105,7 +162,9 @@ export async function getReceiptFile(userId: string, receiptId: string) {
     [receiptId, userId]
   );
   if (!result.rowCount) throw notFound("Struk tidak ditemukan");
-  return result.rows[0] as { file_url: string; file_name: string };
+  const row = result.rows[0] as { file_url: string; file_name: string; storage_path: string | null; file_data: Buffer | null; content_type: string | null };
+  const storageData = await receiptBufferFromStorage(row);
+  return { ...row, file_data: storageData, content_type: row.content_type || contentTypeFromFileName(row.file_name) };
 }
 
 export async function confirmReceipt(userId: string, receiptId: string, input: {

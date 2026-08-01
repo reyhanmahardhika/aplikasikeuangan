@@ -19,5 +19,15 @@ services:
         generateValue: true
       - key: MAX_UPLOAD_MB
         value: "50"
+      - key: ATTACHMENT_IMAGE_MAX_DIMENSION
+        value: "1800"
+      - key: ATTACHMENT_IMAGE_QUALITY
+        value: "78"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: receipts
       - key: AI_PROVIDER
         value: heuristic

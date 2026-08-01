@@ -49,13 +49,17 @@ receiptRoutes.get(
   "/:id/file",
   asyncHandler(async (req, res) => {
     const file = await getReceiptFile(req.user!.id, req.params.id as string);
-    res.sendFile(path.resolve(file.file_url), {
-      headers: {
-        "Content-Type": contentTypeFromFileName(file.file_name),
-        "Content-Disposition": `inline; filename="${file.file_name.replace(/"/g, "")}"`,
-        "Cache-Control": "private, max-age=300"
-      }
-    });
+    const headers = {
+      "Content-Type": file.content_type || contentTypeFromFileName(file.file_name),
+      "Content-Disposition": `inline; filename="${file.file_name.replace(/"/g, "")}"`,
+      "Cache-Control": "private, max-age=300"
+    };
+    if (file.file_data) {
+      res.set(headers);
+      res.send(file.file_data);
+      return;
+    }
+    res.sendFile(path.resolve(file.file_url), { headers });
   })
 );
 

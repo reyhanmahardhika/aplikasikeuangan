@@ -48,11 +48,15 @@ publicPocketHistoryRoutes.get("/pocket-history/:token/transactions/:transactionI
   const token = z.string().uuid().parse(req.params.token);
   const transactionId = z.string().uuid().parse(req.params.transactionId);
   const file = await getPublicPocketHistoryAttachment(token, transactionId);
-  res.sendFile(path.resolve(file.file_url), {
-    headers: {
-      "Content-Type": contentTypeFromFileName(file.file_name),
-      "Content-Disposition": `inline; filename="${file.file_name.replace(/"/g, "")}"`,
-      "Cache-Control": "private, max-age=300"
-    }
-  });
+  const headers = {
+    "Content-Type": file.content_type || contentTypeFromFileName(file.file_name),
+    "Content-Disposition": `inline; filename="${file.file_name.replace(/"/g, "")}"`,
+    "Cache-Control": "private, max-age=300"
+  };
+  if (file.file_data) {
+    res.set(headers);
+    res.send(file.file_data);
+    return;
+  }
+  res.sendFile(path.resolve(file.file_url), { headers });
 }));

@@ -1,0 +1,4 @@
+ALTER TABLE receipts
+  ADD COLUMN IF NOT EXISTS storage_path TEXT,
+  ADD COLUMN IF NOT EXISTS file_data BYTEA,
+  ADD COLUMN IF NOT EXISTS content_type TEXT;

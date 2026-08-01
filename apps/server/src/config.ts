@@ -27,6 +27,11 @@ export const config = {
   jwtRefreshDays: Number(process.env.JWT_REFRESH_DAYS ?? 3),
   uploadDir: process.env.UPLOAD_DIR ?? "uploads",
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? 50),
+  attachmentImageMaxDimension: Number(process.env.ATTACHMENT_IMAGE_MAX_DIMENSION ?? 1800),
+  attachmentImageQuality: Number(process.env.ATTACHMENT_IMAGE_QUALITY ?? 78),
+  supabaseUrl: process.env.SUPABASE_URL,
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET ?? "receipts",
   ocrProvider: process.env.OCR_PROVIDER ?? "tesseract",
   aiProvider: process.env.AI_PROVIDER ?? "heuristic",
   openAiApiKey: process.env.OPENAI_API_KEY,
@@ -43,4 +48,3 @@ export const config = {
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY,
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:admin@example.com"
 };
-

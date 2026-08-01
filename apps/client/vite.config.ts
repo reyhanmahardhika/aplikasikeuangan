@@ -1,9 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import fs from "node:fs/promises";
+import path from "node:path";
+import pkg from "./package.json";
+
+const appVersion = process.env.VITE_APP_VERSION?.trim() || `${pkg.version}-${Date.now()}`;
+const versionPayload = JSON.stringify({ version: appVersion }, null, 2);
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion)
+  },
   plugins: [
+    {
+      name: "finance-ai-version-file",
+      configureServer(server) {
+        server.middlewares.use("/version.json", (_req, res) => {
+          res.setHeader("Content-Type", "application/json");
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+          res.end(versionPayload);
+        });
+      },
+      async closeBundle() {
+        await fs.writeFile(path.resolve("dist", "version.json"), versionPayload, "utf8");
+      }
+    },
     react(),
     VitePWA({
       registerType: "autoUpdate",

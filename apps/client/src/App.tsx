@@ -924,7 +924,7 @@ function App() {
     if (nextView !== "history" && nextView !== "transactionDetail") {
       setHistoryParentView(null);
     }
-    if (nextView === "manual" || view === "manual" || nextView !== "transactionDetail") {
+    if ((view === "manual" && nextView !== "transactionDetail") || (nextView !== "manual" && nextView !== "transactionDetail")) {
       setEditing(null);
     }
     if (nextView !== "transactionDetail") {
@@ -1051,6 +1051,7 @@ function App() {
       return true;
     }
     if (view === "manual" && editing && selectedTransaction) {
+      setEditing(null);
       navigate("transactionDetail");
       return true;
     }
@@ -1447,6 +1448,7 @@ function App() {
               request={request}
               onCancel={() => {
                 if (editing && selectedTransaction) {
+                  setEditing(null);
                   navigate("transactionDetail");
                 } else {
                   returnToPocketDetail(manualInitialAccountId);

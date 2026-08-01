@@ -533,7 +533,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
       <div ref={formCardRef} className={`scroll-mt-24 overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-2xl lg:border-slate-200 ${parseResult ? "ai-form-enter" : ""}`}>
         <div className="border-b border-slate-100 bg-white px-4 py-4 lg:px-5">
           {editing && (<button type="button" className="app-back-button mb-4" onClick={onCancel}>
-              <ArrowLeft size={14}/> Kembali
+              <ArrowLeft size={14}/> {language === "en" ? "Back" : "Kembali"}
             </button>)}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
@@ -541,17 +541,17 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                 {transactionType === "income" ? <ArrowDownLeft size={18}/> : <ArrowUpRight size={18}/>}
               </span>
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase text-[#16A34A]">{editing ? "Edit" : copy.confirmation}</p>
+                <p className="text-[10px] font-semibold uppercase text-[#16A34A]">{editing ? (language === "en" ? "Edit transaction" : "Edit transaksi") : copy.confirmation}</p>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="mt-0.5 text-base font-semibold tracking-normal text-slate-950">
-                    {editing ? "Edit transaksi" : copy.confirmTitle}
+                    {editing ? (language === "en" ? "Edit transaction" : "Edit transaksi") : copy.confirmTitle}
                   </h2>
                   {parseResult && (<span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-[#15803D]">
                       {Math.round(parseResult.confidenceScore * 100)}% {copy.confident}
                     </span>)}
                 </div>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {editing ? "Ubah data yang diperlukan lalu simpan." : copy.confirmSubtitle}
+                  {editing ? (language === "en" ? "Update the fields you need, then save." : "Ubah data yang diperlukan lalu simpan.") : copy.confirmSubtitle}
                 </p>
               </div>
             </div>

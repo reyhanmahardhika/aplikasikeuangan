@@ -32,3 +32,19 @@ export const receiptUpload = multer({
     cb(null, true);
   }
 });
+
+export const mutationImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: config.maxUploadMb * 1024 * 1024
+  },
+  fileFilter: (_req, file, cb) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    const allowed = [".csv", ".xlsx", ".pdf", ".txt"];
+    if (!allowed.includes(extension) && file.mimetype !== "application/pdf") {
+      cb(badRequest("Format file tidak didukung. Gunakan CSV, XLSX, PDF, atau TXT."));
+      return;
+    }
+    cb(null, true);
+  }
+});

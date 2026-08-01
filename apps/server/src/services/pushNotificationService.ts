@@ -1,4 +1,4 @@
-import webpush, { type PushSubscription } from "web-push";
+﻿import webpush, { type PushSubscription } from "web-push";
 import { config } from "../config.js";
 import { pool } from "../db/pool.js";
 
@@ -177,71 +177,3 @@ export async function sendDueSchedulePushes() {
   }
 }
 
-export async function sendDueSharedWalletReminders() {
-  if (!pushConfigured) return;
-  const reminders = await pool.query(
-    `SELECT r.id, r.wallet_id AS "walletId", r.interval_type AS "intervalType",
-            r.reminder_time::text AS "reminderTime", r.day_of_week AS "dayOfWeek",
-            r.day_of_month AS "dayOfMonth", r.entry_type AS "entryType",
-            r.message, r.timezone, r.target_user_id AS "targetUserId", w.name AS "walletName"
-     FROM shared_wallet_reminders r
-     JOIN shared_wallets w ON w.id = r.wallet_id
-     WHERE r.is_active = true AND w.is_active = true`
-  );
-
-  for (const reminder of reminders.rows) {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: reminder.timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23"
-    }).formatToParts(now);
-    const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
-    const localDate = `${part("year")}-${part("month")}-${part("day")}`;
-    const localMinutes = Number(part("hour")) * 60 + Number(part("minute"));
-    const [hour, minute] = String(reminder.reminderTime).slice(0, 5).split(":").map(Number);
-    const reminderMinutes = hour * 60 + minute;
-    if (localMinutes < reminderMinutes) continue;
-    const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(part("weekday"));
-    if (reminder.intervalType === "weekly" && weekday !== reminder.dayOfWeek) continue;
-    if (reminder.intervalType === "monthly" && Number(part("day")) !== reminder.dayOfMonth) continue;
-
-    const members = await pool.query(
-      `SELECT wm.user_id AS "userId", COALESCE(u.preferred_language, 'id') AS language
-       FROM shared_wallet_members wm
-       JOIN users u ON u.id = wm.user_id
-       WHERE wm.wallet_id = $1 AND wm.status = 'accepted'
-         AND ($2::uuid IS NULL OR wm.user_id = $2)`,
-      [reminder.walletId, reminder.targetUserId ?? null]
-    );
-    for (const member of members.rows) {
-      const deliveredAlready = await pool.query(
-        `SELECT 1 FROM shared_wallet_reminder_deliveries
-         WHERE reminder_id = $1 AND user_id = $2 AND delivery_date = $3`,
-        [reminder.id, member.userId, localDate]
-      );
-      if (deliveredAlready.rowCount) continue;
-      const isEnglish = member.language === "en";
-      const title = reminder.entryType === "deposit"
-        ? (isEnglish ? "💸 Saving time, bestie!" : "💸 Waktunya nabung, bestie!")
-        : (isEnglish ? "🧾 Expense check time!" : "🧾 Waktunya catat pengeluaran!");
-      const delivered = await sendPushToUser(member.userId, {
-        title,
-        body: `${reminder.message} ✨`,
-        url: `/?view=social&walletId=${reminder.walletId}&walletAction=record&entryType=${reminder.entryType}`,
-        tag: `wallet-reminder-${reminder.id}-${localDate}`
-      });
-      if (!delivered) continue;
-      await pool.query(
-        `INSERT INTO shared_wallet_reminder_deliveries (reminder_id, user_id, delivery_date)
-         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-        [reminder.id, member.userId, localDate]
-      );
-    }
-  }
-}

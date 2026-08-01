@@ -27,6 +27,34 @@ export function transactionDelta(accountType: string, transactionType: "income" 
   return transactionType === "income" ? amount : `-${amount}`;
 }
 
+function isoDate(value = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(value);
+}
+
+function daysBetween(from: string, to: string) {
+  const start = new Date(`${from.slice(0, 10)}T12:00:00Z`).getTime();
+  const end = new Date(`${to.slice(0, 10)}T12:00:00Z`).getTime();
+  return Math.max(0, Math.ceil((end - start) / 86400000));
+}
+
+function addDays(from: string, days: number) {
+  const date = new Date(`${from.slice(0, 10)}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + Math.max(0, Math.ceil(days)));
+  return date.toISOString().slice(0, 10);
+}
+
+function recurringDailyAmount(amount: string | number, frequency: string) {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (frequency === "daily") return value;
+  if (frequency === "weekly") return value / 7;
+  if (frequency === "monthly") return value / 30;
+  if (frequency === "yearly") return value / 365;
+  return 0;
+}
+
 export async function listAccounts(userId: string) {
   const result = await pool.query(
     `SELECT a.id, a.name, a.account_type AS "accountType",
@@ -68,8 +96,11 @@ export async function listAccounts(userId: string) {
 export async function getAccountTarget(userId: string, accountId: string) {
   const accountResult = await pool.query(
     `SELECT a.id, a.user_id AS "ownerUserId", a.current_balance::text AS "currentBalance",
-            a.target_balance::text AS "targetBalance", a.target_date::text AS "targetDate"
+            a.initial_balance::text AS "initialBalance", a.target_balance::text AS "targetBalance", a.target_date::text AS "targetDate",
+            g.id AS "goalId", g.goal_name AS "targetName", g.goal_image_url AS "goalImageUrl",
+            g.target_amount::text AS "goalTargetBalance", g.target_date::text AS "goalTargetDate"
      FROM accounts a
+     LEFT JOIN pocket_financial_goals g ON g.account_id = a.id
      WHERE a.id = $1 AND (
        a.user_id = $2 OR EXISTS (
          SELECT 1 FROM account_collaborators ac
@@ -79,6 +110,10 @@ export async function getAccountTarget(userId: string, accountId: string) {
     [accountId, userId]
   );
   if (!accountResult.rowCount) throw notFound("Pocket tidak ditemukan");
+  const account = accountResult.rows[0];
+  const targetBalance = account.goalTargetBalance ?? account.targetBalance;
+  const targetDate = account.goalTargetDate ?? account.targetDate;
+  const targetName = account.targetName ?? (targetBalance ? "Target keuangan" : null);
 
   const contributions = await pool.query(
     `WITH members AS (
@@ -107,33 +142,154 @@ export async function getAccountTarget(userId: string, accountId: string) {
      ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, u.full_name`,
     [accountId]
   );
-  return { ...accountResult.rows[0], contributions: contributions.rows };
+  if (!targetBalance || !targetDate) {
+    return { ...account, targetName, targetBalance, targetDate, contributions: contributions.rows, recommendations: null, projection: null, milestones: [], progressHistory: [], autoTransfers: [] };
+  }
+
+  const [autoTransfers, ledger, goalEvents] = await Promise.all([
+    pool.query(
+      `SELECT r.id, r.user_id AS "userId", u.full_name AS "userFullName",
+              r.source_account_id AS "sourceAccountId", source.name AS "sourceAccountName",
+              r.amount::text, r.frequency, r.next_run_date::text AS "nextRunDate",
+              r.expiry_date::text AS "expiryDate"
+       FROM pocket_auto_budget_rules r
+       JOIN users u ON u.id = r.user_id
+       LEFT JOIN accounts source ON source.id = r.source_account_id
+       WHERE r.account_id = $1 AND r.is_active = true
+       ORDER BY u.full_name`,
+      [accountId]
+    ),
+    pool.query(
+      `SELECT t.transaction_date::text AS "transactionDate", t.transaction_type AS "transactionType",
+              t.amount::text, t.merchant_name AS "merchantName", t.notes,
+              u.full_name AS "userFullName"
+       FROM transactions t
+       JOIN users u ON u.id = t.user_id
+       WHERE t.account_id = $1
+       ORDER BY t.transaction_date ASC, t.created_at ASC
+       LIMIT 1000`,
+      [accountId]
+    ),
+    account.goalId ? pool.query(
+      `SELECT e.event_type AS "eventType", e.amount::text, e.balance_after::text AS "balanceAfter",
+              e.notes, e.created_at::text AS "createdAt", u.full_name AS "userFullName"
+       FROM pocket_goal_progress_events e
+       LEFT JOIN users u ON u.id = e.user_id
+       WHERE e.goal_id = $1
+       ORDER BY e.created_at DESC
+       LIMIT 20`,
+      [account.goalId]
+    ) : Promise.resolve({ rows: [] })
+  ]);
+
+  const today = isoDate();
+  const targetAmount = Number(targetBalance);
+  const currentAmount = Number(account.currentBalance);
+  const remaining = Math.max(0, targetAmount - currentAmount);
+  const daysLeft = Math.max(1, daysBetween(today, targetDate));
+  const weeklyDeposit = remaining > 0 ? remaining / Math.max(1, Math.ceil(daysLeft / 7)) : 0;
+  const monthlyDeposit = remaining > 0 ? remaining / Math.max(1, Math.ceil(daysLeft / 30)) : 0;
+  const dailyAutoTransfer = autoTransfers.rows.reduce((sum, row) => sum + recurringDailyAmount(row.amount, row.frequency), 0);
+  const projectedDate = remaining <= 0 ? today : dailyAutoTransfer > 0 ? addDays(today, remaining / dailyAutoTransfer) : null;
+  const projectionStatus = remaining <= 0
+    ? "completed"
+    : !projectedDate
+      ? "needs_plan"
+      : projectedDate > String(targetDate).slice(0, 10)
+        ? "late"
+        : projectedDate < String(targetDate).slice(0, 10)
+          ? "faster"
+          : "on_track";
+  let running = Number(account.initialBalance ?? 0);
+  const milestonePercents = [25, 50, 75, 100];
+  const reachedAt = new Map<number, string>();
+  for (const item of ledger.rows) {
+    running += item.transactionType === "income" ? Number(item.amount) : -Number(item.amount);
+    for (const percent of milestonePercents) {
+      if (!reachedAt.has(percent) && running >= targetAmount * (percent / 100)) {
+        reachedAt.set(percent, item.transactionDate);
+      }
+    }
+  }
+  const milestones = milestonePercents.map((percent) => {
+    const amount = targetAmount * (percent / 100);
+    return { percent, amount: amount.toFixed(2), reached: currentAmount >= amount, reachedAt: reachedAt.get(percent) ?? null };
+  });
+  const progressHistory = [
+    ...goalEvents.rows,
+    ...ledger.rows.slice(-12).reverse().map((row) => ({
+      eventType: row.transactionType === "income" ? "deposit" : "withdrawal",
+      amount: row.amount,
+      balanceAfter: null,
+      notes: row.merchantName ?? row.notes,
+      createdAt: row.transactionDate,
+      userFullName: row.userFullName
+    }))
+  ].slice(0, 20);
+
+  return {
+    ...account,
+    targetName,
+    goalImageUrl: account.goalImageUrl ?? null,
+    targetBalance,
+    targetDate,
+    contributions: contributions.rows,
+    recommendations: {
+      remaining: remaining.toFixed(2),
+      daysLeft,
+      weeklyDeposit: weeklyDeposit.toFixed(2),
+      monthlyDeposit: monthlyDeposit.toFixed(2)
+    },
+    projection: {
+      projectedDate,
+      status: projectionStatus,
+      dailyAutoTransfer: dailyAutoTransfer.toFixed(2)
+    },
+    milestones,
+    progressHistory,
+    autoTransfers: autoTransfers.rows
+  };
 }
 
 export async function updateAccountTarget(
   userId: string,
   accountId: string,
-  payload: { targetBalance: unknown; targetDate: string }
+  payload: { targetName?: string; goalImageUrl?: string | null; targetBalance: unknown; targetDate: string }
 ) {
   const targetBalance = normalizeMoney(payload.targetBalance);
-  const today = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit"
-  }).format(new Date());
+  const today = isoDate();
   if (payload.targetDate < today) throw badRequest("Target date tidak boleh sebelum hari ini");
-  const result = await pool.query(
-    `UPDATE accounts
-     SET target_balance = $1, target_date = $2, updated_at = now()
-     WHERE id = $3 AND user_id = $4
-     RETURNING id, current_balance::text AS "currentBalance",
-               target_balance::text AS "targetBalance", target_date::text AS "targetDate"`,
-    [targetBalance, payload.targetDate, accountId, userId]
-  );
-  if (!result.rowCount) throw forbidden("Hanya owner yang dapat mengatur target Pocket");
-  await writeAuditLog(pool, {
-    userId, action: "UPDATE", entityName: "AccountTarget", entityId: accountId,
-    newValue: result.rows[0]
+  return withDbTransaction(async (client) => {
+    const account = await client.query(
+      `UPDATE accounts
+       SET target_balance = $1, target_date = $2, updated_at = now()
+       WHERE id = $3 AND user_id = $4
+       RETURNING id, name, current_balance::text AS "currentBalance",
+                 target_balance::text AS "targetBalance", target_date::text AS "targetDate"`,
+      [targetBalance, payload.targetDate, accountId, userId]
+    );
+    if (!account.rowCount) throw forbidden("Hanya owner yang dapat mengatur target Pocket");
+    const goalName = payload.targetName?.trim() || `Target ${account.rows[0].name}`;
+    const goal = await client.query(
+      `INSERT INTO pocket_financial_goals (account_id, user_id, goal_name, goal_image_url, target_amount, target_date)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (account_id) DO UPDATE SET goal_name=EXCLUDED.goal_name, goal_image_url=EXCLUDED.goal_image_url,
+         target_amount=EXCLUDED.target_amount, target_date=EXCLUDED.target_date, updated_at=now()
+       RETURNING id, goal_name AS "targetName", goal_image_url AS "goalImageUrl",
+                 target_amount::text AS "targetBalance", target_date::text AS "targetDate"`,
+      [accountId, userId, goalName, payload.goalImageUrl ?? null, targetBalance, payload.targetDate]
+    );
+    await client.query(
+      `INSERT INTO pocket_goal_progress_events (goal_id, user_id, event_type, amount, balance_after, notes)
+       VALUES ($1, $2, 'goal_updated', $3, $4, $5)`,
+      [goal.rows[0].id, userId, targetBalance, account.rows[0].currentBalance, goal.rows[0].targetName]
+    );
+    await writeAuditLog(client, {
+      userId, action: "UPDATE", entityName: "PocketFinancialGoal", entityId: goal.rows[0].id,
+      newValue: goal.rows[0]
+    });
+    return { ...account.rows[0], ...goal.rows[0] };
   });
-  return result.rows[0];
 }
 
 export async function createAccount(userId: string, payload: {

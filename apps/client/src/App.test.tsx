@@ -75,17 +75,6 @@ describe("App dashboard loading", () => {
       if (url.includes("/api/accounts")) return jsonResponse([]);
       if (url.includes("/api/categories")) return jsonResponse([]);
       if (url.includes("/api/schedules")) return jsonResponse([]);
-      if (url.includes("/api/social/summary")) {
-        return jsonResponse({
-          totalPayable: "0",
-          totalReceivable: "0",
-          activeGroups: 0,
-          pendingConfirmations: 0,
-          unreadNotifications: 0
-        });
-      }
-      if (url.match(/\/api\/social\/activity(?:\?.*)?$/)) return jsonResponse([]);
-
       if (url.includes("/api/dashboard/summary")) {
         dashboardAttempts += 1;
         if (dashboardAttempts === 1) {

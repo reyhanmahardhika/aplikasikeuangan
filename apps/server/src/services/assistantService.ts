@@ -18,7 +18,7 @@ type AssistantReply = {
 
 type AssistantLanguage = "en" | "id";
 type AssistantContext = {
-  contextType?: "personal" | "shared_wallet" | "goal" | "budget" | "investment";
+  contextType?: "personal" | "goal" | "budget" | "investment";
   entityType?: string;
   entityId?: string;
   sourcePage?: string;
@@ -187,8 +187,7 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
     budgetRisk,
     budgets,
     accounts,
-    upcomingSchedules,
-    socialPosition
+    upcomingSchedules
   ] = await Promise.all([
     pool.query(
       `SELECT COALESCE(sum(CASE WHEN account_type = 'credit_card' THEN -current_balance ELSE current_balance END), 0)::text AS balance
@@ -300,24 +299,6 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
        ORDER BY next_due_date ASC
        LIMIT 5`,
       [userId]
-    ),
-    pool.query<{ payable: string; receivable: string }>(
-      `SELECT
-         COALESCE((
-           SELECT sum(p.share_amount)
-           FROM group_expense_participants p
-           JOIN group_expenses e ON e.id = p.expense_id
-           WHERE p.user_id = $1 AND e.paid_by <> $1 AND e.status = 'confirmed'
-             AND p.confirmation_status IN ('pending', 'confirmed')
-         ), 0)::text AS payable,
-         COALESCE((
-           SELECT sum(p.share_amount)
-           FROM group_expenses e
-           JOIN group_expense_participants p ON p.expense_id = e.id AND p.user_id <> e.paid_by
-           WHERE e.paid_by = $1 AND e.status = 'confirmed'
-             AND p.confirmation_status IN ('pending', 'confirmed')
-         ), 0)::text AS receivable`,
-      [userId]
     )
   ]);
 
@@ -330,8 +311,6 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
   const merchant = topMerchant.rows[0];
   const riskyBudget = budgetRisk.rows[0];
   const scheduledTotal = upcomingSchedules.rows.reduce((total, row) => total + Number(row.amount ?? 0), 0);
-  const payable = Number(socialPosition.rows[0]?.payable ?? 0);
-  const receivable = Number(socialPosition.rows[0]?.receivable ?? 0);
   const purchaseAmount = parseAssistantAmount(question);
 
   const wantsHelp = hasAny(normalized, ["bisa apa", "help", "bantuan", "menu", "contoh", "what can you"]);
@@ -377,7 +356,7 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
     const balanceAfter = balanceValue - purchaseAmount;
     const netAfter = income - expense - purchaseAmount;
     const expenseRatioAfter = income > 0 ? ((expense + purchaseAmount) / income) * 100 : null;
-    const availableAfterCommitments = balanceValue - scheduledTotal - purchaseAmount - payable;
+    const availableAfterCommitments = balanceValue - scheduledTotal - purchaseAmount;
 
     let tone: AssistantReply["tone"] = "positive";
     let verdict = "Boleh. Kondisi saat ini masih cukup aman.";
@@ -406,11 +385,10 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
     }
 
     if (scheduledTotal > 0) reasons.push(`Ada jadwal pembayaran mendatang senilai ${formatRupiah(scheduledTotal)}.`);
-    if (payable > 0) reasons.push(`Utang bersama yang masih tercatat sebesar ${formatRupiah(payable)}.`);
 
     return {
       answer: [verdict, ...reasons].join(" "),
-      disclaimer: "Perhitungan memakai saldo, transaksi, budget, jadwal, dan utang yang tercatat di aplikasi.",
+      disclaimer: "Perhitungan memakai saldo, transaksi, budget, dan jadwal yang tercatat di aplikasi.",
       tone,
       highlights: [
         { label: "Harga", value: formatRupiah(purchaseAmount), tone: "neutral" },
@@ -431,7 +409,7 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
 
   if (wantsHelp) {
     return {
-      answer: "Aku bisa membantu mengambil keputusan belanja, mengecek kesehatan arus kas, memantau budget, melihat tagihan terdekat, membandingkan transaksi, dan membaca utang-piutang dari data aplikasi.",
+      answer: "Aku bisa membantu mengambil keputusan belanja, mengecek kesehatan arus kas, memantau budget, melihat tagihan terdekat, dan membandingkan transaksi dari data aplikasi.",
       disclaimer: null,
       suggestions: defaultSuggestions("id")
     };
@@ -444,7 +422,6 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
     if (riskyBudget && Number(riskyBudget.percent) >= 80) warnings.push(`Budget ${riskyBudget.name} sudah ${Math.round(Number(riskyBudget.percent))}%.`);
     if (expenseRatio !== null && expenseRatio >= 85) warnings.push(`Pengeluaran sudah ${Math.round(expenseRatio)}% dari pemasukan.`);
     if (scheduledTotal > 0) warnings.push(`Pembayaran terjadwal berikutnya berjumlah ${formatRupiah(scheduledTotal)}.`);
-    if (payable > 0) warnings.push(`Utang bersama yang tercatat ${formatRupiah(payable)}.`);
     const tone: AssistantReply["tone"] = net < 0 ? "danger" : warnings.length ? "warning" : "positive";
     return {
       answer: warnings.length
@@ -480,13 +457,9 @@ async function answerFinancialQuestionId(userId: string, question: string): Prom
 
   if (wantsDebt) {
     return {
-      answer: `Saat ini Anda perlu membayar ${formatRupiah(payable)} dan masih perlu menerima ${formatRupiah(receivable)} dari transaksi bersama.`,
-      disclaimer: "Hanya transaksi grup yang sudah dikonfirmasi yang dihitung.",
-      tone: payable > balanceValue ? "danger" : payable > 0 ? "warning" : "positive",
-      highlights: [
-        { label: "Harus dibayar", value: formatRupiah(payable), tone: payable > 0 ? "warning" : "neutral" },
-        { label: "Harus diterima", value: formatRupiah(receivable), tone: receivable > 0 ? "positive" : "neutral" }
-      ],
+      answer: "Fitur utang-piutang/grup tidak tersedia di navigasi aktif saat ini, jadi aku tidak menghitung data sosial lama di Copilot.",
+      disclaimer: null,
+      tone: "neutral",
       suggestions: ["Cek kondisi keuangan bulan ini", "Berapa saldo sekarang?"]
     };
   }

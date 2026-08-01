@@ -75,10 +75,13 @@ export const accountResetSchema = z.object({
     initialBalance: nonNegativeMoney.optional()
   });
 export const accountTargetSchema = z.object({
+    targetName: z.string().min(2).max(160).optional(),
+    goalImageUrl: z.string().max(900000).optional().nullable(),
     targetBalance: money,
     targetDate: z.string().date()
   });
 export const accountAutoBudgetSchema = z.object({
+  sourceAccountId: uuid,
   amount: money,
   frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
   dayOfWeek: z.number().int().min(1).max(7).optional().nullable(),
@@ -116,12 +119,10 @@ export const transactionSchema = z.object({
   merchantName: z.string().max(180).optional().nullable(),
   paymentMethod: z.string().max(80).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
-  sourceType: z.enum(["manual", "receipt"]).default("manual"),
+  sourceType: z.enum(["manual", "receipt", "import"]).default("manual"),
   receiptId: uuid.optional().nullable(),
   attachmentUrl: z.string().optional().nullable(),
   status: z.string().max(40).default("posted"),
-  visibility: z.enum(["private", "selected_friends", "group_members", "everyone_involved"]).default("private"),
-  viewerIds: z.array(uuid).max(100).default([]),
   items: z.array(transactionItemSchema).default([])
 });
 
@@ -177,7 +178,7 @@ export const assistantChatSchema = z.object({
   message: z.string().min(1).max(1000),
   language: z.enum(["en", "id"]).default("id"),
   context: z.object({
-    contextType: z.enum(["personal", "shared_wallet", "goal", "budget", "investment"]).default("personal"),
+    contextType: z.enum(["personal", "goal", "budget", "investment"]).default("personal"),
     entityType: z.string().max(80).optional(),
     entityId: uuid.optional(),
     sourcePage: z.string().max(80).optional()

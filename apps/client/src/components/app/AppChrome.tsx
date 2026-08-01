@@ -149,7 +149,6 @@ export function mobileNavLabel(view: View, fallback: string, language: AppLangua
     history: "Transactions",
     assistant: "Copilot",
     reports: "Insights",
-    social: "Social",
     manage: "Settings",
     notifications: "Notifications"
   };

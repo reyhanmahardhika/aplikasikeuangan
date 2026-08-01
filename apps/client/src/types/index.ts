@@ -15,7 +15,6 @@ export type View =
   | 'manage'
   | 'reports'
   | 'assistant'
-  | 'social'
   | 'profile';
 
 export type AppLanguage = 'en' | 'id';
@@ -106,8 +105,6 @@ export type TransactionDetail = Transaction & {
   categoryId?: string;
   receiptId?: string | null;
   canManage?: boolean;
-  visibility?: 'private' | 'selected_friends' | 'group_members' | 'everyone_involved';
-  viewerIds?: string[];
   items?: Array<{ itemName: string; quantity: string; unitPrice: string; totalPrice: string }>;
 };
 
@@ -149,16 +146,9 @@ export type DashboardSummary = {
   };
 };
 
-export type SocialSummary = {
-  totalPayable: string;
-  totalReceivable: string;
-  activeGroups: number;
-  pendingConfirmations: number;
-  unreadNotifications: number;
-};
 
 export type AssistantContext = {
-  contextType: 'personal' | 'shared_wallet' | 'goal' | 'budget' | 'investment';
+  contextType: 'personal' | 'goal' | 'budget' | 'investment';
   entityType?: string;
   entityId?: string;
   sourcePage?: string;
@@ -173,7 +163,7 @@ export type HeaderNotification = {
   entityId?: string | null;
   isRead: boolean;
   createdAt: string;
-  kind?: 'social' | 'schedule' | 'pocket_invite';
+  kind?: 'schedule' | 'pocket_invite';
 };
 
 export type ManualDraft = {
@@ -262,143 +252,6 @@ export type AssistantMessage = {
   entityId?: string;
 };
 
-// Social Types
-export type SocialFriend = {
-  id: string;
-  username: string;
-  fullName: string;
-  avatarUrl?: string | null;
-  status: 'friend' | 'pending' | 'blocked';
-  friendSince?: string;
-};
-
-export type SocialGroup = {
-  id: string;
-  name: string;
-  description?: string | null;
-  avatarUrl?: string | null;
-  currency: string;
-  memberCount: number;
-  myRole: 'owner' | 'admin' | 'member';
-  createdAt: string;
-};
-
-export type SocialWallet = {
-  id: string;
-  name: string;
-  description?: string | null;
-  avatarUrl?: string | null;
-  currency: string;
-  balance: string;
-  memberCount: number;
-  myRole: 'owner' | 'admin' | 'member' | 'viewer';
-  status: 'active' | 'archived';
-  createdAt: string;
-};
-
-export type WalletReminder = {
-  id: string;
-  intervalType: 'daily' | 'weekly' | 'monthly';
-  reminderTime: string;
-  dayOfWeek?: number | null;
-  dayOfMonth?: number | null;
-  entryType: 'deposit' | 'expense';
-  message: string;
-  timezone: string;
-  isActive: boolean;
-  targetUserId?: string | null;
-};
-
-export type SocialActivity = {
-  id: string;
-  eventType: string;
-  title: string;
-  body?: string | null;
-  entityType?: string | null;
-  entityId?: string | null;
-  isRead: boolean;
-  createdAt: string;
-};
-
-export type GroupDetail = SocialGroup & {
-  members: Array<{ id: string; fullName: string; username: string; role: string; status: string }>;
-  expenses: Array<{
-    id: string;
-    description: string;
-    amount: string;
-    paidByName: string;
-    paidBy: string;
-    createdBy: string;
-    expenseDate: string;
-    participants: Array<{ userId: string; name: string; shareAmount: string; status: string }>;
-  }>;
-  simplifiedDebts: Array<{ fromUserId: string; fromName: string; toUserId: string; toName: string; amount: string }>;
-  comments: Array<{ id: string; authorName: string; message: string; createdAt: string }>;
-  auditHistory: Array<{ id: string; action: string; actorName?: string; createdAt: string }>;
-};
-
-export type WalletDetail = SocialWallet & {
-  totalDeposit: string;
-  totalExpense: string;
-  goldBalanceValue?: string | null;
-  storageAccountId?: string | null;
-  storageAccountName?: string | null;
-  members: Array<{
-    id: string;
-    fullName: string;
-    username: string;
-    role: 'owner' | 'admin' | 'member' | 'viewer';
-    status: 'accepted' | 'pending' | 'rejected';
-    displayName?: string | null;
-    memberNote?: string | null;
-  }>;
-  memberSummary: Array<{
-    userId: string;
-    fullName: string;
-    role: string;
-    deposit: string;
-    expense: string;
-    goldDepositGrams?: string;
-    goldExpenseGrams?: string;
-    goldBalanceGrams?: string;
-    goldBalanceValue?: string;
-  }>;
-  entries: Array<{
-    id: string;
-    entryType: 'deposit' | 'expense';
-    amount: string;
-    description: string;
-    status: string;
-    createdByName: string;
-    createdAt: string;
-    transactionDate: string;
-    receiptId?: string | null;
-    goldWeightGrams?: string | null;
-    goldPricePerGram?: number | null;
-    goldPriceFetchedAt?: string | null;
-  }>;
-  auditHistory: Array<{ id: string; action: string; createdAt: string }>;
-  changeRequests: Array<{
-    id: string;
-    title: string;
-    status: string;
-    requestedBy: string;
-    requiredApprovals: number;
-    approvedCount: number;
-    rejectedCount: number;
-    payload: {
-      name?: string;
-      description?: string | null;
-      spendingLimit?: string | number | null;
-      requireApproval?: boolean;
-      expenseSplitRule?: 'equal' | 'percentage' | 'manual';
-      activeUntil?: string | null;
-    };
-    createdAt: string;
-    appliedAt?: string | null;
-    hasReviewed?: boolean;
-  }>;
-};
 
 // UI Constants & Navigation Types
 export type LucideIcon = import('lucide-react').LucideIcon;
@@ -479,6 +332,6 @@ export interface SocialAvatarProps {
   tone?: 'emerald' | 'rose' | 'sky' | 'amber' | 'purple';
 }
 
-export interface SocialSkeletonProps {
-  count?: number;
-}
+
+
+

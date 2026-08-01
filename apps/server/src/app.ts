@@ -17,11 +17,10 @@ import { reportRoutes } from "./routes/reportRoutes.js";
 import { scheduleRoutes } from "./routes/scheduleRoutes.js";
 import { transactionRoutes } from "./routes/transactionRoutes.js";
 import { transferRoutes } from "./routes/transferRoutes.js";
-import { socialRoutes } from "./routes/socialRoutes.js";
 import { notificationRoutes } from "./routes/notificationRoutes.js";
-import { walletManagementRoutes } from "./routes/walletManagementRoutes.js";
 import { accountCollaboratorRoutes } from "./routes/accountCollaboratorRoutes.js";
 import { pocketHistoryShareRoutes, publicPocketHistoryRoutes } from "./routes/pocketHistoryShareRoutes.js";
+import { userRoutes } from "./routes/userRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -121,13 +120,11 @@ export function createApp() {
   app.use("/api/schedules", scheduleRoutes);
   app.use("/api/reports", reportRoutes);
   app.use("/api/assistant", assistantRoutes);
-  app.use("/api/social", socialRoutes);
-  app.use("/api/social", walletManagementRoutes);
+  app.use("/api/users", userRoutes);
   app.use("/api/notifications", notificationRoutes);
 
   app.use(errorMiddleware);
   return app;
 }
-
 
 

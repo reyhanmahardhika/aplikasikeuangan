@@ -17,12 +17,11 @@ export type TransactionInput = {
   merchantName?: string | null;
   paymentMethod?: string | null;
   notes?: string | null;
-  sourceType?: "manual" | "receipt";
+  sourceType?: "manual" | "receipt" | "import";
+  importFingerprint?: string | null;
   receiptId?: string | null;
   attachmentUrl?: string | null;
   status?: string;
-  visibility?: "private" | "selected_friends" | "group_members" | "everyone_involved";
-  viewerIds?: string[];
   items?: Array<{
     itemName: string;
     quantity?: string | number;
@@ -106,20 +105,6 @@ async function insertItems(client: PoolClient, transactionId: string, items: Ret
   }
 }
 
-async function replaceTransactionViewers(
-  client: PoolClient,
-  _userId: string,
-  transactionId: string,
-  visibility: TransactionInput["visibility"],
-  _viewerIds: string[] = [],
-  _eventType: "transaction_shared" | "transaction_edited" = "transaction_shared"
-) {
-  await client.query("DELETE FROM transaction_viewers WHERE transaction_id = $1", [transactionId]);
-  if (visibility && visibility !== "private") {
-    throw badRequest("Berbagi transaksi melalui fitur Social sudah tidak didukung");
-  }
-}
-
 async function fetchTransactionForUpdate(client: PoolClient, userId: string, transactionId: string) {
   const result = await client.query(
     `SELECT t.*, a.account_type, a.allow_negative,
@@ -190,7 +175,7 @@ export async function getTransaction(userId: string, transactionId: string, db: 
             COALESCE(f.amount, t.fee_amount, 0)::text AS "feeAmount", t.category_id AS "categoryId",
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
             t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
-            t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName",
+            t.status, a.name AS "accountName", c.name AS "categoryName",
             true AS "canManage"
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
@@ -206,12 +191,7 @@ export async function getTransaction(userId: string, transactionId: string, db: 
      FROM transaction_items WHERE transaction_id = $1 ORDER BY item_name`,
     [transactionId]
   );
-  const viewers = await db.query(
-    "SELECT user_id AS \"userId\" FROM transaction_viewers WHERE transaction_id = $1",
-    [transactionId]
-  );
-
-  return { ...transaction.rows[0], items: items.rows, viewerIds: viewers.rows.map((row) => row.userId) };
+  return { ...transaction.rows[0], items: items.rows };
 }
 
 export async function createTransaction(userId: string, input: TransactionInput, externalClient?: PoolClient) {
@@ -226,8 +206,8 @@ export async function createTransaction(userId: string, input: TransactionInput,
     const result = await client.query(
       `INSERT INTO transactions
        (user_id, account_id, transaction_type, transaction_date, amount, category_id, merchant_name,
-        fee_amount, payment_method, notes, source_type, receipt_id, attachment_url, status, visibility)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        fee_amount, payment_method, notes, source_type, receipt_id, attachment_url, status, import_fingerprint)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::source_type, $12, $13, $14, $15)
        RETURNING id, transaction_type AS "transactionType", transaction_date AS "transactionDate", amount::text`,
       [
         userId,
@@ -244,7 +224,7 @@ export async function createTransaction(userId: string, input: TransactionInput,
         input.receiptId ?? null,
         input.attachmentUrl ?? null,
         input.status ?? "posted",
-        input.visibility ?? "private"
+        input.importFingerprint ?? null
       ]
     );
 
@@ -254,14 +234,13 @@ export async function createTransaction(userId: string, input: TransactionInput,
       await client.query(
         `INSERT INTO transactions
          (user_id, account_id, transaction_type, transaction_date, amount, merchant_name,
-          fee_amount, payment_method, notes, source_type, status, visibility, parent_transaction_id)
-         VALUES ($1, $2, 'expense', $3, $4, 'Biaya admin transaksi', 0, $5, $6, 'manual', 'transaction_fee', $7, $8)`,
+          fee_amount, payment_method, notes, source_type, status, parent_transaction_id)
+         VALUES ($1, $2, 'expense', $3, $4, 'Biaya admin transaksi', 0, $5, $6, 'manual', 'transaction_fee', $7)`,
         [userId, input.accountId, input.transactionDate, feeAmount, input.paymentMethod ?? null,
           input.merchantName ? `Biaya admin untuk ${input.merchantName}` : null,
-          input.visibility ?? "private", transactionId]
+          transactionId]
       );
     }
-    await replaceTransactionViewers(client, userId, transactionId, input.visibility ?? "private", input.viewerIds);
     await insertItems(client, transactionId, normalizeItems(input.items));
     await writeAuditLog(client, { userId, action: "CREATE", entityName: "Transaction", entityId: transactionId, newValue: input });
     return getTransaction(userId, transactionId, client);
@@ -298,8 +277,8 @@ export async function updateTransaction(userId: string, transactionId: string, i
        SET account_id = $1, transaction_type = $2, transaction_date = $3, amount = $4,
            category_id = $5, merchant_name = $6, fee_amount = $7, payment_method = $8, notes = $9,
            source_type = $10, receipt_id = $11, attachment_url = $12, status = $13,
-           visibility = $14, updated_at = now()
-       WHERE id = $15 AND user_id = $16`,
+           import_fingerprint = $16, updated_at = now()
+       WHERE id = $14 AND user_id = $15`,
       [
         input.accountId,
         input.transactionType,
@@ -314,9 +293,9 @@ export async function updateTransaction(userId: string, transactionId: string, i
         input.receiptId ?? null,
         input.attachmentUrl ?? null,
         input.status ?? "posted",
-        input.visibility ?? "private",
         transactionId,
-        userId
+        userId,
+        input.importFingerprint ?? null
       ]
     );
 
@@ -326,15 +305,14 @@ export async function updateTransaction(userId: string, transactionId: string, i
       await client.query(
         `INSERT INTO transactions
          (user_id, account_id, transaction_type, transaction_date, amount, merchant_name,
-          fee_amount, payment_method, notes, source_type, status, visibility, parent_transaction_id)
-         VALUES ($1, $2, 'expense', $3, $4, 'Biaya admin transaksi', 0, $5, $6, 'manual', 'transaction_fee', $7, $8)`,
+          fee_amount, payment_method, notes, source_type, status, parent_transaction_id)
+         VALUES ($1, $2, 'expense', $3, $4, 'Biaya admin transaksi', 0, $5, $6, 'manual', 'transaction_fee', $7)`,
         [userId, input.accountId, input.transactionDate, feeAmount, input.paymentMethod ?? null,
           input.merchantName ? `Biaya admin untuk ${input.merchantName}` : null,
-          input.visibility ?? "private", transactionId]
+          transactionId]
       );
     }
 
-    await replaceTransactionViewers(client, userId, transactionId, input.visibility ?? "private", input.viewerIds, "transaction_edited");
     await client.query("DELETE FROM transaction_items WHERE transaction_id = $1", [transactionId]);
     await insertItems(client, transactionId, normalizeItems(input.items));
     await writeAuditLog(client, { userId, action: "UPDATE", entityName: "Transaction", entityId: transactionId, previousValue: previous, newValue: input });

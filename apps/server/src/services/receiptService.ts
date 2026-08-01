@@ -125,11 +125,6 @@ export async function confirmReceipt(userId: string, receiptId: string, input: {
     if (!["processed", "needs_review"].includes(row.processing_status)) {
       throw badRequest("Struk harus diproses sebelum dikonfirmasi");
     }
-    const existing = await client.query("SELECT id FROM transactions WHERE receipt_id = $1 AND user_id = $2", [receiptId, userId]);
-    if (existing.rowCount) {
-      throw conflict("Transaksi dari struk ini sudah tersimpan");
-    }
-
     let categoryId = input.categoryId ?? null;
     if (!categoryId && row.parsed_json?.suggestedCategory) {
       const suggested = await findCategoryByName(client, userId, row.parsed_json.suggestedCategory, "expense");

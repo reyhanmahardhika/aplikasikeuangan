@@ -37,12 +37,14 @@ declare global {
 }
 
 function App() {
-  const publicPocketShareToken = new URLSearchParams(window.location.search).get("pocketShare");
+  const initialSearchParams = new URLSearchParams(window.location.search);
+  const publicPocketShareToken = initialSearchParams.get("pocketShare");
+  const initialAccountId = initialSearchParams.get("accountId") ?? "";
   const [session, setSession] = useState<StoredSession | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
-    const requested = new URLSearchParams(window.location.search).get("view") as View | null;
+    const requested = initialSearchParams.get("view") as View | null;
     return requested && ["dashboard", "manual", "history", "reports", "assistant", "manage", "profile", "notifications", "accounts"].includes(requested)
       ? requested
       : "dashboard";
@@ -54,6 +56,7 @@ function App() {
   const [coreLoading, setCoreLoading] = useState(false);
   const [coreLoaded, setCoreLoaded] = useState(false);
   const [coreLoadError, setCoreLoadError] = useState<string | null>(null);
+  const [serverNotifications, setServerNotifications] = useState<HeaderNotification[]>([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<"unsupported" | "unavailable" | "default" | "granted" | "denied">(
     () => !("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)
@@ -67,9 +70,9 @@ function App() {
   const [historyFromDate, setHistoryFromDate] = useState("");
   const [historyParentView, setHistoryParentView] = useState<View | null>(null);
   const [manualInitialType, setManualInitialType] = useState<"income" | "expense">("expense");
-  const [manualInitialAccountId, setManualInitialAccountId] = useState("");
+  const [manualInitialAccountId, setManualInitialAccountId] = useState(initialAccountId);
   const [manualResetKey, setManualResetKey] = useState(0);
-  const [accountsInitialView, setAccountsInitialView] = useState<"list" | "account-form" | "transfer-form" | "pocket-detail">("list");
+  const [accountsInitialView, setAccountsInitialView] = useState<"list" | "account-form" | "transfer-form" | "pocket-detail">(() => view === "accounts" && initialAccountId ? "pocket-detail" : "list");
   const [accountsInitialTab, setAccountsInitialTab] = useState<"mine" | "shared">("mine");
   const [accountsResetKey, setAccountsResetKey] = useState(0);
   const [addActionOpen, setAddActionOpen] = useState(false);
@@ -492,11 +495,13 @@ function App() {
       const [
         nextAccounts,
         nextCategories,
-        nextDashboard
+        nextDashboard,
+        nextNotifications
       ] = await Promise.all([
         request<Account[]>("/accounts"),
         request<Category[]>("/categories"),
-        request<DashboardSummary>("/dashboard/summary")
+        request<DashboardSummary>("/dashboard/summary"),
+        optionalRequest<HeaderNotification[]>("/notifications", [])
       ]);
 
       const nextSchedules = await optionalRequest<Schedule[]>("/schedules", []);
@@ -504,6 +509,7 @@ function App() {
       setAccounts(nextAccounts);
       setCategories(nextCategories);
       setDashboard(nextDashboard);
+      setServerNotifications(nextNotifications.map((item) => ({ ...item, kind: "server" })));
       setSchedules(nextSchedules);
       coreLoadedRef.current = true;
       setCoreLoaded(true);
@@ -514,6 +520,7 @@ function App() {
         setDashboard(null);
         setAccounts([]);
         setCategories([]);
+        setServerNotifications([]);
         setSchedules([]);
         coreLoadedRef.current = false;
         setCoreLoaded(false);
@@ -736,7 +743,10 @@ function App() {
 
   useEffect(() => {
     if (!session?.accessToken) return;
-    const syncPocketInvites = () => request<Account[]>("/accounts").then(setAccounts).catch(() => undefined);
+    const syncPocketInvites = () => Promise.all([
+      request<Account[]>("/accounts").then(setAccounts),
+      request<HeaderNotification[]>("/notifications").then((items) => setServerNotifications(items.map((item) => ({ ...item, kind: "server" }))))
+    ]).catch(() => undefined);
     const intervalId = window.setInterval(syncPocketInvites, 60_000);
     const handleVisible = () => {
       if (document.visibilityState === "visible") syncPocketInvites();
@@ -845,7 +855,7 @@ function App() {
     createdAt: new Date().toISOString(),
     kind: "pocket_invite"
   }));
-  const notificationItems = [...scheduleNotifications, ...pocketInviteNotifications]
+  const notificationItems = [...serverNotifications, ...scheduleNotifications, ...pocketInviteNotifications]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const unreadNotificationCount = notificationItems.filter((item) => !item.isRead).length;
 
@@ -854,9 +864,27 @@ function App() {
     scheduleNotifications.forEach((item) => nextDismissed.add(item.id));
     setDismissedScheduleIds(nextDismissed);
     localStorage.setItem("dismissed-schedule-notifications", JSON.stringify([...nextDismissed]));
+    if (serverNotifications.some((item) => !item.isRead)) {
+      setServerNotifications((items) => items.map((item) => ({ ...item, isRead: true })));
+      await request("/notifications/read", { method: "PUT" }).catch(() => undefined);
+    }
   };
 
   const openNotification = async (item: HeaderNotification) => {
+    if (item.kind === "server") {
+      if (!item.isRead) {
+        setServerNotifications((items) => items.map((notification) => notification.id === item.id ? { ...notification, isRead: true } : notification));
+        await request(`/notifications/${item.id}/read`, { method: "PUT" }).catch(() => undefined);
+      }
+      setNotificationsOpen(false);
+      if (item.entityType === "account" && item.entityId) {
+        setManualInitialAccountId(item.entityId);
+        setAccountsInitialView("pocket-detail");
+        setAccountsResetKey((current) => current + 1);
+        navigate("accounts");
+      }
+      return;
+    }
     if (item.kind === "pocket_invite") {
       setNotificationsOpen(false);
       setAccountsInitialView("list");

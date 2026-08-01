@@ -163,7 +163,7 @@ export type HeaderNotification = {
   entityId?: string | null;
   isRead: boolean;
   createdAt: string;
-  kind?: 'schedule' | 'pocket_invite';
+  kind?: 'schedule' | 'pocket_invite' | 'server';
 };
 
 export type ManualDraft = {

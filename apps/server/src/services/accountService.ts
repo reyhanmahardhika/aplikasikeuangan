@@ -3,6 +3,8 @@ import { pool, withDbTransaction, type DbClient } from "../db/pool.js";
 import { badRequest, forbidden, notFound } from "../utils/errors.js";
 import { isNegative, normalizeMoney, normalizeNonNegativeMoney } from "../utils/money.js";
 import { writeAuditLog } from "./auditService.js";
+import { createAppNotification } from "./notificationService.js";
+import { sendPushToUser } from "./pushNotificationService.js";
 
 export type AccountRow = {
   id: string;
@@ -585,7 +587,7 @@ export async function createTransfer(userId: string, payload: {
     throw badRequest("Akun asal dan tujuan harus berbeda");
   }
 
-  return withDbTransaction(async (client) => {
+  const transfer = await withDbTransaction(async (client) => {
     const source = await lockAccount(client, userId, payload.sourceAccountId, "spend");
     const destination = await lockAccount(client, userId, payload.destinationAccountId, "deposit");
     if (payload.receiptId) {
@@ -652,6 +654,83 @@ export async function createTransfer(userId: string, payload: {
         feeTransactionId
       }
     });
-    return { ...result.rows[0], feeAmount };
+    const actorResult = await client.query<{ full_name: string }>(
+      "SELECT full_name FROM users WHERE id = $1",
+      [userId]
+    );
+    const actorName = actorResult.rows[0]?.full_name ?? "User";
+    const recipientResult = await client.query<{
+      user_id: string;
+      language: "en" | "id";
+      source_visible: boolean;
+      destination_visible: boolean;
+    }>(
+      `WITH affected_accounts AS (
+         SELECT $1::uuid AS account_id, true AS source_visible, false AS destination_visible
+         UNION ALL
+         SELECT $2::uuid AS account_id, false AS source_visible, true AS destination_visible
+       ),
+       account_users AS (
+         SELECT a.user_id, aa.source_visible, aa.destination_visible
+         FROM affected_accounts aa
+         JOIN accounts a ON a.id = aa.account_id
+         UNION ALL
+         SELECT ac.user_id, aa.source_visible, aa.destination_visible
+         FROM affected_accounts aa
+         JOIN account_collaborators ac ON ac.account_id = aa.account_id
+         WHERE ac.status = 'accepted'
+       )
+       SELECT au.user_id,
+              COALESCE(u.preferred_language, 'id') AS language,
+              BOOL_OR(au.source_visible) AS source_visible,
+              BOOL_OR(au.destination_visible) AS destination_visible
+       FROM account_users au
+       JOIN users u ON u.id = au.user_id
+       WHERE au.user_id <> $3
+       GROUP BY au.user_id, u.preferred_language`,
+      [source.id, destination.id, userId]
+    );
+    const formatAmount = (value: string) => `Rp${Number(value).toLocaleString("id-ID")}`;
+    const pushTargets = [];
+    for (const recipient of recipientResult.rows) {
+      const transferDirection = recipient.source_visible && !recipient.destination_visible
+        ? "out"
+        : recipient.destination_visible && !recipient.source_visible
+          ? "in"
+          : "between";
+      const isEnglish = recipient.language === "en";
+      const title = isEnglish ? "Pocket transfer activity" : "Aktivitas transfer Pocket";
+      const body = isEnglish
+        ? `${actorName} transferred ${formatAmount(amount)} from ${source.name} to ${destination.name}.`
+        : `${actorName} transfer ${formatAmount(amount)} dari ${source.name} ke ${destination.name}.`;
+      await createAppNotification(client, {
+        userId: recipient.user_id,
+        eventType: transferDirection === "out" ? "pocket_transfer_out" : transferDirection === "in" ? "pocket_transfer_in" : "pocket_transfer",
+        title,
+        body,
+        entityType: "account",
+        entityId: recipient.destination_visible ? destination.id : source.id,
+        metadata: {
+          transferId,
+          sourceAccountId: source.id,
+          destinationAccountId: destination.id,
+          amount,
+          feeAmount,
+          transferDirection
+        }
+      });
+      pushTargets.push({
+        userId: recipient.user_id,
+        payload: {
+          title,
+          body,
+          url: `/?view=accounts&accountId=${recipient.destination_visible ? destination.id : source.id}`,
+          tag: `transfer-${transferId}-${recipient.user_id}`
+        }
+      });
+    }
+    return { transfer: { ...result.rows[0], feeAmount }, pushTargets };
   });
+  await Promise.all(transfer.pushTargets.map((target) => sendPushToUser(target.userId, target.payload)));
+  return transfer.transfer;
 }

@@ -8,6 +8,7 @@ import {
   removePushSubscription,
   savePushSubscription
 } from "../services/pushNotificationService.js";
+import { listAppNotifications, markAppNotificationRead, markAppNotificationsRead } from "../services/notificationService.js";
 
 const subscriptionSchema = z.object({
   endpoint: z.string().url(),
@@ -20,6 +21,20 @@ const subscriptionSchema = z.object({
 
 export const notificationRoutes = Router();
 notificationRoutes.use(requireAuth);
+
+notificationRoutes.get("/", asyncHandler(async (req, res) => {
+  const limit = z.coerce.number().int().min(1).max(100).optional().default(50).parse(req.query.limit);
+  res.json(await listAppNotifications(req.user!.id, limit));
+}));
+
+notificationRoutes.put("/read", asyncHandler(async (req, res) => {
+  res.json(await markAppNotificationsRead(req.user!.id));
+}));
+
+notificationRoutes.put("/:id/read", asyncHandler(async (req, res) => {
+  const notificationId = z.string().uuid().parse(req.params.id);
+  res.json(await markAppNotificationRead(req.user!.id, notificationId));
+}));
 
 notificationRoutes.get("/push/config", (_req, res) => {
   res.json(getPushConfig());

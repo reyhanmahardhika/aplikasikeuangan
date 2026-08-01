@@ -56,6 +56,10 @@ export function dateFilterIso(value: string, boundary: "start" | "end") {
     return new Date(`${value}T${boundary === "start" ? "00:00:00.000" : "23:59:59.999"}+07:00`).toISOString();
 }
 
+export function transactionDateIso(value: string) {
+    return new Date(`${value}T12:00:00.000+07:00`).toISOString();
+}
+
 export function currentMonthDateBounds() {
     const now = jakartaDateParts();
     const endDay = new Date(Date.UTC(now.year, now.month, 0)).getUTCDate();

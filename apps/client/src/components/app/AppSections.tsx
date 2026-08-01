@@ -11,7 +11,7 @@ import type { Session } from "../../lib/api";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { APP_TIME_ZONE, formatRupiahInput, isoDateInput, jakartaDateParts, localDate, rupiah } from "../../lib/format";
 import { resolveAsyncContentState } from "../../lib/asyncContentState";
-import { currentMonthDateBounds, dateFilterIso, moneyInputValue } from "../../lib/appHelpers";
+import { currentMonthDateBounds, dateFilterIso, moneyInputValue, transactionDateIso } from "../../lib/appHelpers";
 import heic2any from "heic2any";
 import QRCode from "qrcode";
 import jsQR from "jsqr";
@@ -163,7 +163,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     const [transactionType, setTransactionType] = useState<"income" | "expense">(editing?.transactionType ?? initialType);
     const initialDraft = useMemo<ManualDraft>(() => ({
         accountId: (editing?.accountId ?? initialAccountId) || "",
-        transactionDate: editing ? editing.transactionDate.slice(0, 10) : isoDateInput(),
+        transactionDate: editing ? jakartaDateParts(editing.transactionDate).value : isoDateInput(),
         amount: moneyInputValue(editing?.amount),
         feeAmount: moneyInputValue(editing?.feeAmount ?? "0"),
         categoryId: editing?.categoryId ?? "",
@@ -339,7 +339,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             setTransactionType(parsed.transactionType);
             setDraft({
                 accountId: draft.accountId,
-                transactionDate: parsed.transactionDate.slice(0, 10),
+                transactionDate: jakartaDateParts(parsed.transactionDate).value,
                 amount: moneyInputValue(parsed.amount),
                 feeAmount: moneyInputValue(parsed.feeAmount),
                 categoryId: parsed.categoryId ?? "",
@@ -427,7 +427,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         const payload = {
             accountId: draft.accountId,
             transactionType,
-            transactionDate: dateFilterIso(String(form.get("transactionDate")), "start"),
+            transactionDate: transactionDateIso(String(form.get("transactionDate"))),
             amount: String(form.get("amount")),
             feeAmount: String(form.get("feeAmount") || "0"),
             categoryId: String(form.get("categoryId") || "") || null,
@@ -935,7 +935,7 @@ export function ReceiptView({ accounts, categories, request, onDone }: {
             accountId: String(form.get("accountId")),
             categoryId: String(form.get("categoryId") || "") || null,
             merchantName: String(form.get("merchantName")),
-            transactionDate: dateFilterIso(String(form.get("transactionDate")), "start"),
+            transactionDate: transactionDateIso(String(form.get("transactionDate"))),
             amount: String(form.get("amount")),
             paymentMethod: String(form.get("paymentMethod") || "") || null,
             notes: String(form.get("notes") || "") || null,
@@ -1108,6 +1108,16 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
             document.removeEventListener("touchstart", closeOutside);
         };
     }, [open]);
+    useEffect(() => {
+        if (!open)
+            return;
+        const closeWithEscape = (event: KeyboardEvent) => {
+            if (event.key === "Escape")
+                setOpen(false);
+        };
+        document.addEventListener("keydown", closeWithEscape);
+        return () => document.removeEventListener("keydown", closeWithEscape);
+    }, [open]);
     const year = visibleMonth.getUTCFullYear();
     const month = visibleMonth.getUTCMonth();
     const firstOfMonth = new Date(Date.UTC(year, month, 1, 12));
@@ -1128,7 +1138,11 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
         : (locale === "en-US" ? "Select date" : "Pilih tanggal");
     const todayValue = todayParts.value;
     return (<div ref={rootRef} className="relative min-w-0">
-      <button type="button" className={`flex h-11 w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-0 text-left transition lg:rounded-md ${open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`} onClick={() => setOpen((current) => !current)} aria-expanded={open}>
+      <button type="button" className={`flex h-11 w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-0 text-left transition lg:rounded-md ${open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`} onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen((current) => !current);
+    }} aria-expanded={open}>
         <span className="min-w-0">
           {showLabel && <span className="block text-[10px] font-semibold uppercase text-slate-400">{label}</span>}
           <span className={`${showLabel ? "mt-1" : ""} block truncate text-xs font-semibold text-slate-800`}>{displayValue}</span>
@@ -1136,7 +1150,7 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
         <CalendarDays size={15} className="shrink-0 text-slate-400"/>
       </button>
 
-      {open && (<div className={`fixed inset-x-6 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-[80] mx-auto max-h-[calc(100dvh-9rem)] max-w-xs overflow-y-auto rounded-[20px] border border-slate-100 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.18)] sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-[calc(100%+8px)] sm:z-40 sm:mx-0 sm:w-[min(18rem,calc(100vw-2.5rem))] sm:max-h-none sm:max-w-none sm:overflow-visible ${align === "right" ? "sm:right-0" : "sm:left-0"}`}>
+      {open && (<div onClick={(event) => event.stopPropagation()} className={`fixed inset-x-6 bottom-[calc(7rem+env(safe-area-inset-bottom))] z-[80] mx-auto max-h-[calc(100dvh-9rem)] max-w-xs overflow-y-auto rounded-[20px] border border-slate-100 bg-white p-3 shadow-[0_22px_55px_rgba(15,23,42,0.18)] sm:absolute sm:inset-x-auto sm:bottom-auto sm:top-[calc(100%+8px)] sm:z-40 sm:mx-0 sm:w-[min(18rem,calc(100vw-2.5rem))] sm:max-h-none sm:max-w-none sm:overflow-visible ${align === "right" ? "sm:right-0" : "sm:left-0"}`}>
           <div className="flex items-center justify-between">
             <button type="button" className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50" onClick={() => setVisibleMonth(new Date(Date.UTC(year, month - 1, 1, 12)))} aria-label="Bulan sebelumnya">
               <ChevronLeft size={18}/>
@@ -1161,7 +1175,9 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
                             ? "bg-emerald-50 font-semibold text-[#16A34A]"
                             : currentMonth
                                 ? "text-slate-700 hover:bg-slate-100"
-                                : "text-slate-300 hover:bg-slate-50"}`} onClick={() => {
+                                : "text-slate-300 hover:bg-slate-50"}`} onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
                         onChange(dateValue);
                         setOpen(false);
                     }}>
@@ -1170,18 +1186,26 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
             })}
           </div>
           <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
-            {allowClear ? (<button type="button" className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50" onClick={() => {
+            {allowClear ? (<button type="button" className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50" onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
                 onChange("");
                 setOpen(false);
             }}>
                 {language === "en" ? "Clear" : "Hapus"}
               </button>) : <span />}
             <div className="flex items-center gap-1.5">
-              <button type="button" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={() => {
+              <button type="button" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A]" onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
                 onChange(todayValue);
                 setOpen(false);
             }}>{language === "en" ? "Today" : "Hari ini"}</button>
-              <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200" onClick={() => setOpen(false)}>
+              <button type="button" className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200" onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setOpen(false);
+            }}>
                 <X size={13}/> {language === "en" ? "Close" : "Tutup"}
               </button>
             </div>
@@ -2339,7 +2363,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             if (pocketTransactionType !== "all" && transaction.transactionType !== pocketTransactionType) {
                 return false;
             }
-            const transactionDate = transaction.transactionDate.slice(0, 10);
+            const transactionDate = jakartaDateParts(transaction.transactionDate).value;
             if (pocketTransactionDatePreset === "today" && transactionDate !== today)
                 return false;
             if (pocketTransactionDatePreset === "last7" && (transactionDate < last7Start || transactionDate > today))
@@ -2375,6 +2399,18 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         });
     }, [pocketTransactionCustomEnd, pocketTransactionCustomStart, pocketTransactionDatePreset, pocketTransactionMemberId, pocketTransactionRows, pocketTransactionSearch, pocketTransactionSort, pocketTransactionType]);
     const recentPocketTransactions = useMemo(() => filteredPocketTransactions.slice(0, 20), [filteredPocketTransactions]);
+    const groupedPocketTransactions = useMemo(() => {
+        const groups = new Map<string, Transaction[]>();
+        recentPocketTransactions.forEach((transaction) => {
+            const date = jakartaDateParts(transaction.transactionDate).value;
+            groups.set(date, [...(groups.get(date) ?? []), transaction]);
+        });
+        return [...groups.entries()].map(([date, rows]) => ({
+            date,
+            rows,
+            netAmount: rows.reduce((sum, transaction) => sum + (transaction.transactionType === "income" ? moneyValue(transaction.amount) : -moneyValue(transaction.amount)), 0)
+        }));
+    }, [recentPocketTransactions]);
     const pocketTransactionFilterCount = (pocketTransactionDatePreset !== "all" ? 1 : 0) + (pocketTransactionSort !== "newest" ? 1 : 0) + (pocketTransactionMemberId !== "all" ? 1 : 0);
     const pocketMembers = useMemo(() => {
         if (!selectedPocket)
@@ -3142,7 +3178,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     destinationAccountId: String(form.get("destinationAccountId")),
                     amount: String(form.get("amount")),
                     feeAmount: String(form.get("feeAmount") || "0"),
-                    transferDate: dateFilterIso(String(form.get("transferDate")), "start"),
+                    transferDate: transactionDateIso(String(form.get("transferDate"))),
                     notes: String(form.get("notes") || "") || null,
                     receiptId: transferAttachmentId
                 })
@@ -3473,7 +3509,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               </section>
             </>)}
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className={`grid gap-2 ${selectedPocketCanSpend ? "grid-cols-3" : "grid-cols-1"}`}>
             {selectedPocketCanSpend && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" disabled={receivableAccounts.filter((account) => account.id !== selectedPocket.id).length < 1} onClick={() => {
                 setTransferMode("out");
                 setSourceAccountId(selectedPocket.id);
@@ -3510,11 +3546,6 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <p className="mt-2 text-sm font-semibold">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">{autoBudgetRule ? `${rupiah(autoBudgetRule.amount)} Â· ${autoBudgetRule.frequency}` : (language === "en" ? "Automate your budget" : "Otomatiskan budgeting")}</p>
               </button>)}
-              {selectedPocket.canEdit === false && (<div className="rounded-[20px] bg-emerald-50 p-3 text-left">
-                <CheckCircle2 className="text-[#16A34A]" size={18}/>
-                <p className="mt-2 text-sm font-semibold text-[#16A34A]">{language === "en" ? "You can save only" : "Hanya bisa nabung"}</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">{language === "en" ? "View balance and save money" : "Lihat saldo dan menabung"}</p>
-              </div>)}
           </div>
 
           {targetDetails?.targetBalance && (() => {
@@ -3592,9 +3623,18 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     <span className="inline-flex items-center gap-2">
                       <Loader2 size={14} className="animate-spin"/> Loading transactions...
                     </span>
-                  </div>) : recentPocketTransactions.length > 0 ? (recentPocketTransactions.map((transaction) => {
-                    const isIncome = transaction.transactionType === "income";
-                    return (<div key={transaction.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden rounded-2xl border border-slate-100 bg-[#F8FAFC] px-3 py-3">
+                  </div>) : groupedPocketTransactions.length > 0 ? (groupedPocketTransactions.map((group) => (<section key={group.date} className="overflow-hidden rounded-2xl border border-slate-100 bg-[#F8FAFC]">
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-3 py-2.5">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-900">{localDate(group.date)}</p>
+                        <p className="mt-0.5 text-[10px] text-slate-400">{group.rows.length} {language === "en" ? (group.rows.length === 1 ? "transaction" : "transactions") : "transaksi"}</p>
+                      </div>
+                      <p className={`text-xs font-bold ${group.netAmount > 0 ? "text-[#16A34A]" : group.netAmount < 0 ? "text-rose-600" : "text-slate-500"}`}>{group.netAmount > 0 ? "+" : group.netAmount < 0 ? "-" : ""}{rupiah(Math.abs(group.netAmount))}</p>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                    {group.rows.map((transaction) => {
+                      const isIncome = transaction.transactionType === "income";
+                      return (<div key={transaction.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 py-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isIncome ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
@@ -3602,7 +3642,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-slate-900">{transaction.merchantName || transaction.categoryName || "Untitled transaction"}</p>
-                              <p className="truncate text-[11px] text-slate-500">{[activePocketMembers.length > 1 ? transaction.userFullName : null, transaction.categoryName, transaction.paymentMethod, localDate(transaction.transactionDate)].filter(Boolean).join(" Â· ")}</p>
+                              <p className="truncate text-[11px] text-slate-500">{[activePocketMembers.length > 1 ? transaction.userFullName : null, transaction.categoryName, transaction.paymentMethod].filter(Boolean).join(" · ")}</p>
                             </div>
                           </div>
                         </div>
@@ -3611,7 +3651,9 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                           <p className="mt-0.5 text-[10px] text-slate-400">{isIncome ? "Income" : "Expense"}</p>
                         </div>
                       </div>);
-                })) : (<div className="rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] px-3 py-4 text-center text-xs font-medium text-slate-500">
+                    })}
+                    </div>
+                  </section>))) : (<div className="rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] px-3 py-4 text-center text-xs font-medium text-slate-500">
                     No transactions found for this pocket.
                   </div>)}
               </div>

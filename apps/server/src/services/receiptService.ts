@@ -17,14 +17,6 @@ async function hashFile(path: string) {
 export async function uploadReceipt(userId: string, file?: Express.Multer.File) {
   if (!file) throw badRequest("File struk diperlukan");
   const fileHash = await hashFile(file.path);
-  const duplicate = await pool.query(
-    "SELECT id FROM receipts WHERE user_id = $1 AND file_hash = $2",
-    [userId, fileHash]
-  );
-  if (duplicate.rowCount) {
-    await fs.rm(file.path, { force: true });
-    throw conflict("File duplikat. Struk ini sudah pernah diupload.", { receiptId: duplicate.rows[0].id });
-  }
 
   const result = await pool.query(
     `INSERT INTO receipts (user_id, file_name, file_url, file_hash, processing_status)

@@ -4,7 +4,7 @@
  * Split it further by feature after the application builds successfully.
  */
 
-import { ApiError, apiFetch, downloadUrl } from "../../lib/api";
+import { apiFetch, downloadUrl } from "../../lib/api";
 import type { Account, AiTrackedField, AppLanguage, AssistantContext, AssistantMessage, BudgetRow, CashFlowReportRow, Category, CategoryReportRow, ChildFrameState, DashboardSummary, ManageTab, ManualDraft, MonthlyReportRow, ParsedManualTransaction, PocketVisual, Schedule, Transaction, TransactionDetail, View } from "../../types/app";
 import { ArrowDownLeft, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpRight, Banknote, Bell, Briefcase, Bus, CalendarDays, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, CircleMinus, CirclePlus, CreditCard, Download, Eye, FileSpreadsheet, Film, GraduationCap, GripVertical, HeartPulse, Landmark, Lightbulb, ListFilter, Loader2, LogOut, MessageCircle, QrCode, Search, Share2, ShieldCheck, ShoppingBag, Smartphone, Sparkles, Store, Trash2, TrendingUp, TriangleAlert, Upload, UserPlus, UserRound, Utensils, X, Plus, LineChart, Wallet, Settings, ReceiptText, Bot, Tags, CircleDollarSign, LucideIcon, Users } from "lucide-react";
 import type { Session } from "../../lib/api";
@@ -281,22 +281,10 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         try {
             const uploadForm = new FormData();
             uploadForm.set("receipt", file);
-            try {
-                const uploaded = await request<{
-                    id: string;
-                }>("/receipts/upload", { method: "POST", body: uploadForm });
-                setAttachmentReceiptId(uploaded.id);
-            }
-            catch (err) {
-                const duplicateId = err instanceof ApiError && err.status === 409 && err.details && typeof err.details === "object"
-                    ? String((err.details as {
-                        receiptId?: unknown;
-                    }).receiptId ?? "")
-                    : "";
-                if (!duplicateId)
-                    throw err;
-                setAttachmentReceiptId(duplicateId);
-            }
+            const uploaded = await request<{
+                id: string;
+            }>("/receipts/upload", { method: "POST", body: uploadForm });
+            setAttachmentReceiptId(uploaded.id);
             setAttachmentMessage("Attachment berhasil diunggah.");
         }
         catch {
@@ -3224,22 +3212,10 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         try {
             const uploadForm = new FormData();
             uploadForm.set("receipt", file);
-            try {
-                const uploaded = await request<{
-                    id: string;
-                }>("/receipts/upload", { method: "POST", body: uploadForm });
-                setTransferAttachmentId(uploaded.id);
-            }
-            catch (err) {
-                const duplicateId = err instanceof ApiError && err.status === 409 && err.details && typeof err.details === "object"
-                    ? String((err.details as {
-                        receiptId?: unknown;
-                    }).receiptId ?? "")
-                    : "";
-                if (!duplicateId)
-                    throw err;
-                setTransferAttachmentId(duplicateId);
-            }
+            const uploaded = await request<{
+                id: string;
+            }>("/receipts/upload", { method: "POST", body: uploadForm });
+            setTransferAttachmentId(uploaded.id);
             setTransferAttachmentMessage("Attachment berhasil diunggah.");
         }
         catch {

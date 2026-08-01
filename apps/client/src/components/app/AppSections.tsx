@@ -2136,8 +2136,9 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
     </div>);
 }
 
-export function AccountsView({ accounts, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onChildFrameStateChange, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
+export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onChildFrameStateChange, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
     accounts: Account[];
+    categories: Category[];
     currentUserId: string;
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
     onChanged: () => Promise<void>;
@@ -2180,9 +2181,10 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
     const [shareHistoryFrom, setShareHistoryFrom] = useState("");
     const [shareHistoryTo, setShareHistoryTo] = useState("");
     const [shareHistoryType, setShareHistoryType] = useState<"all" | "income" | "expense">("all");
+    const [shareHistoryCategoryId, setShareHistoryCategoryId] = useState("all");
     const [shareHistoryExpiry, setShareHistoryExpiry] = useState(7);
     const [shareHistoryLink, setShareHistoryLink] = useState("");
-    const [activeHistoryShares, setActiveHistoryShares] = useState<Array<{ token: string; dateFrom: string; dateTo: string; transactionType: "income" | "expense" | null; expiresAt: string; createdAt: string }>>([]);
+    const [activeHistoryShares, setActiveHistoryShares] = useState<Array<{ token: string; dateFrom: string; dateTo: string; transactionType: "income" | "expense" | null; categoryId: string | null; categoryName: string | null; expiresAt: string; createdAt: string }>>([]);
     const [activeHistorySharesLoading, setActiveHistorySharesLoading] = useState(false);
     const [showMutationImportModal, setShowMutationImportModal] = useState(false);
     const [mutationImportText, setMutationImportText] = useState("");
@@ -2459,6 +2461,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         }));
     }, [recentPocketTransactions]);
     const pocketTransactionFilterCount = (pocketTransactionDatePreset !== "all" ? 1 : 0) + (pocketTransactionSort !== "newest" ? 1 : 0) + (pocketTransactionMemberId !== "all" ? 1 : 0);
+    const shareHistoryCategoryOptions = useMemo(() => categories.filter((category) => shareHistoryType === "all" || category.categoryType === shareHistoryType), [categories, shareHistoryType]);
     const shareHistoryBounds = useMemo(() => {
         if (shareHistoryPreset === "custom") return { from: shareHistoryFrom, to: shareHistoryTo };
         const today = jakartaDateParts();
@@ -2472,6 +2475,12 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         }
         return { from: isoDateInput(start), to: isoDateInput(end) };
     }, [shareHistoryFrom, shareHistoryPreset, shareHistoryTo]);
+    useEffect(() => {
+        if (shareHistoryCategoryId === "all") return;
+        if (!shareHistoryCategoryOptions.some((category) => category.id === shareHistoryCategoryId)) {
+            setShareHistoryCategoryId("all");
+        }
+    }, [shareHistoryCategoryId, shareHistoryCategoryOptions]);
     const createHistoryShare = async () => {
         if (!selectedPocketId || !shareHistoryBounds.from || !shareHistoryBounds.to) return;
         setShareHistorySaving(true);
@@ -2483,6 +2492,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     dateFrom: shareHistoryBounds.from,
                     dateTo: shareHistoryBounds.to,
                     transactionType: shareHistoryType === "all" ? null : shareHistoryType,
+                    categoryId: shareHistoryCategoryId === "all" ? null : shareHistoryCategoryId,
                     expiresInDays: shareHistoryExpiry,
                     language
                 })
@@ -3936,6 +3946,12 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                   </div></div>
                   {shareHistoryPreset === "custom" && (<div className="grid grid-cols-2 gap-2"><DateFilterPicker label={language === "en" ? "From" : "Dari"} value={shareHistoryFrom} onChange={setShareHistoryFrom} language={language}/><DateFilterPicker label={language === "en" ? "To" : "Sampai"} value={shareHistoryTo} onChange={setShareHistoryTo} language={language} align="right"/></div>)}
                   <div><p className="mb-2 text-xs font-semibold text-slate-700">{language === "en" ? "Transaction type" : "Jenis transaksi"}</p><div className="grid grid-cols-3 gap-2">{[["all", language === "en" ? "All" : "Semua"], ["income", language === "en" ? "Income" : "Pemasukan"], ["expense", language === "en" ? "Expense" : "Pengeluaran"]].map(([id, label]) => (<button key={id} type="button" className={`rounded-xl border px-2 py-2 text-xs font-semibold ${shareHistoryType === id ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 text-slate-600"}`} onClick={() => setShareHistoryType(id as typeof shareHistoryType)}>{label}</button>))}</div></div>
+                  <Field label={language === "en" ? "Category" : "Kategori"}>
+                    <select className="input" value={shareHistoryCategoryId} onChange={(event) => setShareHistoryCategoryId(event.target.value)}>
+                      <option value="all">{language === "en" ? "All categories" : "Semua kategori"}</option>
+                      {shareHistoryCategoryOptions.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    </select>
+                  </Field>
                   <Field label={language === "en" ? "Link validity (days)" : "Masa berlaku link (hari)"}><input className="input" type="number" min={1} max={30} value={shareHistoryExpiry} onChange={(event) => setShareHistoryExpiry(Math.max(1, Math.min(30, Number(event.target.value) || 7)))}/></Field>
                   <p className="rounded-2xl bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">{language === "en" ? "Default 7 days, maximum 30 days. Anyone with the link can view this recap until it expires." : "Default 7 hari, maksimal 30 hari. Siapa pun yang memiliki link dapat melihat ringkasan sampai kedaluwarsa."}</p>
                   <button type="button" className="btn-primary w-full" disabled={shareHistorySaving || !shareHistoryBounds.from || !shareHistoryBounds.to} onClick={() => createHistoryShare().catch((reason) => setError(reason instanceof Error ? reason.message : "Gagal membuat link"))}>{shareHistorySaving ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>} {language === "en" ? "Create share link" : "Buat link berbagi"}</button>
@@ -3946,7 +3962,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     {activeHistorySharesLoading ? (<div className="flex items-center justify-center rounded-2xl bg-slate-50 py-5"><Loader2 size={17} className="animate-spin text-violet-500"/></div>) : activeHistoryShares.length ? activeHistoryShares.map((share) => {
                       const url = `${window.location.origin}/?pocketShare=${share.token}`;
                       return (<div key={share.token} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold text-slate-900">{localDate(share.dateFrom)} – {localDate(share.dateTo)}</p><p className="mt-1 text-[10px] text-slate-500">{share.transactionType === "income" ? (language === "en" ? "Income" : "Pemasukan") : share.transactionType === "expense" ? (language === "en" ? "Expense" : "Pengeluaran") : (language === "en" ? "All transactions" : "Semua transaksi")} · {language === "en" ? "expires" : "berakhir"} {localDate(share.expiresAt)}</p></div><span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-4 ring-emerald-100"/></div>
+                        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold text-slate-900">{localDate(share.dateFrom)} – {localDate(share.dateTo)}</p><p className="mt-1 text-[10px] text-slate-500">{share.transactionType === "income" ? (language === "en" ? "Income" : "Pemasukan") : share.transactionType === "expense" ? (language === "en" ? "Expense" : "Pengeluaran") : (language === "en" ? "All transactions" : "Semua transaksi")} · {share.categoryName ?? (language === "en" ? "All categories" : "Semua kategori")} · {language === "en" ? "expires" : "berakhir"} {localDate(share.expiresAt)}</p></div><span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-4 ring-emerald-100"/></div>
                         <div className="mt-3 grid grid-cols-3 gap-2"><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>{language === "en" ? "Preview" : "Lihat"}</button><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => navigator.clipboard.writeText(url)}>{language === "en" ? "Copy" : "Salin"}</button><button type="button" className="rounded-xl bg-violet-600 px-2 py-2 text-[10px] font-bold text-white" onClick={() => navigator.share ? navigator.share({ title: selectedPocket.name, url }) : navigator.clipboard.writeText(url)}>{language === "en" ? "Share" : "Bagikan"}</button></div>
                       </div>);
                     }) : <p className="rounded-2xl bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">{language === "en" ? "No active links yet." : "Belum ada link yang aktif."}</p>}

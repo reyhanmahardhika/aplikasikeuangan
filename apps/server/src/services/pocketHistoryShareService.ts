@@ -5,17 +5,22 @@ export async function createPocketHistoryShare(userId: string, accountId: string
   dateFrom: string;
   dateTo: string;
   transactionType?: "income" | "expense" | null;
+  categoryId?: string | null;
   expiresInDays: number;
   language: "id" | "en";
 }) {
   const account = await pool.query("SELECT id FROM accounts WHERE id=$1 AND user_id=$2 AND is_active=true", [accountId, userId]);
   if (!account.rowCount) throw forbidden("Hanya owner yang dapat membagikan riwayat Pocket");
+  if (input.categoryId) {
+    const category = await pool.query("SELECT id FROM categories WHERE id=$1 AND user_id=$2 AND is_active=true", [input.categoryId, userId]);
+    if (!category.rowCount) throw forbidden("Kategori tidak tersedia untuk user ini");
+  }
   const result = await pool.query(
     `INSERT INTO pocket_history_shares
-       (account_id, created_by, date_from, date_to, transaction_type, expires_at, language)
-     VALUES ($1, $2, $3, $4, $5, NOW() + ($6::int * INTERVAL '1 day'), $7)
+       (account_id, created_by, date_from, date_to, transaction_type, category_id, expires_at, language)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW() + ($7::int * INTERVAL '1 day'), $8)
      RETURNING token::text, expires_at AS "expiresAt"`,
-    [accountId, userId, input.dateFrom, input.dateTo, input.transactionType ?? null, input.expiresInDays, input.language]
+    [accountId, userId, input.dateFrom, input.dateTo, input.transactionType ?? null, input.categoryId ?? null, input.expiresInDays, input.language]
   );
   return result.rows[0];
 }
@@ -23,9 +28,11 @@ export async function createPocketHistoryShare(userId: string, accountId: string
 export async function listActivePocketHistoryShares(userId: string, accountId: string) {
   const result = await pool.query(
     `SELECT s.token::text, s.date_from::text AS "dateFrom", s.date_to::text AS "dateTo",
-            s.transaction_type AS "transactionType", s.expires_at AS "expiresAt", s.created_at AS "createdAt"
+            s.transaction_type AS "transactionType", s.category_id AS "categoryId", c.name AS "categoryName",
+            s.expires_at AS "expiresAt", s.created_at AS "createdAt"
      FROM pocket_history_shares s
      JOIN accounts a ON a.id=s.account_id
+     LEFT JOIN categories c ON c.id=s.category_id
      WHERE s.account_id=$1 AND a.user_id=$2 AND s.expires_at > NOW()
      ORDER BY s.created_at DESC`,
     [accountId, userId]
@@ -36,12 +43,14 @@ export async function listActivePocketHistoryShares(userId: string, accountId: s
 export async function getPublicPocketHistory(token: string) {
   const share = await pool.query(
     `SELECT s.id, s.account_id, s.date_from::text AS "dateFrom", s.date_to::text AS "dateTo",
-            s.transaction_type AS "transactionType", s.expires_at AS "expiresAt", s.created_at AS "createdAt", s.language,
+            s.transaction_type AS "transactionType", s.category_id AS "categoryId", filter_category.name AS "categoryName",
+            s.expires_at AS "expiresAt", s.created_at AS "createdAt", s.language,
             a.name AS "pocketName", a.account_type AS "accountType", a.provider_name AS "providerName",
             u.full_name AS "ownerName", (s.expires_at <= NOW()) AS expired
      FROM pocket_history_shares s
      JOIN accounts a ON a.id=s.account_id
      JOIN users u ON u.id=s.created_by
+     LEFT JOIN categories filter_category ON filter_category.id=s.category_id
      WHERE s.token=$1`,
     [token]
   );
@@ -55,6 +64,11 @@ export async function getPublicPocketHistory(token: string) {
     values.push(details.transactionType);
     typeFilter = `AND t.transaction_type=$${values.length}`;
   }
+  let categoryFilter = "";
+  if (details.categoryId) {
+    values.push(details.categoryId);
+    categoryFilter = `AND t.category_id=$${values.length}`;
+  }
   const transactions = await pool.query(
     `SELECT t.id, t.transaction_type AS "transactionType", t.transaction_date AS "transactionDate",
             t.amount::text, t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod",
@@ -64,6 +78,7 @@ export async function getPublicPocketHistory(token: string) {
      WHERE t.account_id=$1
        AND (t.transaction_date AT TIME ZONE 'Asia/Jakarta')::date BETWEEN $2::date AND $3::date
        ${typeFilter}
+       ${categoryFilter}
      ORDER BY t.transaction_date DESC, t.created_at DESC`,
     values
   );
@@ -91,6 +106,8 @@ export async function getPublicPocketHistory(token: string) {
     dateFrom: details.dateFrom,
     dateTo: details.dateTo,
     transactionType: details.transactionType,
+    categoryId: details.categoryId,
+    categoryName: details.categoryName,
     expiresAt: details.expiresAt,
     totals: { ...totals, net: totals.income - totals.expense, count: transactions.rows.length },
     transactions: publicTransactions
@@ -105,7 +122,8 @@ export async function getPublicPocketHistoryAttachment(token: string, transactio
      JOIN receipts r ON r.id=t.receipt_id
      WHERE s.token=$1 AND s.expires_at > NOW()
        AND (t.transaction_date AT TIME ZONE 'Asia/Jakarta')::date BETWEEN s.date_from AND s.date_to
-       AND (s.transaction_type IS NULL OR t.transaction_type::text=s.transaction_type)`,
+       AND (s.transaction_type IS NULL OR t.transaction_type::text=s.transaction_type)
+       AND (s.category_id IS NULL OR t.category_id=s.category_id)`,
     [token, transactionId]
   );
   if (!result.rowCount) throw notFound("Attachment tidak tersedia atau link sudah kedaluwarsa");

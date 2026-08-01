@@ -13,6 +13,7 @@ pocketHistoryShareRoutes.post("/:id/history-shares", requireAuth, asyncHandler(a
     dateFrom: z.string().date(),
     dateTo: z.string().date(),
     transactionType: z.enum(["income", "expense"]).nullable().optional(),
+    categoryId: z.string().uuid().nullable().optional(),
     expiresInDays: z.number().int().min(1).max(30).default(7),
     language: z.enum(["id", "en"]).default("id")
   }).refine((value) => value.dateTo >= value.dateFrom, { message: "Rentang tanggal tidak valid" }).parse(req.body);

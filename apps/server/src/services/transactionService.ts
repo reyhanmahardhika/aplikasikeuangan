@@ -145,7 +145,7 @@ export async function listTransactions(userId: string, query: Record<string, unk
               t.amount::text, t.fee_amount::text AS "feeAmount", t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod",
               t.notes, t.source_type AS "sourceType", t.status,
               a.name AS "accountName", c.name AS "categoryName", t.user_id AS "userId", u.full_name AS "userFullName",
-              (t.user_id = $${values.length + 3}) AS "canManage"
+              (t.user_id = $${values.length + 3} AND t.source_type <> 'transfer' AND t.status <> 'transfer' AND t.parent_transaction_id IS NULL) AS "canManage"
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
        JOIN users u ON u.id = t.user_id
@@ -176,12 +176,29 @@ export async function getTransaction(userId: string, transactionId: string, db: 
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
             t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
             t.status, a.name AS "accountName", c.name AS "categoryName",
-            true AS "canManage"
+            (t.user_id = $2 AND t.source_type <> 'transfer' AND t.status <> 'transfer' AND t.parent_transaction_id IS NULL) AS "canManage"
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
      LEFT JOIN categories c ON c.id = t.category_id
      LEFT JOIN transactions f ON f.parent_transaction_id = t.id
-     WHERE t.id = $1 AND t.user_id = $2`,
+     WHERE t.id = $1
+       AND (
+         t.user_id = $2
+         OR EXISTS (
+           SELECT 1
+           FROM accounts access_account
+           WHERE access_account.id = t.account_id
+             AND (
+               access_account.user_id = $2
+               OR EXISTS (
+                 SELECT 1 FROM account_collaborators ac
+                 WHERE ac.account_id = access_account.id
+                   AND ac.user_id = $2
+                   AND ac.status = 'accepted'
+               )
+             )
+         )
+       )`,
     [transactionId, userId]
   );
   if (!transaction.rowCount) throw notFound("Transaksi tidak ditemukan");

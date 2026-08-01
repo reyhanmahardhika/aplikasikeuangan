@@ -444,8 +444,8 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             });
             await onDone();
         }
-        catch {
-            setError(null);
+        catch (reason) {
+            setError(reason instanceof Error ? reason.message : (language === "en" ? "Transaction could not be saved." : "Transaksi belum bisa disimpan."));
             setErrorContext("submit");
         }
         finally {

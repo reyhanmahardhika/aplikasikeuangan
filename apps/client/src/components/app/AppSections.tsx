@@ -3362,17 +3362,32 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         event.preventDefault();
         setError(null);
         const formElement = event.currentTarget;
-        const form = new FormData(formElement);
+        if (!sourceAccountId || !destinationAccountId) {
+            setError(language === "en" ? "Choose source and destination Pocket first." : "Pilih pocket asal dan tujuan terlebih dahulu.");
+            return;
+        }
+        if (sourceAccountId === destinationAccountId) {
+            setError(language === "en" ? "Source and destination Pocket must be different." : "Pocket asal dan tujuan harus berbeda.");
+            return;
+        }
+        if (!transferDraft.amount.trim()) {
+            setError(language === "en" ? "Amount is required." : "Nominal wajib diisi.");
+            return;
+        }
+        if (!transferDraft.transferDate) {
+            setError(language === "en" ? "Transfer date is required." : "Tanggal transfer wajib diisi.");
+            return;
+        }
         try {
             await request("/transfers", {
                 method: "POST",
                 body: JSON.stringify({
-                    sourceAccountId: String(form.get("sourceAccountId")),
-                    destinationAccountId: String(form.get("destinationAccountId")),
-                    amount: String(form.get("amount")),
-                    feeAmount: String(form.get("feeAmount") || "0"),
-                    transferDate: transactionDateIso(String(form.get("transferDate"))),
-                    notes: String(form.get("notes") || "") || null,
+                    sourceAccountId,
+                    destinationAccountId,
+                    amount: transferDraft.amount,
+                    feeAmount: transferDraft.feeAmount || "0",
+                    transferDate: transactionDateIso(transferDraft.transferDate),
+                    notes: transferDraft.notes.trim() || null,
                     receiptId: transferAttachmentId
                 })
             });
@@ -3385,8 +3400,8 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             setAccountView(transferMode !== "general" && selectedPocketId ? "pocket-detail" : "list");
             onChanged().catch(() => setError("Transfer berhasil disimpan, tetapi data terbaru belum dapat dimuat."));
         }
-        catch {
-            setError(null);
+        catch (err) {
+            setError(err instanceof Error ? err.message : (language === "en" ? "Transfer could not be saved." : "Transfer belum bisa disimpan."));
         }
     };
     const parseTransferQuickAdd = async () => {
@@ -4629,7 +4644,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 </p>)}
             </div>
             <input className="input h-11" name="notes" placeholder="Catatan transfer (opsional)" value={transferDraft.notes} onChange={(event) => setTransferDraft((current) => ({ ...current, notes: event.target.value }))}/>
-            <button className="btn-primary w-full" disabled={!transferDraft.transferDate || !spendableAccounts.some((account) => account.id === sourceAccountId) || !receivableAccounts.some((account) => account.id === destinationAccountId) || transferAttachmentLoading || transferParseLoading}>
+            <button type="submit" className="btn-primary w-full" disabled={!transferDraft.amount.trim() || !transferDraft.transferDate || sourceAccountId === destinationAccountId || !spendableAccounts.some((account) => account.id === sourceAccountId) || !receivableAccounts.some((account) => account.id === destinationAccountId) || transferAttachmentLoading || transferParseLoading}>
               <ArrowLeftRight size={16}/> {transferFormCopy.submitLabel}
             </button>
           </div>

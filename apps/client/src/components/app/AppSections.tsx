@@ -258,7 +258,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         setAttachmentMessage(null);
         setError(null);
         setErrorContext(null);
-    }, [editing?.id, initialDraft, initialType, resetKey]);
+    }, [editing?.id, initialAccountId, initialType, resetKey]);
     useEffect(() => {
         request<BudgetRow[]>("/budgets")
             .then(setBudgets)

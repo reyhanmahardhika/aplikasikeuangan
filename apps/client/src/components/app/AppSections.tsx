@@ -42,7 +42,7 @@ export function SummaryCard({ label, value, tone, icon, className = "" }: {
     return (<div className={`card p-4 lg:p-5 ${className}`}>
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-slate-500 sm:text-sm">{label}</p>
-        <span className={`flex h-9 w-9 items-center justify-center rounded-xl lg:h-10 lg:w-10 lg:rounded-md ${tones[tone]}`}>{icon}</span>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-xl lg:h-10 lg:w-10 lg:rounded-xl ${tones[tone]}`}>{icon}</span>
       </div>
       <p className="mt-3 text-xl font-semibold tracking-normal sm:text-2xl lg:mt-4">{value}</p>
     </div>);
@@ -471,7 +471,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     const budgetAfterUse = selectedBudget ? moneyValue(selectedBudget.used) + nextExpenseAmount : 0;
     const budgetAfterPercent = selectedBudget && moneyValue(selectedBudget.budgetAmount) > 0 ? Math.round((budgetAfterUse / moneyValue(selectedBudget.budgetAmount)) * 100) : 0;
     return (<section className="mx-auto max-w-4xl space-y-3 lg:space-y-5">
-      {!editing && (<div className="overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
+      {!editing && (<div className="overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-2xl lg:border-slate-200">
           <div className="border-b border-slate-100 bg-emerald-50/60 px-4 py-4 lg:px-5">
             <button type="button" className="app-back-button mb-3" onClick={onCancel}>
               <ArrowLeft size={14}/> Kembali
@@ -492,7 +492,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
           <div className="space-y-3 p-4 lg:p-5">
             <label className="block text-xs font-semibold text-slate-600">
               {copy.write}
-              <textarea className="mt-1 min-h-28 w-full resize-none rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:cursor-wait disabled:opacity-70 lg:rounded-md" value={freeText} onChange={(event) => setFreeText(event.target.value)} onKeyDown={(event) => {
+              <textarea className="mt-1 min-h-28 w-full resize-none rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:cursor-wait disabled:opacity-70 lg:rounded-xl" value={freeText} onChange={(event) => setFreeText(event.target.value)} onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                     event.preventDefault();
                     parseFreeText();
@@ -505,7 +505,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                 </button>))}
             </div>
 
-            {parseLoading && (<div className="grid grid-cols-2 gap-2 rounded-[18px] border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-4 lg:rounded-md">
+            {parseLoading && (<div className="grid grid-cols-2 gap-2 rounded-[18px] border border-emerald-100 bg-emerald-50/60 p-3 sm:grid-cols-4 lg:rounded-xl">
                 {copy.steps.map((label, index) => {
                     const done = analysisStep >= index + 1;
                     const active = analysisStep === index;
@@ -518,7 +518,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                 })}
               </div>)}
 
-            <button type="button" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(22,163,74,0.18)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md" onClick={parseFreeText} disabled={parseLoading}>
+            <button type="button" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#16A34A] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(22,163,74,0.18)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-xl" onClick={parseFreeText} disabled={parseLoading}>
               {parseLoading ? <Loader2 className="animate-spin" size={17}/> : <Sparkles size={17}/>}
               {parseLoading ? copy.analyzing : copy.analyze}
             </button>
@@ -527,18 +527,18 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                 {copy.addAccountFirst}
               </p>)}
 
-            {error && errorContext === "parse" && (<p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 lg:rounded-md">{error}</p>)}
+            {error && errorContext === "parse" && (<p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 lg:rounded-xl">{error}</p>)}
           </div>
         </div>)}
 
-      <div ref={formCardRef} className={`scroll-mt-24 overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-lg lg:border-slate-200 ${parseResult ? "ai-form-enter" : ""}`}>
+      <div ref={formCardRef} className={`scroll-mt-24 overflow-hidden rounded-[20px] border border-slate-100 bg-white shadow-soft lg:rounded-2xl lg:border-slate-200 ${parseResult ? "ai-form-enter" : ""}`}>
         <div className="border-b border-slate-100 bg-white px-4 py-4 lg:px-5">
           {editing && (<button type="button" className="app-back-button mb-4" onClick={onCancel}>
               <ArrowLeft size={14}/> Kembali
             </button>)}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
-              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl lg:rounded-md ${transactionType === "income" ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600"}`}>
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl lg:rounded-xl ${transactionType === "income" ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600"}`}>
                 {transactionType === "income" ? <ArrowDownLeft size={18}/> : <ArrowUpRight size={18}/>}
               </span>
               <div className="min-w-0">
@@ -560,14 +560,14 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
               <div className="mb-1 flex justify-end">
                 <AiFieldBadge status={aiFieldStatus("transactionType")} language={language}/>
               </div>
-              <div className="grid grid-cols-2 rounded-2xl bg-slate-100 p-1 lg:rounded-md">
-              <button type="button" className={`rounded-xl px-3 py-2 text-sm font-semibold transition lg:rounded-md ${transactionType === "income" ? "bg-white text-[#15803D] shadow-sm" : "text-slate-500"}`} onClick={() => {
+              <div className="grid grid-cols-2 rounded-2xl bg-slate-100 p-1 lg:rounded-xl">
+              <button type="button" className={`rounded-xl px-3 py-2 text-sm font-semibold transition lg:rounded-xl ${transactionType === "income" ? "bg-white text-[#15803D] shadow-sm" : "text-slate-500"}`} onClick={() => {
             markFieldChanged("transactionType");
             setTransactionType("income");
         }}>
                 {copy.income}
               </button>
-              <button type="button" className={`rounded-xl px-3 py-2 text-sm font-semibold transition lg:rounded-md ${transactionType === "expense" ? "bg-white text-rose-700 shadow-sm" : "text-slate-500"}`} onClick={() => {
+              <button type="button" className={`rounded-xl px-3 py-2 text-sm font-semibold transition lg:rounded-xl ${transactionType === "expense" ? "bg-white text-rose-700 shadow-sm" : "text-slate-500"}`} onClick={() => {
             markFieldChanged("transactionType");
             setTransactionType("expense");
         }}>
@@ -579,7 +579,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         </div>
         <form key={formVersion} className="grid gap-3 p-4 md:grid-cols-2 lg:p-5" onSubmit={submit}>
           <div className="md:col-span-2">
-            {selectedAccount ? (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-md">
+            {selectedAccount ? (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 lg:rounded-xl">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="mb-1.5 text-[10px] font-medium text-[#15803D]">{language === "en" ? "This transaction will use this pocket." : "Transaksi ini akan menggunakan pocket ini."}</p>
@@ -624,7 +624,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
               {filteredCategories.map((category) => (<option key={category.id} value={category.id}>{category.name}</option>))}
             </select>
           </Field>
-          {transactionType === "expense" && selectedBudget && (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs md:col-span-2 lg:rounded-md">
+          {transactionType === "expense" && selectedBudget && (<div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs md:col-span-2 lg:rounded-xl">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold text-slate-600">Budget {selectedBudget.category}</span>
                 <span className={`font-semibold ${budgetAfterPercent > 100 ? "text-rose-600" : "text-[#16A34A]"}`}>{budgetAfterPercent}% setelah transaksi</span>
@@ -642,7 +642,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
             setDraft((current) => ({ ...current, merchantName: event.target.value }));
         }}/>
           </Field>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-md">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 md:col-span-2 lg:rounded-xl">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-slate-700">Attachment transaksi</p>
@@ -650,13 +650,13 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
                   Tambahkan gambar atau video sebagai bukti pendukung transaksi.
                 </p>
               </div>
-              <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-md">
+              <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-xl">
                 {attachmentLoading ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
                 {attachmentReceiptId ? "Ganti" : "Pilih file"}
                 <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadAttachment} disabled={attachmentLoading}/>
               </label>
             </div>
-            {(attachmentName || editing?.receiptId) && (<div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 lg:rounded-md">
+            {(attachmentName || editing?.receiptId) && (<div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 lg:rounded-xl">
                 <ReceiptText className="shrink-0 text-[#16A34A]" size={14}/>
                 <span className="truncate">{attachmentName || "Attachment transaksi tersimpan"}</span>
               </div>)}
@@ -676,7 +676,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         }}/>
             </div>
           </label>
-          {error && errorContext === "submit" && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 md:col-span-2 lg:rounded-md">{error}</p>}
+          {error && errorContext === "submit" && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 md:col-span-2 lg:rounded-xl">{error}</p>}
           <div className="mt-2 space-y-2 border-t border-slate-100 pt-4 md:col-span-2">
             <button className="btn-primary w-full py-3" disabled={loading || attachmentLoading || parseLoading || accounts.length === 0}>
               {loading ? <Loader2 className="animate-spin" size={16}/> : <CheckCircle2 size={16}/>}
@@ -786,7 +786,7 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
         <ArrowLeft size={14}/> Kembali
       </button>
 
-      <div className="overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
+      <div className="overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:rounded-2xl lg:border-slate-200">
         <div className="border-b border-slate-100 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
@@ -808,7 +808,7 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
         </div>
 
         <dl className="grid gap-3 p-5 sm:grid-cols-2">
-          {detailRows.map(([label, value]) => (<div key={label} className="rounded-2xl bg-slate-50 px-3 py-2.5 lg:rounded-md">
+          {detailRows.map(([label, value]) => (<div key={label} className="rounded-2xl bg-slate-50 px-3 py-2.5 lg:rounded-xl">
               <dt className="text-[11px] font-semibold uppercase text-slate-400">{label}</dt>
               <dd className="mt-1 text-sm font-bold text-slate-900">{value}</dd>
             </div>))}
@@ -829,15 +829,15 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
                   Buka file
                 </button>)}
             </div>
-            {attachmentPreviewLoading ? (<div className="flex h-44 items-center justify-center rounded-2xl bg-slate-50 text-slate-400 lg:rounded-md">
+            {attachmentPreviewLoading ? (<div className="flex h-44 items-center justify-center rounded-2xl bg-slate-50 text-slate-400 lg:rounded-xl">
                 <Loader2 className="animate-spin" size={22}/>
-              </div>) : attachmentPreviewUrl && attachmentContentType.startsWith("video/") ? (<video className="max-h-[520px] w-full rounded-2xl bg-black lg:rounded-md" src={attachmentPreviewUrl} controls preload="metadata">
+              </div>) : attachmentPreviewUrl && attachmentContentType.startsWith("video/") ? (<video className="max-h-[520px] w-full rounded-2xl bg-black lg:rounded-xl" src={attachmentPreviewUrl} controls preload="metadata">
                 Browser tidak mendukung preview video ini.
-              </video>) : attachmentPreviewUrl && attachmentContentType.startsWith("image/") ? (<button type="button" className="block w-full overflow-hidden rounded-2xl bg-slate-100 lg:rounded-md" onClick={() => window.open(attachmentPreviewUrl, "_blank", "noopener,noreferrer")} aria-label="Buka attachment ukuran penuh">
+              </video>) : attachmentPreviewUrl && attachmentContentType.startsWith("image/") ? (<button type="button" className="block w-full overflow-hidden rounded-2xl bg-slate-100 lg:rounded-xl" onClick={() => window.open(attachmentPreviewUrl, "_blank", "noopener,noreferrer")} aria-label="Buka attachment ukuran penuh">
                 <img className="max-h-[520px] w-full object-contain" src={attachmentPreviewUrl} alt="Attachment transaksi"/>
-              </button>) : attachmentOriginalUrl ? (<button type="button" className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-50 px-4 py-8 text-sm font-semibold text-[#16A34A] lg:rounded-md" onClick={() => window.open(attachmentOriginalUrl, "_blank", "noopener,noreferrer")}>
+              </button>) : attachmentOriginalUrl ? (<button type="button" className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-50 px-4 py-8 text-sm font-semibold text-[#16A34A] lg:rounded-xl" onClick={() => window.open(attachmentOriginalUrl, "_blank", "noopener,noreferrer")}>
                 <ReceiptText size={18}/> Buka attachment
-              </button>) : (<p className="rounded-2xl bg-rose-50 px-3 py-3 text-xs text-rose-700 lg:rounded-md">
+              </button>) : (<p className="rounded-2xl bg-rose-50 px-3 py-3 text-xs text-rose-700 lg:rounded-xl">
                 Attachment tidak dapat dimuat.
               </p>)}
           </div>)}
@@ -959,14 +959,14 @@ export function ReceiptView({ accounts, categories, request, onDone }: {
         }
     };
     return (<div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200 lg:p-5">
+      <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200 lg:p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Scan struk</p>
             <h2 className="mt-0.5 text-lg font-semibold text-slate-950">Upload atau foto struk</h2>
             <p className="mt-1 text-xs font-semibold text-slate-500">Pilih sumber, cek preview, lalu proses OCR.</p>
           </div>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-md">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-xl">
             <Camera size={18}/>
           </span>
         </div>
@@ -976,18 +976,18 @@ export function ReceiptView({ accounts, categories, request, onDone }: {
         <input ref={fileInputRef} className="sr-only" type="file" accept="image/jpeg,image/png,application/pdf" onChange={selectFile}/>
 
         <div className="grid grid-cols-3 gap-2">
-          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-md" onClick={() => cameraInputRef.current?.click()}>
+          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-xl" onClick={() => cameraInputRef.current?.click()}>
             <Camera size={18}/> Kamera
           </button>
-          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-md" onClick={() => galleryInputRef.current?.click()}>
+          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-xl" onClick={() => galleryInputRef.current?.click()}>
             <ReceiptText size={18}/> Galeri
           </button>
-          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-md" onClick={() => fileInputRef.current?.click()}>
+          <button type="button" className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-2 py-3 text-xs font-semibold text-slate-700 transition hover:border-emerald-100 hover:bg-emerald-50 hover:text-[#16A34A] lg:rounded-xl" onClick={() => fileInputRef.current?.click()}>
             <Upload size={18}/> File
           </button>
         </div>
 
-        <div className="mt-4 overflow-hidden rounded-[22px] border border-dashed border-slate-200 bg-slate-50 lg:rounded-md">
+        <div className="mt-4 overflow-hidden rounded-[22px] border border-dashed border-slate-200 bg-slate-50 lg:rounded-xl">
           {preview ? (<img className="max-h-96 w-full object-contain" src={preview} alt="Preview struk"/>) : selectedFile ? (<div className="flex min-h-44 flex-col items-center justify-center px-4 py-8 text-center">
               <ReceiptText className="mb-3 text-[#16A34A]" size={28}/>
               <p className="text-sm font-semibold text-slate-950">{selectedFile.name}</p>
@@ -1138,7 +1138,7 @@ export function DateFilterPicker({ label, value, onChange, language, align = "le
         : (locale === "en-US" ? "Select date" : "Pilih tanggal");
     const todayValue = todayParts.value;
     return (<div ref={rootRef} className="relative min-w-0">
-      <button type="button" className={`flex h-11 w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-0 text-left transition lg:rounded-md ${open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`} onClick={(event) => {
+      <button type="button" className={`flex h-11 w-full items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-0 text-left transition lg:rounded-xl ${open ? "border-emerald-400 ring-2 ring-emerald-100" : "border-slate-200 hover:border-emerald-300"}`} onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
         setOpen((current) => !current);
@@ -1417,7 +1417,7 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
       <button type="button" className="app-back-button" onClick={onBack}>
         <ArrowLeft size={14}/> {language === "en" ? "Back" : "Kembali"}
       </button>
-      <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+      <div className="rounded-[22px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Transaksi</p>
@@ -1428,7 +1428,7 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
             {type === "income" ? "Masuk" : type === "expense" ? "Keluar" : "Semua"}
           </span>
         </div>
-        <div className="mt-3 rounded-2xl bg-[#16A34A] px-4 py-3 text-white lg:rounded-lg">
+        <div className="mt-3 rounded-2xl bg-[#16A34A] px-4 py-3 text-white lg:rounded-2xl">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold text-white/75">Net transaksi</p>
@@ -1438,22 +1438,22 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
           </div>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <div className="rounded-2xl bg-emerald-50 px-3 py-2 lg:rounded-md">
+          <div className="rounded-2xl bg-emerald-50 px-3 py-2 lg:rounded-xl">
             <p className="text-[11px] font-bold text-[#15803D]">Masuk</p>
             <p className="mt-0.5 text-[13px] font-semibold leading-tight text-[#15803D]">{rupiah(totalIncome)}</p>
           </div>
-          <div className="rounded-2xl bg-rose-50 px-3 py-2 lg:rounded-md">
+          <div className="rounded-2xl bg-rose-50 px-3 py-2 lg:rounded-xl">
             <p className="text-[11px] font-bold text-rose-700">Keluar</p>
             <p className="mt-0.5 text-[13px] font-semibold leading-tight text-rose-700">{rupiah(totalExpense)}</p>
           </div>
         </div>
       </div>
 
-      <div className="rounded-[22px] border border-white/80 bg-white p-3 shadow-soft lg:rounded-lg lg:border-slate-200">
+      <div className="rounded-[22px] border border-white/80 bg-white p-3 shadow-soft lg:rounded-2xl lg:border-slate-200">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15}/>
-            <input className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-9 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={language === "en" ? "Search transactions" : "Cari transaksi"}/>
+            <input className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-9 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-xl" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={language === "en" ? "Search transactions" : "Cari transaksi"}/>
             {search && (<button type="button" className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Bersihkan pencarian" title="Bersihkan pencarian" onClick={() => setSearch("")}>
                 <X size={14}/>
               </button>)}
@@ -1464,15 +1464,15 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
           </button>
         </div>
 
-        <div className="mt-2 grid grid-cols-3 rounded-xl bg-slate-100 p-1 lg:max-w-sm lg:rounded-md">
-          {typeOptions.map((option) => (<button key={option.value} type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold transition lg:rounded-md ${type === option.value ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => applyType(option.value)}>
+        <div className="mt-2 grid grid-cols-3 rounded-xl bg-slate-100 p-1 lg:max-w-sm lg:rounded-xl">
+          {typeOptions.map((option) => (<button key={option.value} type="button" className={`rounded-xl px-3 py-2 text-xs font-semibold transition lg:rounded-xl ${type === option.value ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => applyType(option.value)}>
               {option.label}
             </button>))}
         </div>
 
         {showDateFilter && (<>
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close transaction filter" : "Tutup filter transaksi"} onClick={() => setShowDateFilter(false)}/>
-          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-slate-950">{language === "en" ? "Transaction filter" : "Filter transaksi"}</h2>
@@ -1537,7 +1537,7 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
         </div>
       </div>
 
-      {selectedCount > 0 && (<div className="sticky top-16 z-20 rounded-[22px] border border-emerald-100 bg-white/95 p-3 shadow-soft backdrop-blur lg:top-20 lg:rounded-lg">
+      {selectedCount > 0 && (<div className="sticky top-16 z-20 rounded-[22px] border border-emerald-100 bg-white/95 p-3 shadow-soft backdrop-blur lg:top-20 lg:rounded-2xl">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-950">{selectedCount} dipilih</p>
@@ -1558,7 +1558,7 @@ export function HistoryView({ accounts, language, request, onOpen, onChanged, to
         </div>)}
 
       <div className="space-y-3">
-        {loading ? <LoadingState /> : loadError ? <DataErrorState message={loadError} onRetry={() => { load().catch(() => undefined); }}/> : rows.length === 0 ? <EmptyState text="Tidak ada transaksi."/> : (groupedRows.map((group) => (<section key={group.key} className="overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:rounded-lg lg:border-slate-200">
+        {loading ? <LoadingState /> : loadError ? <DataErrorState message={loadError} onRetry={() => { load().catch(() => undefined); }}/> : rows.length === 0 ? <EmptyState text="Tidak ada transaksi."/> : (groupedRows.map((group) => (<section key={group.key} className="overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-soft lg:rounded-2xl lg:border-slate-200">
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-950">{group.label}</h3>
@@ -1794,11 +1794,11 @@ export function SectionHeader({ title, caption, action }: {
     action?: JSX.Element;
 }) {
     const isBackAction = Boolean(action?.props?.className?.includes("app-back-button"));
-    return (<div className={`mb-3 flex gap-3 ${isBackAction ? "flex-col items-start" : "items-start justify-between"}`}>
+    return (<div className={`mb-4 flex gap-3 ${isBackAction ? "flex-col items-start" : "items-start justify-between"}`}>
       {isBackAction && action}
       <div className="min-w-0">
-        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-        {caption && <p className="mt-0.5 text-xs font-semibold text-slate-500">{caption}</p>}
+        <h3 className="section-title">{title}</h3>
+        {caption && <p className="section-caption">{caption}</p>}
       </div>
       {!isBackAction && action}
     </div>);
@@ -1838,7 +1838,7 @@ export function ManageView({ accounts, categories, language, request, onNavigate
         meta: string;
         tone: string;
     }> = [
-        { id: "categories", label: isEnglish ? "Categories" : "Kategori", icon: Tags, count: `${categories.length} ${isEnglish ? "categories" : "kategori"}`, meta: isEnglish ? "Income and expense groups" : "Kelompok pemasukan dan pengeluaran", tone: "bg-violet-50 text-violet-700" },
+        { id: "categories", label: isEnglish ? "Categories" : "Kategori", icon: Tags, count: `${categories.length} ${isEnglish ? "categories" : "kategori"}`, meta: isEnglish ? "Income and expense groups" : "Kelompok pemasukan dan pengeluaran", tone: "bg-sky-50 text-sky-700" },
         { id: "budgets", label: isEnglish ? "Budgets" : "Budget", icon: CircleDollarSign, count: `${budgetCount} ${isEnglish ? "active" : "aktif"}`, meta: isEnglish ? "Monthly spending limits" : "Batas pengeluaran bulanan", tone: "bg-emerald-50 text-[#16A34A]" },
         { id: "schedules", label: isEnglish ? "Schedules" : "Jadwal", icon: Bell, count: `${scheduleCount} ${isEnglish ? "reminders" : "pengingat"}`, meta: isEnglish ? "Recurring payments and transactions" : "Pembayaran dan transaksi rutin", tone: "bg-amber-50 text-amber-700" }
     ];
@@ -1868,7 +1868,7 @@ export function ManageView({ accounts, categories, language, request, onNavigate
         const activeItem = tabs.find((item) => item.id === activeTab)!;
         const ActiveIcon = activeItem.icon;
         return (<section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
-        <div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+        <div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-2xl">
           <button type="button" className="app-back-button" onClick={() => {
                 setActiveTab(null);
                 setQuickCreate(null);
@@ -1892,11 +1892,11 @@ export function ManageView({ accounts, categories, language, request, onNavigate
       </section>);
     }
     return (<section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
-      <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-lg">
+      <div className="surface-card p-4 lg:p-5">
         <div className="relative flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase text-[#16A34A]">{isEnglish ? "Settings" : "Atur"}</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">{isEnglish ? "App settings" : "Pengaturan aplikasi"}</h2>
+            <p className="eyebrow !text-[#16845B]">{isEnglish ? "Settings" : "Atur"}</p>
+            <h2 className="mt-1.5 text-lg font-extrabold tracking-[-0.035em] text-slate-950">{isEnglish ? "App settings" : "Pengaturan aplikasi"}</h2>
             <p className="mt-1 text-xs text-slate-500">{isEnglish ? "All essential settings in one place." : "Semua pengaturan penting dalam satu tempat."}</p>
           </div>
           <button type="button" className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[#16A34A] px-3.5 text-xs font-semibold text-white shadow-sm transition active:scale-95" onClick={() => setShowQuickActions((current) => !current)} aria-expanded={showQuickActions}>
@@ -1917,7 +1917,7 @@ export function ManageView({ accounts, categories, language, request, onNavigate
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
-            return (<button key={tab.id} type="button" className={`ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border p-3 text-left transition lg:rounded-md ${active ? "border-emerald-200 bg-emerald-50/70" : "border-slate-100 bg-white hover:border-emerald-100 hover:bg-slate-50"}`} onClick={() => openSection(tab.id)}>
+            return (<button key={tab.id} type="button" className={`ripple-card data-row flex min-h-[88px] items-center gap-3 border p-3 text-left transition ${active ? "border-emerald-200 bg-emerald-50/70" : "border-slate-100 bg-white hover:border-emerald-100 hover:bg-slate-50"}`} onClick={() => openSection(tab.id)}>
                 <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${tab.tone}`}>
                   <Icon size={23} strokeWidth={2}/>
                 </span>
@@ -1931,7 +1931,7 @@ export function ManageView({ accounts, categories, language, request, onNavigate
                 <ChevronRight size={19} className="shrink-0 text-slate-300"/>
               </button>);
         })}
-          <button type="button" className="ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border border-slate-100 bg-white p-3 text-left transition hover:border-emerald-100 hover:bg-slate-50 lg:rounded-md" onClick={() => onNavigate("profile")}>
+          <button type="button" className="ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border border-slate-100 bg-white p-3 text-left transition hover:border-emerald-100 hover:bg-slate-50 lg:rounded-xl" onClick={() => onNavigate("profile")}>
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
               <UserRound size={23}/>
             </span>
@@ -2019,7 +2019,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
         await load();
     };
     return (<div className="space-y-3">
-      {scheduleView === "list" && (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+      {scheduleView === "list" && (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
         <SectionHeader title="Jadwal & pemberitahuan" caption="Pengingat pembayaran, top up, atau transfer rutin." action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => {
                     setError(null);
                     setEditingSchedule(null);
@@ -2028,7 +2028,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
               <Plus size={14}/> Tambah
             </button>)}/>
         {loading ? <LoadingState /> : schedules.length === 0 ? (<EmptyState text="Belum ada jadwal. Tambahkan pengingat rutin pertama Anda."/>) : (<div className="grid gap-2 md:grid-cols-2">
-            {schedules.map((schedule) => (<article key={schedule.id} className="rounded-2xl border border-slate-100 bg-white px-3 py-3 lg:rounded-md">
+            {schedules.map((schedule) => (<article key={schedule.id} className="rounded-2xl border border-slate-100 bg-white px-3 py-3 lg:rounded-xl">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-950">{schedule.title}</p>
@@ -2068,7 +2068,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
           </div>)}
       </section>)}
 
-      {scheduleView === "form" && (<form key={editingSchedule?.id ?? "new-schedule"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
+      {scheduleView === "form" && (<form key={editingSchedule?.id ?? "new-schedule"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200" onSubmit={submit}>
         <SectionHeader title={editingSchedule ? "Edit jadwal" : "Tambah jadwal"} caption={editingSchedule ? "Sesuaikan pengingat dan detail transaksi terjadwal." : "Contoh: bayar SPP tiap tanggal 1 atau top up GoPay."} action={(<button type="button" className="app-back-button" onClick={() => {
                     setEditingSchedule(null);
                     setError(null);
@@ -2131,7 +2131,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
           <input className="input" name="paymentMethod" placeholder="Metode pembayaran, misalnya BCA atau GoPay" defaultValue={editingSchedule?.paymentMethod ?? ""}/>
           <input className="input" name="notes" placeholder="Catatan singkat" defaultValue={editingSchedule?.notes ?? ""}/>
           <button className="btn-primary w-full"><Bell size={16}/> {editingSchedule ? "Simpan perubahan" : "Simpan jadwal"}</button>
-          {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
+          {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-xl">{error}</p>}
         </div>
       </form>)}
     </div>);
@@ -3344,7 +3344,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
     };
     return (<div className="space-y-3">
       {accountView === "list" && (<section className="space-y-3">
-          <div className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+          <div className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
             <SectionHeader title="Pocket" caption={pocketTab === "mine" ? `${myPockets.length} pocket pribadi` : `${sharedPockets.length} shared pocket`} action={(<div className="flex items-center gap-2">
                   <button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-100 bg-white text-[#16A34A] shadow-sm" onClick={() => onOpenTransactions("")} aria-label="View all transactions" title="View all transactions">
                     <ReceiptText size={15}/>
@@ -3407,7 +3407,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                     const cardBackground = accountVisual?.background || "#16A34A";
                     const cardLogo = resolvePocketLogo(accountVisual?.logo, account.accountType);
                     const isDraggingThisPocket = draggingPocketId === account.id;
-                    return (<button key={account.id} data-pocket-id={account.id} type="button" className={`ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white lg:rounded-lg ${isDraggingThisPocket ? "z-20 ring-2 ring-white/90" : "active:scale-[0.99]"} ${dropTargetPocketId === account.id ? "ring-2 ring-emerald-300 ring-offset-2" : ""}`} style={{
+                    return (<button key={account.id} data-pocket-id={account.id} type="button" className={`ripple-card min-h-[100px] overflow-hidden rounded-xl p-3 text-left text-white lg:rounded-2xl ${isDraggingThisPocket ? "z-20 ring-2 ring-white/90" : "active:scale-[0.99]"} ${dropTargetPocketId === account.id ? "ring-2 ring-emerald-300 ring-offset-2" : ""}`} style={{
                             background: `linear-gradient(135deg, ${cardBackground}, #064E3B)`,
                             transform: isDraggingThisPocket ? "translate3d(0, -12px, 0) scale(1.08) rotate(1.5deg)" : "translate3d(0, 0, 0) scale(1) rotate(0deg)",
                             boxShadow: isDraggingThisPocket ? "0 24px 42px rgba(15, 23, 42, 0.34)" : "0 10px 20px rgba(15, 23, 42, 0.16)",
@@ -3533,7 +3533,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
 
           {showPocketMembersPopup && (<>
               <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close Pocket users" : "Tutup pengguna Pocket"} onClick={() => setShowPocketMembersPopup(false)}/>
-              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 text-slate-900 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
+              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 text-slate-900 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-2xl">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base font-semibold text-slate-950">Pengguna Pocket</h2>
@@ -3614,7 +3614,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             const currentAmount = moneyValue(selectedPocket.currentBalance);
             const progress = targetAmount > 0 ? Math.min(100, Math.max(0, currentAmount / targetAmount * 100)) : 0;
             const remaining = Math.max(0, targetAmount - currentAmount);
-            return (<section className="rounded-[22px] border border-emerald-100 bg-white p-4 shadow-soft lg:rounded-lg">
+            return (<section className="rounded-[22px] border border-emerald-100 bg-white p-4 shadow-soft lg:rounded-2xl">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#16A34A]">Target balance</p>
@@ -3650,7 +3650,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               </section>);
         })()}
 
-          <div className="min-w-0 overflow-hidden rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="min-w-0 overflow-hidden rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
             <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-slate-950">Transaction history</h3>
@@ -3766,7 +3766,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             </>)}
           {showPocketTransactionFilter && (<>
               <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label="Tutup filter transaksi" onClick={() => setShowPocketTransactionFilter(false)}/>
-              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-2xl">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-base font-semibold text-slate-950">Filter transaksi</h2>
@@ -3844,7 +3844,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         </section>)}
       {accountView === "pocket-detail" && selectedPocket && showTargetBalanceModal && (<>
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label="Tutup target balance" onClick={() => setShowTargetBalanceModal(false)}/>
-          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-2xl">
             <div className="flex items-start justify-between gap-3">
               <div><h2 className="text-base font-semibold text-slate-950">{targetDetails?.targetBalance ? "Edit target balance" : "Set target balance"}</h2><p className="mt-1 text-xs text-slate-500">Tentukan saldo yang ingin dicapai dan batas waktunya.</p></div>
               <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowTargetBalanceModal(false)}><X size={17}/></button>
@@ -3868,7 +3868,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         </>)}
       {accountView === "pocket-detail" && selectedPocket && showAutoBudgetModal && (<>
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close auto budgeting" : "Tutup auto budgeting"} onClick={() => setShowAutoBudgetModal(false)}/>
-          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[calc(100dvh-7rem)] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[calc(100dvh-7rem)] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-2xl">
             <div className="flex items-start justify-between gap-3">
               <div><h2 className="text-base font-semibold text-slate-950">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{language === "en" ? "This is your personal rule. Other Pocket members can create their own rules." : "Ini adalah aturan pribadi Anda. Anggota Pocket lain dapat membuat aturan masing-masing."}</p></div>
               <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowAutoBudgetModal(false)}><X size={17}/></button>
@@ -3918,7 +3918,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         </>)}
       {accountView === "pocket-detail" && selectedPocket && showPocketInviteModal && (<>
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Close invite user" onClick={() => setShowPocketInviteModal(false)}/>
-          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+          <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-base font-semibold text-slate-950">Invite user</h2>
@@ -4010,7 +4010,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         </>)}
       {accountView === "pocket-detail" && scanQrOpen && <QrScanner onScan={handlePocketInviteScan} onClose={() => setScanQrOpen(false)} request={request} selectedPocketId={selectedPocketId}/>}
 
-      {accountView === "account-form" && (<form key={editingAccount?.id ?? "new-pocket"} className="flex min-h-[calc(100vh-132px)] flex-col rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
+      {accountView === "account-form" && (<form key={editingAccount?.id ?? "new-pocket"} className="flex min-h-[calc(100vh-132px)] flex-col rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200" onSubmit={submit}>
           <SectionHeader title={editingAccount ? "Edit pocket" : "Add pocket"} caption="Atur identitas pocket, jenis penyimpanan, dan saldo awal." action={(<button type="button" className="app-back-button" onClick={() => {
                     const isEditingExistingPocket = Boolean(editingAccount);
                     setEditingAccount(null);
@@ -4154,11 +4154,11 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               <input className="input" name="initialBalance" inputMode="numeric" placeholder="Contoh: 500.000" value={pocketInitialBalanceDraft} onInput={handleMoneyInput} onChange={(event) => setPocketInitialBalanceDraft(event.target.value)} required/>
             </Field>
 
-            {editingAccount && (<p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 lg:rounded-md">
+            {editingAccount && (<p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 lg:rounded-xl">
                 Saldo sekarang {rupiah(editingAccount.currentBalance)}. Saldo awal tidak bisa dibuat minus dari form ini.
               </p>)}
 
-            {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
+            {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-xl">{error}</p>}
           </div>
 
           <div className="sticky bottom-24 mt-5 bg-white/90 pt-2 backdrop-blur">
@@ -4166,7 +4166,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
           </div>
         </form>)}
 
-      {accountView === "transfer-form" && (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={transfer}>
+      {accountView === "transfer-form" && (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200" onSubmit={transfer}>
           <SectionHeader title={transferFormCopy.title} caption={transferFormCopy.caption} action={(<button type="button" className="app-back-button" onClick={() => {
                     setError(null);
                     setTransferPocketPicker(null);
@@ -4174,9 +4174,9 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 }}>
                 <ArrowLeft size={14}/> Kembali
               </button>)}/>
-          <div className="mb-4 rounded-[24px] border border-slate-100 bg-[#F8FAFC] p-2.5 lg:rounded-md">
+          <div className="mb-4 rounded-[24px] border border-slate-100 bg-[#F8FAFC] p-2.5 lg:rounded-xl">
             <div className="relative grid grid-cols-2 gap-2.5">
-              <button type="button" disabled={transferMode === "out"} onClick={() => setTransferPocketPicker("source")} className={`relative min-h-[118px] rounded-[18px] border px-3 py-3 pb-11 text-left shadow-sm lg:rounded-md ${transferMode === "in" ? "order-2" : "order-1"} ${transferMode === "out" ? "cursor-default border-slate-100 bg-white" : "border-emerald-200 bg-emerald-50/60 transition hover:border-emerald-300 active:scale-[0.99]"}`}>
+              <button type="button" disabled={transferMode === "out"} onClick={() => setTransferPocketPicker("source")} className={`relative min-h-[118px] rounded-[18px] border px-3 py-3 pb-11 text-left shadow-sm lg:rounded-xl ${transferMode === "in" ? "order-2" : "order-1"} ${transferMode === "out" ? "cursor-default border-slate-100 bg-white" : "border-emerald-200 bg-emerald-50/60 transition hover:border-emerald-300 active:scale-[0.99]"}`}>
                 <p className="text-[10px] font-semibold text-slate-400">{transferFormCopy.sourceLabel}</p>
                 <p className="mt-1.5 truncate text-sm font-semibold text-slate-950">{sourceAccount?.name ?? "-"}</p>
                 {transferMode !== "out" && <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#16A34A] shadow-sm">Pilih pocket asal</span>}
@@ -4188,7 +4188,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               <span className={`pointer-events-none absolute left-1/2 top-1/2 z-10 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-[#F8FAFC] shadow-sm ${transferMode === "in" ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
                 {transferMode === "in" ? <ArrowLeft size={17}/> : <ArrowRight size={17}/>}
               </span>
-              <button type="button" disabled={transferMode === "in"} onClick={() => setTransferPocketPicker("destination")} className={`relative min-h-[118px] rounded-[18px] border px-3 py-3 pb-11 text-left shadow-sm lg:rounded-md ${transferMode === "in" ? "order-1" : "order-2"} ${transferMode === "in" ? "cursor-default border-slate-100 bg-white" : "border-emerald-200 bg-emerald-50/60 transition hover:border-emerald-300 active:scale-[0.99]"}`}>
+              <button type="button" disabled={transferMode === "in"} onClick={() => setTransferPocketPicker("destination")} className={`relative min-h-[118px] rounded-[18px] border px-3 py-3 pb-11 text-left shadow-sm lg:rounded-xl ${transferMode === "in" ? "order-1" : "order-2"} ${transferMode === "in" ? "cursor-default border-slate-100 bg-white" : "border-emerald-200 bg-emerald-50/60 transition hover:border-emerald-300 active:scale-[0.99]"}`}>
                 <p className="text-[10px] font-semibold text-slate-400">{transferFormCopy.destinationLabel}</p>
                 <p className="mt-1.5 truncate text-sm font-semibold text-slate-950">{destinationAccount?.name ?? "-"}</p>
                 {transferMode !== "in" && <span className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#16A34A] shadow-sm">Pilih pocket tujuan</span>}
@@ -4216,16 +4216,16 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             <Field label="Fee/admin">
               <input className="input h-11" name="feeAmount" inputMode="numeric" placeholder="Opsional, contoh: 2500" value={transferDraft.feeAmount} onChange={(event) => setTransferDraft((current) => ({ ...current, feeAmount: formatRupiahInput(event.target.value) }))}/>
             </Field>
-            {sourceAccount && destinationAccount && transferAmount > 0 && (<div className="rounded-[22px] border border-emerald-100 bg-emerald-50/70 p-3 lg:rounded-md">
+            {sourceAccount && destinationAccount && transferAmount > 0 && (<div className="rounded-[22px] border border-emerald-100 bg-emerald-50/70 p-3 lg:rounded-xl">
                 <p className="text-xs font-semibold text-emerald-900">Simulasi saldo setelah transfer</p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="rounded-2xl bg-white p-3 lg:rounded-md">
+                  <div className="rounded-2xl bg-white p-3 lg:rounded-xl">
                     <p className="truncate text-[11px] font-semibold text-slate-500">{sourceAccount.name}</p>
                     <p className="mt-1 text-xs text-slate-400">{rupiah(sourceAccount.currentBalance)}</p>
                     <p className={`mt-1 text-sm font-bold ${sourceBalanceAfter < 0 ? "text-rose-600" : "text-slate-950"}`}>{rupiah(sourceBalanceAfter)}</p>
                     <p className="mt-0.5 text-[10px] text-slate-400">Setelah nominal + biaya admin</p>
                   </div>
-                  <div className="rounded-2xl bg-white p-3 lg:rounded-md">
+                  <div className="rounded-2xl bg-white p-3 lg:rounded-xl">
                     <p className="truncate text-[11px] font-semibold text-slate-500">{destinationAccount.name}</p>
                     <p className="mt-1 text-xs text-slate-400">{rupiah(destinationAccount.currentBalance)}</p>
                     <p className="mt-1 text-sm font-bold text-[#16A34A]">{rupiah(destinationBalanceAfter)}</p>
@@ -4233,19 +4233,19 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                   </div>
                 </div>
               </div>)}
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:rounded-md">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:rounded-xl">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-slate-700">Attachment transfer</p>
                   <p className="mt-0.5 text-[11px] leading-4 text-slate-500">Tambahkan gambar atau video sebagai bukti transfer.</p>
                 </div>
-                <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-md">
+                <label className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[#16A34A] shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 lg:rounded-xl">
                   {transferAttachmentLoading ? <Loader2 className="animate-spin" size={14}/> : <Upload size={14}/>}
                   {transferAttachmentId ? "Ganti" : "Pilih file"}
                   <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadTransferAttachment} disabled={transferAttachmentLoading}/>
                 </label>
               </div>
-              {transferAttachmentName && (<div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 lg:rounded-md">
+              {transferAttachmentName && (<div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 lg:rounded-xl">
                   <ReceiptText className="shrink-0 text-[#16A34A]" size={14}/>
                   <span className="truncate">{transferAttachmentName}</span>
                 </div>)}
@@ -4303,7 +4303,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
             </div>
           </div>
         </>)}
-      {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
+      {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-xl">{error}</p>}
     </div>);
 }
 
@@ -4368,7 +4368,7 @@ export function CategoriesView({ categories, request, onChanged, initialView = "
         }
     };
     return (<div className="space-y-3">
-      {categoryView === "list" && (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+      {categoryView === "list" && (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
         <SectionHeader title="Kategori transaksi" caption={`${expenseCategories.length} pengeluaran - ${incomeCategories.length} pemasukan`} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => {
                     setError(null);
                     setEditingCategory(null);
@@ -4394,7 +4394,7 @@ export function CategoriesView({ categories, request, onChanged, initialView = "
         </div>
       </section>)}
 
-      {categoryView === "form" && (<form key={editingCategory?.id ?? "new-category"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
+      {categoryView === "form" && (<form key={editingCategory?.id ?? "new-category"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200" onSubmit={submit}>
         <SectionHeader title={editingCategory ? "Edit kategori" : "Kategori baru"} caption={editingCategory ? "Ubah nama atau tipe kategori transaksi." : "Buat kategori yang mudah dipilih oleh AI dan form manual."} action={(<button type="button" className="app-back-button" onClick={() => {
                     setEditingCategory(null);
                     setError(null);
@@ -4413,15 +4413,15 @@ export function CategoriesView({ categories, request, onChanged, initialView = "
             </select>
           </Field>
           <button className="btn-primary w-full" disabled={deleting}>{editingCategory ? <CheckCircle2 size={16}/> : <Plus size={16}/>} {editingCategory ? "Simpan perubahan" : "Tambah kategori"}</button>
-          {editingCategory?.isDefault && (<p className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-500 lg:rounded-md">
+          {editingCategory?.isDefault && (<p className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-500 lg:rounded-xl">
               <ShieldCheck size={15} className="shrink-0 text-[#16A34A]"/>
               Kategori bawaan sistem dilindungi dan tidak dapat dihapus.
             </p>)}
-          {editingCategory && !editingCategory.isDefault && (<button type="button" className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md" onClick={removeCategory} disabled={deleting}>
+          {editingCategory && !editingCategory.isDefault && (<button type="button" className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-xl" onClick={removeCategory} disabled={deleting}>
               {deleting ? <Loader2 className="animate-spin" size={16}/> : <Trash2 size={16}/>}
               {deleting ? "Menghapus kategori..." : "Hapus kategori"}
             </button>)}
-          {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
+          {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-xl">{error}</p>}
         </div>
       </form>)}
     </div>);
@@ -4440,9 +4440,9 @@ export function CategoryGroup({ title, rows, tone, onEdit }: {
         <span className="text-[11px] font-bold text-slate-400">{rows.length} kategori</span>
       </div>
       {rows.length === 0 ? (<EmptyState text={`Belum ada kategori ${title.toLowerCase()}.`}/>) : (<div className="grid gap-2 sm:grid-cols-2">
-          {rows.map((category) => (<div key={category.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5 lg:rounded-md">
+          {rows.map((category) => (<div key={category.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5 lg:rounded-xl">
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl lg:rounded-md ${toneClass}`}>
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl lg:rounded-xl ${toneClass}`}>
                   <Tags size={15}/>
                 </span>
                 <div className="min-w-0">
@@ -4549,7 +4549,7 @@ export function BudgetsView({ categories, request, onChanged, initialView = "lis
     const totalPercent = totalBudget > 0 ? Math.round((totalUsed / totalBudget) * 100) : 0;
     const sortedBudgets = [...budgets].sort((a, b) => moneyValue(b.usagePercent) - moneyValue(a.usagePercent));
     return (<div className="space-y-3">
-      {budgetView === "list" && (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+      {budgetView === "list" && (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
         <SectionHeader title="Budget bulan ini" caption={budgets.length > 0 ? `${budgets.length} kategori dipantau - ${totalPercent}% terpakai` : "Belum ada batas pengeluaran"} action={(<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => {
                     setError(null);
                     setEditingBudget(null);
@@ -4563,7 +4563,7 @@ export function BudgetsView({ categories, request, onChanged, initialView = "lis
         {loading ? (<LoadingState />) : sortedBudgets.length === 0 ? (<EmptyState text="Buat budget pertama agar pengeluaran lebih mudah dipantau."/>) : (<div className="grid gap-2 md:grid-cols-2">
             {sortedBudgets.map((budget) => {
                     const percent = Math.round(moneyValue(budget.usagePercent));
-                    return (<div key={budget.id} className="rounded-2xl border border-slate-100 bg-white px-3 py-3 lg:rounded-md">
+                    return (<div key={budget.id} className="rounded-2xl border border-slate-100 bg-white px-3 py-3 lg:rounded-xl">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-950">{budget.category}</p>
@@ -4595,7 +4595,7 @@ export function BudgetsView({ categories, request, onChanged, initialView = "lis
           </div>)}
       </section>)}
 
-      {budgetView === "form" && (<form key={editingBudget?.id ?? "new-budget"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={submit}>
+      {budgetView === "form" && (<form key={editingBudget?.id ?? "new-budget"} className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200" onSubmit={submit}>
         <SectionHeader title={editingBudget ? "Edit budget" : "Atur budget"} caption={editingBudget ? "Sesuaikan kategori, periode, atau batas nominal." : "Pilih kategori pengeluaran, periode, lalu isi batas nominal."} action={(<button type="button" className="app-back-button" onClick={() => {
                     setEditingBudget(null);
                     setError(null);
@@ -4622,7 +4622,7 @@ export function BudgetsView({ categories, request, onChanged, initialView = "lis
           </Field>
           <button className="btn-primary w-full" disabled={expenseCategories.length === 0}><CheckCircle2 size={16}/> {editingBudget ? "Simpan perubahan" : "Simpan budget"}</button>
           {expenseCategories.length === 0 && <p className="text-xs font-semibold text-slate-500">Buat kategori pengeluaran dulu sebelum menambahkan budget.</p>}
-          {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-md">{error}</p>}
+          {error && <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 lg:rounded-xl">{error}</p>}
         </div>
       </form>)}
     </div>);
@@ -4741,7 +4741,7 @@ export function ReportsView({ request }: {
                 : "Tidak berubah";
     const trendHelper = previousMonth ? `Dibanding ${monthYearLabel(previousMonth.month)}` : "Butuh minimal 2 bulan data";
     return (<section className="mx-auto max-w-6xl space-y-3 lg:space-y-5">
-      <div className="rounded-[26px] border border-slate-100 bg-white p-4 text-slate-950 shadow-soft lg:rounded-lg lg:p-5">
+      <div className="rounded-[26px] border border-slate-100 bg-white p-4 text-slate-950 shadow-soft lg:rounded-2xl lg:p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Insight</p>
@@ -4753,15 +4753,15 @@ export function ReportsView({ request }: {
           </span>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-md">
+          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-xl">
             <p className="text-[10px] font-medium text-slate-500">Masuk</p>
             <p className="mt-1 truncate text-sm font-semibold text-[#16A34A]">{rupiah(totalIncome)}</p>
           </div>
-          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-md">
+          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-xl">
             <p className="text-[10px] font-medium text-slate-500">Keluar</p>
             <p className="mt-1 truncate text-sm font-semibold text-rose-600">{rupiah(totalExpense)}</p>
           </div>
-          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-md">
+          <div className="rounded-2xl bg-slate-50 px-3 py-2 lg:rounded-xl">
             <p className="text-[10px] font-medium text-slate-500">Net</p>
             <p className={`mt-1 truncate text-sm font-semibold ${totalNet >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>{totalNet >= 0 ? "+" : "-"}{rupiah(Math.abs(totalNet))}</p>
           </div>
@@ -4776,7 +4776,7 @@ export function ReportsView({ request }: {
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[1.05fr_0.95fr]">
-        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-950">Arus kas</h3>
@@ -4787,7 +4787,7 @@ export function ReportsView({ request }: {
           <CashFlowInsightList rows={cashFlow}/>
         </section>
 
-        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-950">Kategori</h3>
@@ -4799,7 +4799,7 @@ export function ReportsView({ request }: {
         </section>
       </div>
 
-      <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+      <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-950">Antarbulan</h3>
@@ -4824,13 +4824,13 @@ export function ReportInsightCard({ label, value, helper, tone, icon }: {
         : tone === "expense"
             ? "bg-rose-50 text-rose-600"
             : "bg-slate-100 text-slate-500";
-    return (<div className="rounded-[22px] border border-white/80 bg-white p-3 shadow-soft lg:rounded-lg lg:border-slate-200">
+    return (<div className="rounded-[22px] border border-white/80 bg-white p-3 shadow-soft lg:rounded-2xl lg:border-slate-200">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] font-bold leading-tight text-slate-400">{label}</p>
           <p className="mt-1 truncate text-sm font-semibold text-slate-950">{value}</p>
         </div>
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl lg:rounded-md ${toneClass}`}>{icon}</span>
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl lg:rounded-xl ${toneClass}`}>{icon}</span>
       </div>
       <p className="mt-1 truncate text-xs font-semibold text-slate-500">{helper}</p>
     </div>);
@@ -4848,7 +4848,7 @@ export function CashFlowInsightList({ rows }: {
             const net = Number(row.net);
             const incomePercent = Math.max((Number(row.income) / maxValue) * 100, Number(row.income) > 0 ? 5 : 0);
             const expensePercent = Math.max((Number(row.expense) / maxValue) * 100, Number(row.expense) > 0 ? 5 : 0);
-            return (<div key={row.date} className="rounded-2xl border border-slate-100 bg-white px-3 py-2.5 lg:rounded-md">
+            return (<div key={row.date} className="rounded-2xl border border-slate-100 bg-white px-3 py-2.5 lg:rounded-xl">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold text-slate-950">{localDate(row.date)}</p>
@@ -4912,7 +4912,7 @@ export function MonthlyInsightList({ rows }: {
             const net = income - expense;
             const expenseRatio = Math.round((expense / Math.max(income, 1)) * 100);
             const ratioTone = expenseRatio <= 80 ? "bg-[#16A34A]" : expenseRatio <= 100 ? "bg-amber-400" : "bg-rose-500";
-            return (<div key={row.month} className="rounded-2xl border border-slate-100 bg-white p-3 lg:rounded-md">
+            return (<div key={row.month} className="rounded-2xl border border-slate-100 bg-white p-3 lg:rounded-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold text-slate-950">{monthYearLabel(row.month)}</p>
@@ -4924,15 +4924,15 @@ export function MonthlyInsightList({ rows }: {
             </div>
 
             <div className="mt-3 grid grid-cols-3 gap-2">
-              <div className="rounded-2xl bg-emerald-50 px-2.5 py-2 lg:rounded-md">
+              <div className="rounded-2xl bg-emerald-50 px-2.5 py-2 lg:rounded-xl">
                 <p className="text-[10px] font-semibold uppercase text-[#15803D]">Masuk</p>
                 <p className="mt-1 truncate text-xs font-semibold text-[#16A34A]">{rupiah(income)}</p>
               </div>
-              <div className="rounded-2xl bg-rose-50 px-2.5 py-2 lg:rounded-md">
+              <div className="rounded-2xl bg-rose-50 px-2.5 py-2 lg:rounded-xl">
                 <p className="text-[10px] font-semibold uppercase text-rose-600">Keluar</p>
                 <p className="mt-1 truncate text-xs font-semibold text-rose-600">{rupiah(expense)}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 px-2.5 py-2 lg:rounded-md">
+              <div className="rounded-2xl bg-slate-50 px-2.5 py-2 lg:rounded-xl">
                 <p className="text-[10px] font-semibold uppercase text-slate-500">Net</p>
                 <p className={`mt-1 truncate text-xs font-semibold ${net >= 0 ? "text-[#16A34A]" : "text-rose-600"}`}>
                   {net >= 0 ? "+" : "-"}{rupiah(Math.abs(net))}
@@ -5065,7 +5065,7 @@ export function AssistantView({ request, language, onNavigate, context }: {
     return (<section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-white lg:h-[calc(100vh-7rem)]">
       <div className="shrink-0 border-b border-slate-100 bg-white px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] lg:px-5 lg:py-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-lg">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-[#16A34A] lg:rounded-2xl">
             <Bot size={20}/>
           </span>
           <div className="min-w-0">
@@ -5094,7 +5094,7 @@ export function AssistantView({ request, language, onNavigate, context }: {
             };
             return (<div key={index} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                 <div className={`${isUser ? "max-w-[86%] items-end" : "w-full items-start"}`}>
-                  <div className={`rounded-[18px] px-3.5 py-2.5 text-sm leading-relaxed shadow-sm lg:rounded-lg ${isUser
+                  <div className={`rounded-[18px] px-3.5 py-2.5 text-sm leading-relaxed shadow-sm lg:rounded-2xl ${isUser
                     ? "rounded-br-md bg-[#15803D] text-white"
                     : `rounded-bl-md border text-slate-800 ${responseStyles[responseTone]}`}`}>
                     <p>{message.text}</p>
@@ -5125,7 +5125,7 @@ export function AssistantView({ request, language, onNavigate, context }: {
               </div>);
         })}
           {loading && (<div className="flex justify-start">
-              <div className="inline-flex items-center gap-2 rounded-[18px] rounded-bl-md border border-emerald-100 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-500 shadow-sm lg:rounded-lg">
+              <div className="inline-flex items-center gap-2 rounded-[18px] rounded-bl-md border border-emerald-100 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-500 shadow-sm lg:rounded-2xl">
                 <Loader2 className="animate-spin text-[#16A34A]" size={15}/> {copy.loading}
               </div>
             </div>)}
@@ -5135,8 +5135,8 @@ export function AssistantView({ request, language, onNavigate, context }: {
 
       <form className="shrink-0 border-t border-slate-100 bg-white p-3" onSubmit={submit}>
         <div className="mx-auto flex max-w-4xl items-center gap-2">
-          <input className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-md" name="message" placeholder={copy.placeholder} autoComplete="off" disabled={loading}/>
-          <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#16A34A] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(22,163,74,0.22)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-md" disabled={loading}>
+          <input className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 lg:rounded-xl" name="message" placeholder={copy.placeholder} autoComplete="off" disabled={loading}/>
+          <button className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#16A34A] px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(22,163,74,0.22)] transition hover:bg-[#15803D] disabled:cursor-not-allowed disabled:opacity-60 lg:rounded-xl" disabled={loading}>
             {loading ? <Loader2 className="animate-spin" size={16}/> : <Bot size={16}/>}
             {copy.send}
           </button>
@@ -5390,7 +5390,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
         friendSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     };
     return (<div className="space-y-3">
-      <form className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={searchPerson}>
+      <form className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-2xl" onSubmit={searchPerson}>
         <SectionHeader title="Tambah teman" caption="Cari menggunakan username, email, nomor, atau QR Code."/>
         <div className="flex gap-2">
           <div className="relative min-w-0 flex-1">
@@ -5417,7 +5417,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
           </div>)}
       </form>
 
-      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
+      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-2xl">
         <SectionHeader title="QR akun Anda" caption="Tunjukkan atau bagikan agar teman dapat menemukan Anda."/>
         <div className="flex flex-col items-center">
           <div className="rounded-[20px] border border-slate-100 bg-white p-3 shadow-sm">
@@ -5439,7 +5439,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
         </div>
       </div>
 
-      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
+      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-2xl">
         <SectionHeader title={`Permintaan pertemanan${incoming.length ? ` (${incoming.length})` : ""}`} caption="Tinjau orang yang ingin terhubung dengan Anda."/>
         {incoming.length === 0 ? (<div className="flex items-center gap-3 rounded-2xl bg-[#F8FAFC] p-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-400"><UserPlus size={16}/></span>
@@ -5488,7 +5488,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
         </div>
       </div>
 
-      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-lg">
+      <div className="social-enter rounded-[20px] border border-[#E5E7EB] bg-white p-4 shadow-soft lg:rounded-2xl">
         <SectionHeader title="Teman" caption={`${accepted.length} teman${outgoing.length ? ` ÃƒÂ¯Ã‚Â¿Ã‚Â½ ${outgoing.length} menunggu` : ""}`}/>
         {accepted.length === 0 ? (<div className="rounded-[18px] bg-[#F8FAFC] px-4 py-6 text-center">
             <div className="relative mx-auto h-20 w-28" aria-hidden="true">
@@ -5541,7 +5541,7 @@ export function SocialFriendsPanel({ currentUser, friends, groups, summary, qrDa
           </div>)}
       </div>
 
-      <div className="social-enter min-h-[108px] rounded-[20px] bg-[#16A34A] p-4 text-white shadow-[0_14px_34px_rgba(22,163,74,0.16)] lg:rounded-lg">
+      <div className="social-enter min-h-[108px] rounded-[20px] bg-[#16A34A] p-4 text-white shadow-[0_14px_34px_rgba(22,163,74,0.16)] lg:rounded-2xl">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <span className="rounded-full bg-white/10 px-2 py-1 text-[9px] font-semibold uppercase text-emerald-100">Keuangan sosial</span>
@@ -6094,7 +6094,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
     const selectedWalletStorageAccount = accounts.find((account) => account.id === walletStorageAccountId);
     return (<section className="mx-auto max-w-6xl space-y-3">
       {tab === null ? (<>
-          <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-semibold uppercase text-[#16A34A]">Social</p>
@@ -6113,11 +6113,11 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             </div>
           </div>
 
-          <div className="rounded-[22px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-2xl">
             <div className="grid grid-cols-1 gap-3">
               {tabs.filter((item) => item.id !== "activity").map((item) => {
                 const Icon = item.icon;
-                return (<button key={item.id} type="button" className="ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border border-slate-100 bg-white p-3 text-left transition hover:border-emerald-100 hover:bg-slate-50 active:scale-[0.99] lg:rounded-md" onClick={() => {
+                return (<button key={item.id} type="button" className="ripple-card flex min-h-[88px] items-center gap-3 rounded-[18px] border border-slate-100 bg-white p-3 text-left transition hover:border-emerald-100 hover:bg-slate-50 active:scale-[0.99] lg:rounded-xl" onClick={() => {
                         setTab(item.id);
                         setSelectedGroup(null);
                         setSelectedWallet(null);
@@ -6143,7 +6143,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             </div>
           </div>
 
-          <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] border border-slate-100 bg-white p-4 shadow-soft lg:rounded-2xl">
             <SectionHeader title="Aktivitas terbaru" caption="Pembaruan yang melibatkan Anda" action={activity.length > 0 ? (<button type="button" className="inline-flex items-center gap-1 text-xs font-semibold text-[#16A34A]" onClick={() => setTab("activity")}>
                   Lihat selengkapnya <ChevronRight size={14}/>
                 </button>) : undefined}/>
@@ -6166,7 +6166,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 </button>))}
             </div>
           </div>
-        </>) : !selectedGroup && !selectedWallet && !showCreateGroup && !showCreateWallet ? (<div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-lg">
+        </>) : !selectedGroup && !selectedWallet && !showCreateGroup && !showCreateWallet ? (<div className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-white p-3 shadow-soft lg:rounded-2xl">
           <button type="button" className="app-back-button" onClick={() => {
                 setTab(null);
                 setSelectedGroup(null);
@@ -6194,14 +6194,14 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             })()}
         </div>) : null}
 
-      {message && (<div className="fixed left-4 right-4 top-20 z-50 rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-lg">
+      {message && (<div className="fixed left-4 right-4 top-20 z-50 rounded-2xl border border-slate-100 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-[0_18px_44px_rgba(15,23,42,0.16)] lg:left-auto lg:right-6 lg:w-96 lg:rounded-2xl">
           {message}
         </div>)}
       {loading && tab !== null && <LoadingState />}
 
       {!loading && tab === "friends" && (<div className="grid gap-3 lg:grid-cols-[0.85fr_1.15fr]">
           <div className="space-y-3">
-            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={searchPerson}>
+            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl" onSubmit={searchPerson}>
               <SectionHeader title="Tambah teman" caption="Cari lewat username, email, telepon, atau kode QR."/>
               <div className="relative">
                 <div className="flex gap-2">
@@ -6277,7 +6277,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             </form>
           </div>
 
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
             <SectionHeader title="Teman & permintaan" caption={`${friends.length} hubungan`}/>
             <div className="space-y-2">
               {friends.length === 0 && (<div className="rounded-2xl bg-[#F8FAFC] p-4">
@@ -6374,7 +6374,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 }}>
               <ArrowLeft size={14}/> Kembali
             </button>
-            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
+            <form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl" onSubmit={(event) => {
                     event.preventDefault();
                     const form = new FormData(event.currentTarget);
                     runAction(() => request("/social/groups", {
@@ -6415,7 +6415,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             </>)}
           {!showCreateGroup && <div className="grid gap-2 md:grid-cols-2">
             {groups.length === 0 && <EmptyState text="Belum ada grup keuangan."/>}
-            {groups.map((group) => (<div key={group.id} className="rounded-[22px] bg-white p-4 text-left shadow-soft lg:rounded-lg">
+            {groups.map((group) => (<div key={group.id} className="rounded-[22px] bg-white p-4 text-left shadow-soft lg:rounded-2xl">
                 <button className="w-full text-left" disabled={group.status === "pending"} onClick={() => openGroup(group.id)}>
                   <div className="flex justify-between gap-3"><p className="font-semibold">{group.name}</p>{group.status !== "pending" && <ChevronRight size={16} className="text-slate-300"/>}</div>
                   <p className="mt-1 text-xs text-slate-500">{group.status === "pending" ? "Undangan grup menunggu jawaban" : `${group.memberCount} anggota ÃƒÂ¯Ã‚Â¿Ã‚Â½ ${socialEnumLabel(group.role)}`}</p>
@@ -6433,7 +6433,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
 
       {!loading && tab === "groups" && selectedGroup && (<div className="space-y-3">
           <button type="button" className="app-back-button" onClick={() => setSelectedGroup(null)}><ArrowLeft size={14}/> Kembali</button>
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
             <SectionHeader title={selectedGroup.name} caption={`${selectedGroup.members.filter((item) => item.status === "accepted").length} anggota`}/>
             <div className="flex -space-x-2">
               {selectedGroup.members.filter((item) => item.status === "accepted").slice(0, 8).map((member) => (<span key={member.id} title={member.fullName} className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-emerald-50 text-[11px] font-semibold text-[#16A34A]">
@@ -6461,7 +6461,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             }}><Plus size={16}/> Catat pengeluaran grup</button>
           </div>
 
-          {showExpenseForm && (<form key={editingGroupExpense?.id ?? "new-group-expense"} className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
+          {showExpenseForm && (<form key={editingGroupExpense?.id ?? "new-group-expense"} className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl" onSubmit={(event) => {
                     event.preventDefault();
                     const form = new FormData(event.currentTarget);
                     const participantIds = form.getAll("participantIds").map(String);
@@ -6499,7 +6499,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
               </div>
             </form>)}
 
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
             <SectionHeader title="Penyelesaian minimum" caption="Simplify debt mengurangi jumlah transfer."/>
             <div className="space-y-2">
               {selectedGroup.simplifiedDebts.length === 0 && <EmptyState text="Semua anggota sudah seimbang."/>}
@@ -6516,7 +6516,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
             </div>
           </div>
 
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
             <SectionHeader title="Riwayat grup" caption="Hanya transaksi anggota grup."/>
             <div className="space-y-2">
               {selectedGroup.expenses.map((expense) => (<div key={expense.id} className="rounded-2xl border border-slate-100 p-3">
@@ -6542,7 +6542,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
               <button className="btn-secondary shrink-0"><MessageCircle size={15}/></button>
             </form>
           </div>
-          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+          <div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
             <SectionHeader title="Audit history" caption="Perubahan transaksi tercatat dan dapat ditelusuri."/>
             <div className="space-y-2">
               {selectedGroup.auditHistory.length === 0 && <EmptyState text="Belum ada perubahan tercatat."/>}
@@ -7012,7 +7012,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
                 <span className="text-[10px] font-semibold text-[#16A34A]">{walletEntryReceiptId ? "Ganti file" : "Pilih file"}</span>
                 <input className="sr-only" type="file" accept="image/*,video/*,.heic,.heif" onChange={uploadWalletEntryAttachment} disabled={walletEntryAttachmentLoading}/>
               </label>
-              {(walletEntryAttachmentName || walletEntryReceiptId) && (<div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs lg:rounded-md ${walletEntryAttachmentLoading
+              {(walletEntryAttachmentName || walletEntryReceiptId) && (<div className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs lg:rounded-xl ${walletEntryAttachmentLoading
                         ? "border-sky-100 bg-sky-50 text-sky-700"
                         : walletEntryAttachmentMessage && !walletEntryReceiptId
                             ? "border-rose-100 bg-rose-50 text-rose-700"
@@ -7099,7 +7099,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
           </div>
         </div>)}
 
-      {!loading && tab === "activity" && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg">
+      {!loading && tab === "activity" && (<div className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl">
           <SectionHeader title="Aktivitas Anda" caption="Tidak ada feed publik; hanya aktivitas yang melibatkan Anda." action={<button className="text-xs font-semibold text-[#16A34A]" onClick={() => runAction(() => request("/social/activity/read", { method: "PUT", body: "{}" }), "Semua notifikasi ditandai dibaca")}>Tandai dibaca</button>}/>
           <div className="space-y-5">
             {activity.length === 0 && <EmptyState text="Belum ada aktivitas sosial."/>}
@@ -7130,7 +7130,7 @@ export function SocialHubView({ request, accounts, token, currentUser, summary, 
           </div>
         </div>)}
 
-      {!loading && tab === "privacy" && (<form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-lg" onSubmit={(event) => {
+      {!loading && tab === "privacy" && (<form className="rounded-[22px] bg-white p-4 shadow-soft lg:rounded-2xl" onSubmit={(event) => {
                 event.preventDefault();
                 const form = new FormData(event.currentTarget);
                 runAction(() => request("/social/privacy", {
@@ -7271,9 +7271,9 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
       <div className="flex items-center">
         <button type="button" className="app-back-button" onClick={onBack}><ArrowLeft size={14}/> Kembali</button>
       </div>
-      <section className="overflow-hidden rounded-[26px] border border-emerald-100 bg-gradient-to-br from-white to-emerald-50 p-4 text-slate-950 shadow-soft lg:rounded-lg lg:p-5">
+      <section className="overflow-hidden rounded-[26px] border border-emerald-100 bg-gradient-to-br from-white to-emerald-50 p-4 text-slate-950 shadow-soft lg:rounded-2xl lg:p-5">
         <div className="flex items-start gap-3">
-          {avatarUrl ? (<img className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-4 ring-white shadow-sm lg:rounded-lg" src={avatarUrl} alt="Foto profil"/>) : (<span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-xl font-semibold text-[#16A34A] lg:rounded-lg">{session.user.fullName.slice(0, 1).toUpperCase()}</span>)}
+          {avatarUrl ? (<img className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-4 ring-white shadow-sm lg:rounded-2xl" src={avatarUrl} alt="Foto profil"/>) : (<span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-xl font-semibold text-[#16A34A] lg:rounded-2xl">{session.user.fullName.slice(0, 1).toUpperCase()}</span>)}
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#16A34A]">Profil</p>
             <h2 className="mt-1 truncate text-xl font-semibold">{session.user.nickname || session.user.fullName}</h2>
@@ -7282,10 +7282,10 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
           </div>
         </div>
         <dl className="mt-5 grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-2xl border border-white bg-white/80 px-3 py-2 lg:rounded-md"><dt className="font-medium text-slate-400">Mata uang</dt><dd className="mt-1 font-semibold text-slate-900">IDR</dd></div>
-          <div className="rounded-2xl border border-white bg-white/80 px-3 py-2 lg:rounded-md"><dt className="font-medium text-slate-400">Status akun</dt><dd className="mt-1 font-semibold text-[#16A34A]">Aktif</dd></div>
+          <div className="rounded-2xl border border-white bg-white/80 px-3 py-2 lg:rounded-xl"><dt className="font-medium text-slate-400">Mata uang</dt><dd className="mt-1 font-semibold text-slate-900">IDR</dd></div>
+          <div className="rounded-2xl border border-white bg-white/80 px-3 py-2 lg:rounded-xl"><dt className="font-medium text-slate-400">Status akun</dt><dd className="mt-1 font-semibold text-[#16A34A]">Aktif</dd></div>
         </dl>
-        {showInstall && (<button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-100 bg-white px-4 py-2.5 text-xs font-semibold text-[#16A34A] transition hover:bg-emerald-50 lg:rounded-md" onClick={onInstall}>
+        {showInstall && (<button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-100 bg-white px-4 py-2.5 text-xs font-semibold text-[#16A34A] transition hover:bg-emerald-50 lg:rounded-xl" onClick={onInstall}>
             <Download size={15}/> Pasang aplikasi
           </button>)}
         {onLogout && (<button type="button" className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-100 bg-white px-4 py-3 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 lg:hidden" onClick={onLogout}>
@@ -7293,7 +7293,7 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
           </button>)}
       </section>
       <div className="space-y-3">
-        {!isEditingProfile ? (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+        {!isEditingProfile ? (<section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
             <SectionHeader title="Profil saya" caption="Informasi yang tampil pada akun Anda." action={(<button type="button" className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-[#16A34A] transition active:scale-95" onClick={() => {
                     setProfileMessage(null);
                     setAvatarUrl(session.user.avatarUrl ?? "");
@@ -7313,7 +7313,7 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
                   <dd className="min-w-0 truncate text-right text-xs font-semibold text-slate-900">{value}</dd>
                 </div>))}
             </dl>
-            {profileMessage && <p className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-sm text-[#16A34A] lg:rounded-md">{profileMessage}</p>}
+            {profileMessage && <p className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-sm text-[#16A34A] lg:rounded-xl">{profileMessage}</p>}
             {profileQrDataUrl && (<div className="mt-4 rounded-[24px] border border-slate-100 bg-slate-50 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -7324,10 +7324,10 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
                   <img src={profileQrDataUrl} alt="Barcode profil" className="h-24 w-24 rounded-2xl bg-white p-2 shadow-sm"/>
                 </div>
               </div>)}
-          </section>) : (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200" onSubmit={saveProfile}>
+          </section>) : (<form className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200" onSubmit={saveProfile}>
             <SectionHeader title="Edit profil" caption="Atur identitas yang tampil di aplikasi."/>
             <div className="space-y-3">
-              <div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 lg:rounded-md">
+              <div className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 lg:rounded-xl">
                 {avatarUrl ? <img className="h-12 w-12 rounded-xl object-cover" src={avatarUrl} alt=""/> : <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-slate-400"><UserRound size={20}/></span>}
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-slate-700">Foto profil</p>
@@ -7357,11 +7357,11 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
                 </button>
                 <button className="btn-primary w-full"><CheckCircle2 size={16}/> Simpan profil</button>
               </div>
-              {profileMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-md">{profileMessage}</p>}
+              {profileMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-xl">{profileMessage}</p>}
             </div>
           </form>)}
 
-        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-lg lg:border-slate-200">
+        <section className="rounded-[26px] border border-white/80 bg-white p-4 shadow-soft lg:rounded-2xl lg:border-slate-200">
           <SectionHeader title="Keamanan akun" caption="Kelola password untuk melindungi akun Anda." action={!isEditingPassword ? (<button type="button" className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" onClick={() => {
                     setPasswordMessage(null);
                     setIsEditingPassword(true);
@@ -7373,7 +7373,7 @@ export function ProfileView({ session, request, onProfileUpdated, onInstall, sho
             <Field label="Password saat ini"><input className="input" name="currentPassword" type="password" placeholder="Masukkan password lama" required/></Field>
             <Field label="Password baru"><input className="input" name="newPassword" type="password" placeholder="Minimal 8 karakter" minLength={8} required/></Field>
             <div className="grid grid-cols-2 gap-2"><button type="button" className="btn-secondary w-full" onClick={() => setIsEditingPassword(false)}>Batal</button><button className="btn-primary w-full"><CheckCircle2 size={16}/> Simpan</button></div>
-            {passwordMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-md">{passwordMessage}</p>}
+            {passwordMessage && <p className="rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-600 lg:rounded-xl">{passwordMessage}</p>}
           </form>)}
         </section>
       </div>
@@ -7653,7 +7653,7 @@ export function TransactionList({ rows }: {
 }) {
     if (rows.length === 0)
         return <EmptyState text="Belum ada transaksi."/>;
-    return (<div className="overflow-hidden rounded-2xl border border-slate-100 bg-white lg:rounded-lg">
+    return (<div className="overflow-hidden rounded-2xl border border-slate-100 bg-white lg:rounded-2xl">
       {rows.map((row) => (<TransactionHistoryItem key={row.id} row={row} compact/>))}
     </div>);
 }
@@ -7664,7 +7664,7 @@ export function LegacyTransactionList({ rows }: {
     if (rows.length === 0)
         return <EmptyState text="Belum ada transaksi."/>;
     return (<div className="space-y-3">
-      {rows.map((row) => (<div key={row.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-3 lg:rounded-md">
+      {rows.map((row) => (<div key={row.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-3 lg:rounded-xl">
           <div className="flex min-w-0 items-center gap-3">
             <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${row.transactionType === "income" ? "bg-emerald-50 text-[#16A34A]" : "bg-rose-50 text-rose-600"}`}>
               {row.transactionType === "income" ? <ArrowDownLeft size={19}/> : <ArrowUpRight size={19}/>}
@@ -7774,6 +7774,5 @@ export function QrScanner({ onScan, onClose, request, selectedPocketId }: {
       </div>
     </div>);
 }
-
 
 

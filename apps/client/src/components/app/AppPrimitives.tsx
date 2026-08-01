@@ -28,8 +28,9 @@ export function Field({ label, hint, children }: {
 
 export function LoadingState() {
   return (
-    <div className="flex min-h-56 items-center justify-center text-slate-500">
-      <Loader2 className="mr-2 animate-spin" size={18} /> Memuat data...
+    <div className="flex min-h-56 flex-col items-center justify-center text-slate-500">
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#DFE5DE] bg-white shadow-soft"><Loader2 className="animate-spin text-[#16845B]" size={18} /></span>
+      <p className="mt-3 text-xs font-bold">Memuat data...</p>
     </div>
   );
 }
@@ -39,8 +40,8 @@ export function DataErrorState({ message, onRetry }: {
   onRetry?: () => void;
 }) {
   return (
-    <div className="rounded-[22px] border border-rose-100 bg-rose-50/80 p-4 text-center text-sm text-rose-700">
-      <p className="font-semibold">Data belum bisa dimuat.</p>
+    <div className="surface-card border-rose-100 bg-rose-50/80 p-5 text-center text-sm text-rose-700">
+      <p className="font-extrabold">Data belum bisa dimuat.</p>
       <p className="mt-1 text-xs leading-5 text-rose-600">{message}</p>
       {onRetry && (
         <button type="button" className="btn-secondary mt-3" onClick={onRetry}>
@@ -54,5 +55,5 @@ export function DataErrorState({ message, onRetry }: {
 export function EmptyState({ text }: {
   text: string;
 }) {
-  return <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">{text}</div>;
+  return <div className="rounded-2xl border border-dashed border-[#C9D2CB] bg-[#F7F9F6] p-6 text-center text-xs font-semibold leading-5 text-slate-500">{text}</div>;
 }

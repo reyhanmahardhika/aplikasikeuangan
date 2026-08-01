@@ -85,10 +85,11 @@ export function AddActionSheet({ language, onClose, onTransaction, onTransfer }:
   return (
     <>
       <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label={language === "en" ? "Close add menu" : "Tutup menu tambah"} onClick={onClose} />
-      <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
+      <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-w-md rounded-[26px] border border-[#DFE5DE] bg-white p-4 shadow-[0_24px_70px_rgba(16,23,19,0.2)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">{copy.title}</h2>
+            <p className="eyebrow">Quick add</p>
+            <h2 className="mt-1 text-base font-extrabold tracking-[-0.025em] text-slate-950">{copy.title}</h2>
             <p className="mt-1 text-xs leading-5 text-slate-500">{copy.subtitle}</p>
           </div>
           <button type="button" className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={onClose}>
@@ -99,7 +100,7 @@ export function AddActionSheet({ language, onClose, onTransaction, onTransfer }:
           {actions.map((action) => {
             const Icon = action.icon;
             return (
-              <button key={action.label} type="button" className="ripple-card flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-left shadow-sm transition active:scale-[0.99]" onClick={action.onClick}>
+              <button key={action.label} type="button" className="ripple-card data-row flex w-full items-center gap-3 border border-slate-100 bg-white p-3 text-left transition active:scale-[0.99]" onClick={action.onClick}>
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${action.tone}`}>
                   <Icon size={20} />
                 </span>
@@ -130,9 +131,9 @@ export function MobileNavButton({ item, language, active, badgeCount = 0, onNavi
 }) {
   const Icon = item.icon;
   return (
-    <button className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-[10px] font-semibold transition ${active ? "text-[#16A34A]" : "text-slate-400"}`} onClick={() => onNavigate(item.id)} aria-current={active ? "page" : undefined}>
-      <span className={`relative flex h-7 w-8 items-center justify-center rounded-xl transition ${active ? "bg-emerald-50" : "bg-transparent"}`}>
-        <Icon size={18} strokeWidth={active ? 2.5 : 1.9} />
+    <button className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-0.5 text-[10px] font-bold transition ${active ? "text-[#16845B]" : "text-slate-400"}`} onClick={() => onNavigate(item.id)} aria-current={active ? "page" : undefined}>
+      <span className={`relative flex h-8 w-9 items-center justify-center rounded-xl transition ${item.id === "assistant" ? "bg-[#DFFF74] text-[#101713]" : active ? "bg-emerald-50" : "bg-transparent"}`}>
+        <Icon size={18} strokeWidth={active || item.id === "assistant" ? 2.5 : 1.9} />
         {badgeCount > 0 && <span className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[8px] font-bold text-white">{badgeCount > 9 ? "9+" : badgeCount}</span>}
       </span>
       <span className="max-w-full truncate">{mobileNavLabel(item.id, item.label, language)}</span>

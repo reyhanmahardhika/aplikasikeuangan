@@ -210,22 +210,46 @@ export function AuthView({ onSignedIn, onInstall, showInstall }: {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC] px-4 py-8">
-      <main className="w-full max-w-md overflow-hidden rounded-[26px] border border-white bg-white shadow-[0_24px_70px_rgba(15,23,42,0.12)] lg:rounded-lg">
-        <header className="border-b border-emerald-100 bg-emerald-50/70 px-6 py-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#16A34A] text-white shadow-[0_12px_26px_rgba(22,163,74,0.24)] lg:rounded-md">
-            <Wallet size={23} />
-          </span>
-          <h1 className="mt-3 text-xl font-semibold text-slate-950">Keuangan AI</h1>
-          <p className="mt-1 text-sm text-slate-500">{mode === "login" ? "Masuk untuk melanjutkan pencatatanmu." : "Buat akun dan mulai kelola keuanganmu."}</p>
-          {showInstall && (
-            <button type="button" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#16A34A]" onClick={onInstall}>
-              <Download size={14} /> Pasang aplikasi
-            </button>
-          )}
-        </header>
+    <div className="auth-canvas flex min-h-screen items-center justify-center p-3 sm:p-6 lg:p-8">
+      <main className="grid w-full max-w-6xl overflow-hidden rounded-[28px] border border-white/10 bg-[#F8FAF7] shadow-[0_30px_90px_rgba(0,0,0,0.28)] lg:min-h-[700px] lg:grid-cols-[1.05fr_0.95fr]">
+        <aside className="relative hidden overflow-hidden bg-[#101713] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              <span className="brand-mark h-12 w-12"><Wallet size={22} strokeWidth={2.4}/></span>
+              <div>
+                <p className="text-base font-extrabold tracking-[-0.03em]">Keuangan AI</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/38">Money operating system</p>
+              </div>
+            </div>
+            <p className="mt-20 max-w-md text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#DFFF74]">Less guessing. More clarity.</p>
+            <h1 className="mt-4 max-w-md text-5xl font-extrabold leading-[1.04] tracking-[-0.065em]">Uangmu punya arah, bukan sekadar catatan.</h1>
+            <p className="mt-5 max-w-sm text-sm font-medium leading-6 text-white/48">Satu tempat untuk melihat cash flow, mengatur pocket, menjaga budget, dan memahami kebiasaan finansialmu.</p>
+          </div>
+          <div className="grid grid-cols-3 border-y auth-feature-line">
+            {["Cash flow", "Smart pocket", "AI insight"].map((feature, index) => (
+              <div key={feature} className={`py-4 ${index ? "border-l auth-feature-line pl-4" : ""}`}>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-white/35">0{index + 1}</p>
+                <p className="mt-1 text-xs font-bold text-white/85">{feature}</p>
+              </div>
+            ))}
+          </div>
+        </aside>
 
-        <section className="p-5 sm:p-6">
+        <section className="auth-panel flex items-center justify-center p-5 sm:p-9 lg:p-12">
+          <div className="w-full max-w-md">
+            <header className="mb-7">
+              <div className="mb-7 flex items-center justify-between lg:hidden">
+                <div className="flex items-center gap-2.5">
+                  <span className="brand-mark h-10 w-10"><Wallet size={18}/></span>
+                  <div><p className="text-sm font-extrabold tracking-[-0.03em]">Keuangan AI</p><p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400">Money OS</p></div>
+                </div>
+                {showInstall && <button type="button" className="inline-flex items-center gap-1.5 rounded-xl border border-[#DFE5DE] bg-white px-3 py-2 text-[11px] font-bold text-[#16845B]" onClick={onInstall}><Download size={13}/> Pasang</button>}
+              </div>
+              <p className="eyebrow">{mode === "login" ? "Welcome back" : "Start your money reset"}</p>
+              <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.045em] text-slate-950">{mode === "login" ? "Masuk ke ruang finansialmu" : "Buat akun dalam semenit"}</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">{mode === "login" ? "Lanjutkan dari posisi finansial terakhirmu." : "Mulai pencatatan yang rapi tanpa setup yang ribet."}</p>
+            </header>
+
           <div className="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
             <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "login" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("login"); setOtpStep(false); setResetStep(false); setError(null); }}>Masuk</button>
             <button type="button" className={`rounded-lg px-4 py-2 text-sm font-semibold ${mode === "register" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`} onClick={() => { setMode("register"); setOtpStep(false); setResetStep(false); setError(null); }}>Daftar</button>
@@ -301,6 +325,7 @@ export function AuthView({ onSignedIn, onInstall, showInstall }: {
               {mode === "login" ? (resetStep ? "Verifikasi Reset" : "Masuk") : otpStep ? "Verifikasi OTP" : "Kirim OTP"}
             </button>
           </form>
+          </div>
         </section>
       </main>
     </div>

@@ -22,7 +22,7 @@ export function NotificationCenter({ language, items, pushStatus, onClose, onEna
         default: isEnglish ? "Get reminders even when the app is closed" : "Dapatkan pengingat saat aplikasi ditutup"
     }[pushStatus];
     return (<section className="mx-auto max-w-3xl space-y-3">
-      <div className="overflow-hidden rounded-[26px] border border-slate-100 bg-white shadow-soft lg:rounded-lg">
+      <div className="overflow-hidden rounded-[26px] border border-slate-100 bg-white shadow-soft lg:rounded-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
           <div>
             <p className="text-sm font-semibold text-slate-950">{isEnglish ? "Notifications" : "Notifikasi"}</p>

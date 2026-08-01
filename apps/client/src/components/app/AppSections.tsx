@@ -167,7 +167,7 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
         feeAmount: moneyInputValue(editing?.feeAmount ?? "0"),
         categoryId: editing?.categoryId ?? "",
         merchantName: editing?.merchantName ?? "",
-        paymentMethod: pocketPaymentMethod(accounts.find((account) => account.id === (editing?.accountId ?? initialAccountId))),
+        paymentMethod: editing?.paymentMethod ?? pocketPaymentMethod(accounts.find((account) => account.id === (editing?.accountId ?? initialAccountId))),
         notes: editing?.notes ?? ""
     }), [accounts, editing?.accountId, editing?.amount, editing?.categoryId, editing?.feeAmount, editing?.id, editing?.merchantName, editing?.notes, editing?.transactionDate, initialAccountId]);
     const [draft, setDraft] = useState<ManualDraft>(initialDraft);
@@ -2136,7 +2136,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
     </div>);
 }
 
-export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onChildFrameStateChange, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
+export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onOpenTransaction, onChildFrameStateChange, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
     accounts: Account[];
     categories: Category[];
     currentUserId: string;
@@ -2144,6 +2144,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
     onChanged: () => Promise<void>;
     onAddTransaction?: (accountId: string) => void;
     onOpenTransactions: (accountId: string, fromDate?: string) => void;
+    onOpenTransaction?: (accountId: string, transactionId: string) => void;
     onChildFrameStateChange?: (state: ChildFrameState) => void;
     initialView?: "list" | "account-form" | "transfer-form" | "pocket-detail";
     initialTab?: "mine" | "shared";
@@ -3902,7 +3903,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                     <div className="divide-y divide-slate-100">
                     {group.rows.map((transaction) => {
                       const isIncome = transaction.transactionType === "income";
-                      return (<div key={transaction.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 py-3">
+                      return (<button type="button" key={transaction.id} className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-hidden px-3 py-3 text-left transition hover:bg-white active:scale-[0.995]" onClick={() => selectedPocketId && onOpenTransaction?.(selectedPocketId, transaction.id)}>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isIncome ? "bg-emerald-100 text-[#16A34A]" : "bg-rose-100 text-rose-600"}`}>
@@ -3916,9 +3917,9 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                         </div>
                         <div className="max-w-[42vw] shrink-0 text-right">
                           <p className={`whitespace-nowrap text-[13px] font-bold ${isIncome ? "text-[#16A34A]" : "text-slate-900"}`}>{isIncome ? "+" : "-"}{rupiah(transaction.amount)}</p>
-                          <p className="mt-0.5 text-[10px] text-slate-400">{isIncome ? "Income" : "Expense"}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-400">{language === "en" ? "Tap details" : "Lihat detail"}</p>
                         </div>
-                      </div>);
+                      </button>);
                     })}
                     </div>
                   </section>))) : (<div className="rounded-2xl border border-dashed border-slate-200 bg-[#F8FAFC] px-3 py-4 text-center text-xs font-medium text-slate-500">

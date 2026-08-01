@@ -1,6 +1,7 @@
 import { pool, withDbTransaction } from "../db/pool.js";
 import { badRequest, conflict, forbidden, notFound } from "../utils/errors.js";
 import { writeAuditLog } from "./auditService.js";
+import { sendPushToUser } from "./pushNotificationService.js";
 
 export async function getAccountCollaborators(accountId: string, requesterId: string) {
   const result = await pool.query(
@@ -38,8 +39,13 @@ export async function inviteAccountCollaborator(
   role: "admin" | "member" | "viewer" = "member"
 ) {
   const accountResult = await pool.query(
-    "SELECT user_id FROM accounts WHERE id = $1",
-    [accountId]
+    `SELECT a.user_id, a.name, owner.full_name AS owner_name,
+            COALESCE(target.preferred_language, 'id') AS target_language
+     FROM accounts a
+     JOIN users owner ON owner.id=a.user_id
+     JOIN users target ON target.id=$2
+     WHERE a.id=$1`,
+    [accountId, targetUserId]
   );
   if (!accountResult.rowCount) throw notFound("Akun tidak ditemukan");
 
@@ -57,7 +63,7 @@ export async function inviteAccountCollaborator(
     if (existing.status === "pending") throw conflict("Invite sudah dikirim");
   }
 
-  return withDbTransaction(async (db) => {
+  const invitation = await withDbTransaction(async (db) => {
     const result = await db.query(
       `INSERT INTO account_collaborators (account_id, user_id, role, status, invited_by)
        VALUES ($1, $2, $3, 'pending', $4)
@@ -79,6 +85,15 @@ export async function inviteAccountCollaborator(
     });
     return result.rows[0];
   });
+  await sendPushToUser(targetUserId, {
+    title: account.target_language === "en" ? "Pocket invitation" : "Undangan Pocket",
+    body: account.target_language === "en"
+      ? `${account.owner_name} invited you to join ${account.name}.`
+      : `${account.owner_name} mengundang Anda untuk bergabung ke ${account.name}.`,
+    url: "/?view=accounts",
+    tag: `pocket-invite-${accountId}-${targetUserId}`
+  });
+  return invitation;
 }
 
 export async function respondAccountInvite(
@@ -92,14 +107,15 @@ export async function respondAccountInvite(
        FROM account_collaborators ac
        JOIN accounts a ON a.id = ac.account_id
        WHERE ac.account_id = $1 AND ac.user_id = $2 AND ac.status = 'pending'
-       FOR UPDATE`,
+       FOR UPDATE OF ac`,
       [accountId, userId]
     );
     if (!result.rowCount) throw notFound("Invite tidak ditemukan atau sudah direspon");
 
     const updated = await db.query(
       `UPDATE account_collaborators
-       SET status = $3, accepted_at = CASE WHEN $3 = 'accepted' THEN NOW() ELSE NULL END
+       SET status = $3::varchar,
+           accepted_at = CASE WHEN $3::varchar = 'accepted' THEN NOW() ELSE NULL END
        WHERE account_id = $1 AND user_id = $2
        RETURNING *`,
       [accountId, userId, status]

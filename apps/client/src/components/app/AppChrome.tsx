@@ -27,12 +27,13 @@ export function queueDebugLog(event: string, data: unknown) {
   }, 350);
 }
 
-export function MobileBottomNav({ view, activeView, language, isScrolling, unreadNotificationCount = 0, onNavigate }: {
+export function MobileBottomNav({ view, activeView, language, isScrolling, unreadNotificationCount = 0, pocketActionCount = 0, onNavigate }: {
   view: View;
   activeView?: View;
   language: AppLanguage;
   isScrolling: boolean;
   unreadNotificationCount?: number;
+  pocketActionCount?: number;
   onNavigate: (view: View) => void;
 }) {
   const resolvedView = activeView ?? view;
@@ -48,7 +49,7 @@ export function MobileBottomNav({ view, activeView, language, isScrolling, unrea
       <div className="mobile-bottom-nav-shell">
         <div className="mobile-bottom-nav-surface" aria-hidden="true" />
         <div className="mobile-bottom-nav-menus !grid grid-cols-5">
-          {mobileNavigation.map((item) => <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} badgeCount={item.id === "notifications" ? unreadNotificationCount : 0} onNavigate={onNavigate} />)}
+          {mobileNavigation.map((item) => <MobileNavButton key={item.id} item={item} language={language} active={isActive(item)} badgeCount={item.id === "notifications" ? unreadNotificationCount : item.id === "accounts" ? pocketActionCount : 0} onNavigate={onNavigate} />)}
         </div>
       </div>
     </nav>

@@ -42,7 +42,7 @@ function App() {
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view") as View | null;
-    return requested && ["dashboard", "manual", "history", "reports", "assistant", "manage", "profile", "notifications"].includes(requested)
+    return requested && ["dashboard", "manual", "history", "reports", "assistant", "manage", "profile", "notifications", "accounts"].includes(requested)
       ? requested
       : "dashboard";
   });
@@ -69,6 +69,7 @@ function App() {
   const [manualInitialAccountId, setManualInitialAccountId] = useState("");
   const [manualResetKey, setManualResetKey] = useState(0);
   const [accountsInitialView, setAccountsInitialView] = useState<"list" | "account-form" | "transfer-form" | "pocket-detail">("list");
+  const [accountsInitialTab, setAccountsInitialTab] = useState<"mine" | "shared">("mine");
   const [accountsResetKey, setAccountsResetKey] = useState(0);
   const [addActionOpen, setAddActionOpen] = useState(false);
   const [assistantContext, setAssistantContext] = useState<AssistantContext | null>(null);
@@ -733,6 +734,22 @@ function App() {
   }, [language, session?.accessToken]);
 
   useEffect(() => {
+    if (!session?.accessToken) return;
+    const syncPocketInvites = () => request<Account[]>("/accounts").then(setAccounts).catch(() => undefined);
+    const intervalId = window.setInterval(syncPocketInvites, 60_000);
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") syncPocketInvites();
+    };
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("focus", syncPocketInvites);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("focus", syncPocketInvites);
+    };
+  }, [session?.accessToken]);
+
+  useEffect(() => {
     let scrollEndTimer = 0;
     const updateScrollButton = () => {
       setShowScrollTop(window.scrollY > 1);
@@ -815,7 +832,19 @@ function App() {
       createdAt: schedule.nextDueDate,
       kind: "schedule"
     }));
-  const notificationItems = [...scheduleNotifications]
+  const pendingPocketInvites = accounts.filter((account) => account.collaborationStatus === "pending" && account.ownerUserId !== session?.user.id);
+  const pocketInviteNotifications: HeaderNotification[] = pendingPocketInvites.map((account) => ({
+    id: `pocket-invite-${account.id}`,
+    eventType: "pocket_invite",
+    title: language === "en" ? "Pocket invitation" : "Undangan Pocket",
+    body: language === "en" ? `${account.ownerName ?? "A user"} invited you to ${account.name}.` : `${account.ownerName ?? "Seseorang"} mengundang Anda ke ${account.name}.`,
+    entityType: "account",
+    entityId: account.id,
+    isRead: false,
+    createdAt: new Date().toISOString(),
+    kind: "pocket_invite"
+  }));
+  const notificationItems = [...scheduleNotifications, ...pocketInviteNotifications]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const unreadNotificationCount = notificationItems.filter((item) => !item.isRead).length;
 
@@ -827,6 +856,14 @@ function App() {
   };
 
   const openNotification = async (item: HeaderNotification) => {
+    if (item.kind === "pocket_invite") {
+      setNotificationsOpen(false);
+      setAccountsInitialView("list");
+      setAccountsInitialTab("shared");
+      setAccountsResetKey((current) => current + 1);
+      navigate("accounts");
+      return;
+    }
     if (item.kind === "schedule") {
       const nextDismissed = new Set(dismissedScheduleIds);
       nextDismissed.add(item.id);
@@ -1413,6 +1450,7 @@ function App() {
               request={request}
               onChanged={refreshCore}
               initialView={accountsInitialView}
+              initialTab={accountsInitialTab}
               initialSelectedPocketId={manualInitialAccountId}
               resetKey={accountsResetKey}
               language={language}
@@ -1474,6 +1512,7 @@ function App() {
           language={language}
           isScrolling={isScrolling}
           unreadNotificationCount={unreadNotificationCount}
+          pocketActionCount={pendingPocketInvites.length}
           onNavigate={(nextView) => {
             if (nextView === "assistant") {
               openAssistant();

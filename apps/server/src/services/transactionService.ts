@@ -121,9 +121,11 @@ async function replaceTransactionViewers(
 
 async function fetchTransactionForUpdate(client: PoolClient, userId: string, transactionId: string) {
   const result = await client.query(
-    `SELECT t.*, a.account_type, a.allow_negative
+    `SELECT t.*, a.account_type, a.allow_negative,
+            COALESCE(f.amount, t.fee_amount, 0)::text AS effective_fee_amount
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
+     LEFT JOIN transactions f ON f.parent_transaction_id = t.id
      WHERE t.id = $1 AND t.user_id = $2
      FOR UPDATE OF t`,
     [transactionId, userId]
@@ -183,7 +185,8 @@ export async function listTransactions(userId: string, query: Record<string, unk
 export async function getTransaction(userId: string, transactionId: string, db: DbClient = pool) {
   const transaction = await db.query(
     `SELECT t.id, t.account_id AS "accountId", t.transaction_type AS "transactionType",
-            t.transaction_date AS "transactionDate", t.amount::text, t.fee_amount::text AS "feeAmount", t.category_id AS "categoryId",
+            t.transaction_date AS "transactionDate", t.amount::text,
+            COALESCE(f.amount, t.fee_amount, 0)::text AS "feeAmount", t.category_id AS "categoryId",
             t.merchant_name AS "merchantName", t.payment_method AS "paymentMethod", t.notes,
             t.source_type AS "sourceType", t.receipt_id AS "receiptId", t.attachment_url AS "attachmentUrl",
             t.status, t.visibility, a.name AS "accountName", c.name AS "categoryName",
@@ -191,6 +194,7 @@ export async function getTransaction(userId: string, transactionId: string, db: 
      FROM transactions t
      JOIN accounts a ON a.id = t.account_id
      LEFT JOIN categories c ON c.id = t.category_id
+     LEFT JOIN transactions f ON f.parent_transaction_id = t.id
      WHERE t.id = $1 AND t.user_id = $2`,
     [transactionId, userId]
   );
@@ -215,11 +219,8 @@ export async function createTransaction(userId: string, input: TransactionInput,
     const feeAmount = normalizeNonNegativeMoney(input.feeAmount ?? 0);
     await ensureCategoryOwned(client, userId, input.categoryId);
     await ensureReceiptOwned(client, userId, input.receiptId);
-    const account = await lockAccount(client, userId, input.accountId);
+    const account = await lockAccount(client, userId, input.accountId, input.transactionType === "income" ? "deposit" : "spend");
     await applyAccountDelta(client, account, transactionDelta(account.account_type, input.transactionType, amount));
-    if (feeAmount !== "0.00") {
-      await applyAccountDelta(client, account, transactionDelta(account.account_type, "expense", feeAmount));
-    }
 
     const result = await client.query(
       `INSERT INTO transactions
@@ -235,7 +236,7 @@ export async function createTransaction(userId: string, input: TransactionInput,
         amount,
         input.categoryId ?? null,
         input.merchantName ?? null,
-        feeAmount,
+        "0.00",
         input.paymentMethod ?? null,
         input.notes ?? null,
         input.sourceType ?? "manual",
@@ -247,6 +248,18 @@ export async function createTransaction(userId: string, input: TransactionInput,
     );
 
     const transactionId = result.rows[0].id;
+    if (feeAmount !== "0.00") {
+      await applyAccountDelta(client, account, transactionDelta(account.account_type, "expense", feeAmount));
+      await client.query(
+        `INSERT INTO transactions
+         (user_id, account_id, transaction_type, transaction_date, amount, merchant_name,
+          fee_amount, payment_method, notes, source_type, status, visibility, parent_transaction_id)
+         VALUES ($1, $2, 'expense', $3, $4, 'Biaya admin transaksi', 0, $5, $6, 'manual', 'transaction_fee', $7, $8)`,
+        [userId, input.accountId, input.transactionDate, feeAmount, input.paymentMethod ?? null,
+          input.merchantName ? `Biaya admin untuk ${input.merchantName}` : null,
+          input.visibility ?? "private", transactionId]
+      );
+    }
     await replaceTransactionViewers(client, userId, transactionId, input.visibility ?? "private", input.viewerIds);
     await insertItems(client, transactionId, normalizeItems(input.items));
     await writeAuditLog(client, { userId, action: "CREATE", entityName: "Transaction", entityId: transactionId, newValue: input });
@@ -259,7 +272,7 @@ export async function createTransaction(userId: string, input: TransactionInput,
 export async function updateTransaction(userId: string, transactionId: string, input: TransactionInput) {
   return withDbTransaction(async (client) => {
     const previous = await fetchTransactionForUpdate(client, userId, transactionId);
-    if (previous.source_type === "transfer" || previous.status === "transfer") {
+    if (previous.source_type === "transfer" || previous.status === "transfer" || previous.parent_transaction_id) {
       throw badRequest("Transaksi transfer tidak bisa diedit langsung");
     }
     const previousAccount = await lockAccount(client, userId, previous.account_id);
@@ -268,19 +281,16 @@ export async function updateTransaction(userId: string, transactionId: string, i
       previousAccount,
       negate(transactionDelta(previousAccount.account_type, previous.transaction_type, previous.amount))
     );
-    if (normalizeNonNegativeMoney(previous.fee_amount ?? 0) !== "0.00") {
-      await applyAccountDelta(client, previousAccount, negate(transactionDelta(previousAccount.account_type, "expense", previous.fee_amount)));
+    if (normalizeNonNegativeMoney(previous.effective_fee_amount ?? 0) !== "0.00") {
+      await applyAccountDelta(client, previousAccount, negate(transactionDelta(previousAccount.account_type, "expense", previous.effective_fee_amount)));
     }
 
     const amount = normalizeMoney(input.amount);
     const feeAmount = normalizeNonNegativeMoney(input.feeAmount ?? 0);
     await ensureCategoryOwned(client, userId, input.categoryId);
     await ensureReceiptOwned(client, userId, input.receiptId);
-    const account = await lockAccount(client, userId, input.accountId);
+    const account = await lockAccount(client, userId, input.accountId, input.transactionType === "income" ? "deposit" : "spend");
     await applyAccountDelta(client, account, transactionDelta(account.account_type, input.transactionType, amount));
-    if (feeAmount !== "0.00") {
-      await applyAccountDelta(client, account, transactionDelta(account.account_type, "expense", feeAmount));
-    }
 
     await client.query(
       `UPDATE transactions
@@ -296,7 +306,7 @@ export async function updateTransaction(userId: string, transactionId: string, i
         amount,
         input.categoryId ?? null,
         input.merchantName ?? null,
-        feeAmount,
+        "0.00",
         input.paymentMethod ?? null,
         input.notes ?? null,
         input.sourceType ?? "manual",
@@ -309,6 +319,20 @@ export async function updateTransaction(userId: string, transactionId: string, i
       ]
     );
 
+    await client.query("DELETE FROM transactions WHERE parent_transaction_id = $1", [transactionId]);
+    if (feeAmount !== "0.00") {
+      await applyAccountDelta(client, account, transactionDelta(account.account_type, "expense", feeAmount));
+      await client.query(
+        `INSERT INTO transactions
+         (user_id, account_id, transaction_type, transaction_date, amount, merchant_name,
+          fee_amount, payment_method, notes, source_type, status, visibility, parent_transaction_id)
+         VALUES ($1, $2, 'expense', $3, $4, 'Biaya admin transaksi', 0, $5, $6, 'manual', 'transaction_fee', $7, $8)`,
+        [userId, input.accountId, input.transactionDate, feeAmount, input.paymentMethod ?? null,
+          input.merchantName ? `Biaya admin untuk ${input.merchantName}` : null,
+          input.visibility ?? "private", transactionId]
+      );
+    }
+
     await replaceTransactionViewers(client, userId, transactionId, input.visibility ?? "private", input.viewerIds, "transaction_edited");
     await client.query("DELETE FROM transaction_items WHERE transaction_id = $1", [transactionId]);
     await insertItems(client, transactionId, normalizeItems(input.items));
@@ -320,7 +344,7 @@ export async function updateTransaction(userId: string, transactionId: string, i
 export async function deleteTransaction(userId: string, transactionId: string) {
   return withDbTransaction(async (client) => {
     const previous = await fetchTransactionForUpdate(client, userId, transactionId);
-    if (previous.source_type === "transfer" || previous.status === "transfer") {
+    if (previous.source_type === "transfer" || previous.status === "transfer" || previous.parent_transaction_id) {
       throw badRequest("Transaksi transfer tidak bisa dihapus satu per satu");
     }
     const previousAccount = await lockAccount(client, userId, previous.account_id);
@@ -329,8 +353,8 @@ export async function deleteTransaction(userId: string, transactionId: string) {
       previousAccount,
       negate(transactionDelta(previousAccount.account_type, previous.transaction_type, previous.amount))
     );
-    if (normalizeNonNegativeMoney(previous.fee_amount ?? 0) !== "0.00") {
-      await applyAccountDelta(client, previousAccount, negate(transactionDelta(previousAccount.account_type, "expense", previous.fee_amount)));
+    if (normalizeNonNegativeMoney(previous.effective_fee_amount ?? 0) !== "0.00") {
+      await applyAccountDelta(client, previousAccount, negate(transactionDelta(previousAccount.account_type, "expense", previous.effective_fee_amount)));
     }
     await client.query("DELETE FROM transactions WHERE id = $1 AND user_id = $2", [transactionId, userId]);
     await writeAuditLog(client, { userId, action: "DELETE", entityName: "Transaction", entityId: transactionId, previousValue: previous });

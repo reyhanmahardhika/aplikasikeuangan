@@ -33,6 +33,8 @@ export type Account = {
     ownerName?: string | null;
     ownerAvatarUrl?: string | null;
     canEdit?: boolean;
+    collaboratorRole?: "owner" | "admin" | "member" | "viewer";
+    collaborationStatus?: "accepted" | "pending" | "rejected";
     allowNegative: boolean;
     isActive: boolean;
     targetBalance?: string | null;
@@ -156,7 +158,7 @@ export type HeaderNotification = {
     entityId?: string | null;
     isRead: boolean;
     createdAt: string;
-    kind?: "social" | "schedule";
+    kind?: "social" | "schedule" | "pocket_invite";
 };
 
 export type ManualDraft = {

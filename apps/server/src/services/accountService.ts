@@ -29,8 +29,10 @@ export function transactionDelta(accountType: string, transactionType: "income" 
 
 export async function listAccounts(userId: string) {
   const result = await pool.query(
-    `SELECT a.id, a.name, a.account_type AS "accountType", a.initial_balance AS "initialBalance",
-            a.current_balance AS "currentBalance", a.currency, a.allow_negative AS "allowNegative",
+    `SELECT a.id, a.name, a.account_type AS "accountType",
+            CASE WHEN a.user_id=$1 OR EXISTS (SELECT 1 FROM account_collaborators visible WHERE visible.account_id=a.id AND visible.user_id=$1 AND visible.status='accepted') THEN a.initial_balance ELSE 0 END AS "initialBalance",
+            CASE WHEN a.user_id=$1 OR EXISTS (SELECT 1 FROM account_collaborators visible WHERE visible.account_id=a.id AND visible.user_id=$1 AND visible.status='accepted') THEN a.current_balance ELSE 0 END AS "currentBalance",
+            a.currency, a.allow_negative AS "allowNegative",
             a.provider_name AS "providerName", a.account_number AS "accountNumber",
             a.account_holder_name AS "accountHolderName",
             a.display_order AS "displayOrder",
@@ -43,6 +45,8 @@ export async function listAccounts(userId: string) {
             a.user_id AS "ownerUserId",
             u.full_name AS "ownerName",
             u.avatar_url AS "ownerAvatarUrl",
+            COALESCE((SELECT ac.role FROM account_collaborators ac WHERE ac.account_id=a.id AND ac.user_id=$1), 'owner') AS "collaboratorRole",
+            COALESCE((SELECT ac.status FROM account_collaborators ac WHERE ac.account_id=a.id AND ac.user_id=$1), 'accepted') AS "collaborationStatus",
             (a.user_id = $1) AS "canEdit",
             a.is_active AS "isActive", a.created_at AS "createdAt", a.updated_at AS "updatedAt"
      FROM accounts a
@@ -53,7 +57,7 @@ export async function listAccounts(userId: string) {
           FROM account_collaborators ac
           WHERE ac.account_id = a.id
             AND ac.user_id = $1
-            AND ac.status = 'accepted'
+            AND ac.status IN ('accepted', 'pending')
         )
      ORDER BY a.is_active DESC, a.display_order ASC, a.created_at ASC`,
     [userId]
@@ -360,10 +364,16 @@ export async function deleteAccount(userId: string, accountId: string) {
   return { deleted: true };
 }
 
-export async function lockAccount(client: PoolClient, userId: string, accountId: string) {
+export async function lockAccount(client: PoolClient, userId: string, accountId: string, permission: "spend" | "deposit" = "spend") {
   const result = await client.query<AccountRow>(
-    `SELECT * FROM accounts WHERE id = $1 AND user_id = $2 FOR UPDATE`,
-    [accountId, userId]
+    `SELECT a.* FROM accounts a WHERE a.id = $1 AND (
+       a.user_id = $2 OR EXISTS (
+         SELECT 1 FROM account_collaborators ac
+         WHERE ac.account_id=a.id AND ac.user_id=$2 AND ac.status='accepted'
+           AND ($3='deposit' OR ac.role IN ('admin','member'))
+       )
+     ) FOR UPDATE OF a`,
+    [accountId, userId, permission]
   );
   const account = result.rows[0];
   if (!account) throw notFound("Akun tidak ditemukan");
@@ -420,8 +430,8 @@ export async function createTransfer(userId: string, payload: {
   }
 
   return withDbTransaction(async (client) => {
-    const source = await lockAccount(client, userId, payload.sourceAccountId);
-    const destination = await lockAccount(client, userId, payload.destinationAccountId);
+    const source = await lockAccount(client, userId, payload.sourceAccountId, "spend");
+    const destination = await lockAccount(client, userId, payload.destinationAccountId, "deposit");
     if (payload.receiptId) {
       const attachment = await client.query(
         "SELECT id FROM receipts WHERE id = $1 AND user_id = $2",

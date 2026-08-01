@@ -74,8 +74,16 @@ export async function getAutoBudget(userId: string, accountId: string) {
 }
 
 export async function saveAutoBudget(userId: string, accountId: string, input: AutoBudgetInput) {
-  const account = await pool.query("SELECT id, name FROM accounts WHERE id = $1 AND user_id = $2 AND is_active = true", [accountId, userId]);
-  if (!account.rowCount) throw forbidden("Hanya owner yang dapat mengatur auto budgeting Pocket");
+  const account = await pool.query(
+    `SELECT a.id, a.name FROM accounts a
+     WHERE a.id = $1 AND a.is_active = true AND (
+       a.user_id = $2 OR EXISTS (
+         SELECT 1 FROM account_collaborators ac
+         WHERE ac.account_id = a.id AND ac.user_id = $2 AND ac.status = 'accepted'
+       )
+     )`, [accountId, userId]
+  );
+  if (!account.rowCount) throw forbidden("Anda tidak memiliki akses untuk mengatur auto budgeting Pocket");
   const now = jakartaNow();
   const nextRunDate = nextOccurrence(now.date, input, now.hour < 7);
   if (input.expiryDate && input.expiryDate < nextRunDate) throw badRequest("Expiry date harus sama atau setelah jadwal pertama");
@@ -84,7 +92,7 @@ export async function saveAutoBudget(userId: string, accountId: string, input: A
     `INSERT INTO pocket_auto_budget_rules
        (user_id, account_id, amount, frequency, day_of_week, day_of_month, month_of_year, expiry_date, next_run_date, is_active)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true)
-     ON CONFLICT (account_id) DO UPDATE SET amount=EXCLUDED.amount, frequency=EXCLUDED.frequency,
+     ON CONFLICT (account_id, user_id) DO UPDATE SET amount=EXCLUDED.amount, frequency=EXCLUDED.frequency,
        day_of_week=EXCLUDED.day_of_week, day_of_month=EXCLUDED.day_of_month, month_of_year=EXCLUDED.month_of_year,
        expiry_date=EXCLUDED.expiry_date, next_run_date=EXCLUDED.next_run_date, is_active=true, updated_at=now()
      RETURNING *`,
@@ -127,7 +135,7 @@ export async function runDueAutoBudgets() {
           const transaction = await createTransaction(rule.user_id, {
             accountId: rule.account_id, transactionType: "expense", transactionDate: `${runDate}T07:00:00+07:00`,
             amount: rule.amount, feeAmount: 0, merchantName: "Auto budgeting", notes: `Auto budgeting ${rule.frequency}`,
-            sourceType: "manual", status: "posted", visibility: "private", items: []
+            sourceType: "manual", status: "posted", visibility: "private", items: [], internalAccountPermission: "deposit"
           }, client);
           await client.query(
             `INSERT INTO pocket_auto_budget_executions(rule_id,run_date,status,transaction_id) VALUES($1,$2,'success',$3)`,

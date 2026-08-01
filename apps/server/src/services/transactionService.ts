@@ -29,6 +29,7 @@ export type TransactionInput = {
     unitPrice?: string | number;
     totalPrice?: string | number;
   }>;
+  internalAccountPermission?: "spend" | "deposit";
 };
 
 function toListQuery(
@@ -219,7 +220,7 @@ export async function createTransaction(userId: string, input: TransactionInput,
     const feeAmount = normalizeNonNegativeMoney(input.feeAmount ?? 0);
     await ensureCategoryOwned(client, userId, input.categoryId);
     await ensureReceiptOwned(client, userId, input.receiptId);
-    const account = await lockAccount(client, userId, input.accountId, input.transactionType === "income" ? "deposit" : "spend");
+    const account = await lockAccount(client, userId, input.accountId, input.internalAccountPermission ?? (input.transactionType === "income" ? "deposit" : "spend"));
     await applyAccountDelta(client, account, transactionDelta(account.account_type, input.transactionType, amount));
 
     const result = await client.query(

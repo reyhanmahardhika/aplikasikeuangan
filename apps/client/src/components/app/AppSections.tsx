@@ -3415,10 +3415,9 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <ArrowLeft size={14}/> Kembali
               </button>
               <div className="flex items-center gap-2">
-                {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white/90 backdrop-blur" onClick={() => {
                 {selectedPocket.canEdit !== false && (<button type="button" className="relative inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white/90 backdrop-blur" onClick={() => {
                     setShowPocketInviteModal(true);
-                }}>
+                }} aria-label={language === "en" ? "Invite user" : "Undang user"} title={language === "en" ? "Invite user" : "Undang user"}>
                     <UserPlus size={15}/>
                     {(() => {
                       const preview = pocketMemberPreviewMap[selectedPocketId] ?? [];
@@ -3426,6 +3425,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                       return pendingCount > 0 ? (<span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-white shadow-sm">{pendingCount}</span>) : null;
                     })()}
                   </button>)}
+                {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-white/14 px-3 text-xs font-semibold text-white/90 backdrop-blur" onClick={() => {
                     setEditingAccount(selectedPocket);
                     setAccountView("account-form");
                 }}>
@@ -3509,7 +3509,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               </section>
             </>)}
 
-          <div className={`grid gap-2 ${selectedPocketCanSpend ? "grid-cols-3" : "grid-cols-1"}`}>
+          <div className={`grid gap-2 ${selectedPocketCanSpend ? "grid-cols-3" : "grid-cols-2"}`}>
             {selectedPocketCanSpend && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" disabled={receivableAccounts.filter((account) => account.id !== selectedPocket.id).length < 1} onClick={() => {
                 setTransferMode("out");
                 setSourceAccountId(selectedPocket.id);
@@ -3541,7 +3541,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <p className="mt-2 text-sm font-semibold">Set target balance</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">Plan pocket balance</p>
               </button>)}
-            {selectedPocket.canEdit !== false && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openAutoBudgetModal}>
+            {(selectedPocket.canEdit !== false || selectedPocket.collaboratorRole === "viewer") && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openAutoBudgetModal}>
                 <Settings className="text-amber-600" size={18}/>
                 <p className="mt-2 text-sm font-semibold">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">{autoBudgetRule ? `${rupiah(autoBudgetRule.amount)} Â· ${autoBudgetRule.frequency}` : (language === "en" ? "Automate your budget" : "Otomatiskan budgeting")}</p>

@@ -1,7 +1,7 @@
 ﻿﻿import { useEffect, useRef, useState } from "react";
 import { ArrowDownLeft, ArrowLeft, ArrowUp, Bell, Loader2, LogOut, Wallet } from "lucide-react";
-import { ApiError, apiFetch, type Session } from "./lib/api";
-import { localDate, rupiah } from "./lib/format";
+import { ApiError, apiFetch, downloadUrl, type Session } from "./lib/api";
+import { jakartaDateParts, localDate, rupiah } from "./lib/format";
 import {
   ACCESS_TOKEN_KEEPALIVE_INTERVAL_MS,
   clearStoredSession,
@@ -37,6 +37,7 @@ declare global {
 }
 
 function App() {
+  const publicPocketShareToken = new URLSearchParams(window.location.search).get("pocketShare");
   const [session, setSession] = useState<StoredSession | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [language, setLanguage] = useState<AppLanguage>(() => localStorage.getItem("finance-language") === "id" ? "id" : "en");
@@ -1190,6 +1191,9 @@ function App() {
     };
   }, [backSwipeSettling, editing, manualInitialAccountId, notificationsOpen, selectedTransaction, view]);
 
+  if (publicPocketShareToken) {
+    return <PublicPocketHistory token={publicPocketShareToken} />;
+  }
   if (sessionLoading) {
     return <LoadingState />;
   }
@@ -1545,6 +1549,53 @@ function App() {
       </div>
     </div>
   );
+}
+
+type PublicPocketHistoryData = {
+  expired: boolean;
+  language?: "id" | "en";
+  expiresAt: string;
+  pocket?: { name: string; accountType: string; providerName: string | null };
+  sharedBy?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  totals?: { income: number; expense: number; net: number; count: number };
+  transactions?: Array<{ id: string; transactionType: "income" | "expense"; transactionDate: string; amount: string; merchantName: string | null; paymentMethod: string | null; categoryName: string | null; notes: string | null; hasAttachment: boolean; items: Array<{ itemName: string; quantity: string; unitPrice: string; totalPrice: string }> }>;
+};
+
+function PublicPocketHistory({ token }: { token: string }) {
+  const [data, setData] = useState<PublicPocketHistoryData | null>(null);
+  const [error, setError] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(() => {
+    apiFetch<PublicPocketHistoryData>(`/public/pocket-history/${token}`).then(setData).catch((reason) => setError(reason instanceof Error ? reason.message : "Link tidak dapat dibuka"));
+  }, [token]);
+  if (!data && !error) return <div className="flex min-h-dvh items-center justify-center bg-[#F4F2FF]"><Loader2 className="animate-spin text-violet-600" size={28}/></div>;
+  const english = data?.language === "en";
+  if (error || data?.expired) return (<main className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-violet-100 via-white to-orange-100 p-5"><section className="w-full max-w-md rounded-[32px] border border-white bg-white/90 p-7 text-center shadow-[0_30px_90px_rgba(76,29,149,0.15)]"><span className="mx-auto flex h-16 w-16 items-center justify-center rounded-[22px] bg-amber-100 text-3xl">⌛</span><h1 className="mt-5 text-2xl font-black text-slate-950">{english ? "This link has expired" : "Link sudah kedaluwarsa"}</h1><p className="mt-2 text-sm leading-6 text-slate-500">{english ? "Ask the Pocket owner to create a new history link for the latest recap." : "Minta pemilik Pocket membuat link riwayat baru agar kamu dapat melihat recap terbaru."}</p><a href="/" className="mt-6 inline-flex rounded-2xl bg-violet-600 px-5 py-3 text-sm font-bold text-white">{english ? "Try this finance app" : "Coba aplikasi keuangan ini"}</a></section></main>);
+  const rows = data?.transactions ?? [];
+  const groups = rows.reduce<Record<string, typeof rows>>((result, row) => { const key = jakartaDateParts(row.transactionDate).value; (result[key] ??= []).push(row); return result; }, {});
+  const selected = rows.find((row) => row.id === selectedId) ?? null;
+  return (<main className="min-h-dvh bg-[#09090B] pb-12 text-white">
+    <header className="relative overflow-hidden px-5 pb-14 pt-8"><div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-fuchsia-500/40 blur-3xl"/><div className="absolute -left-16 top-28 h-52 w-52 rounded-full bg-violet-600/40 blur-3xl"/><div className="relative mx-auto max-w-2xl"><div className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] backdrop-blur">Money drop ✦ view only</div><h1 className="mt-5 text-4xl font-black tracking-[-0.05em]">{data?.pocket?.name}</h1><p className="mt-2 text-sm text-white/55">{english ? `Shared by ${data?.sharedBy}` : `Dibagikan oleh ${data?.sharedBy}`}</p><div className="mt-7 grid grid-cols-2 gap-3"><div className="rounded-[28px] border border-emerald-300/20 bg-emerald-400/10 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">{english ? "Money in" : "Uang masuk"}</p><p className="mt-2 text-xl font-black">{rupiah(data?.totals?.income)}</p></div><div className="rounded-[28px] border border-rose-300/20 bg-rose-400/10 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-rose-300">{english ? "Money out" : "Uang keluar"}</p><p className="mt-2 text-xl font-black">{rupiah(data?.totals?.expense)}</p></div></div></div></header>
+    <div className="mx-auto max-w-2xl space-y-5 px-4"><section className="grid grid-cols-[1fr_auto] gap-3 rounded-[28px] border border-white/10 bg-white/[0.06] p-4 backdrop-blur"><div><p className="text-[10px] font-bold uppercase tracking-wider text-white/35">{english ? "Selected period" : "Periode pilihan"}</p><p className="mt-1 text-sm font-bold">{localDate(data?.dateFrom)} – {localDate(data?.dateTo)}</p></div><div className="rounded-2xl bg-white/10 px-3 py-2 text-right"><p className="text-[9px] text-white/40">NET</p><p className={`text-sm font-black ${(data?.totals?.net ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{rupiah(data?.totals?.net)}</p></div></section>
+      {Object.entries(groups).map(([date, transactions]) => (<section key={date}><div className="mb-2 flex items-end justify-between px-1"><div><p className="text-sm font-black">{localDate(date)}</p><p className="text-[10px] text-white/35">{transactions.length} {english ? "transactions" : "transaksi"}</p></div></div><div className="space-y-2">{transactions.map((row) => { const income = row.transactionType === "income"; return <button type="button" key={row.id} onClick={() => setSelectedId(row.id)} className="flex w-full items-center gap-3 rounded-[24px] border border-white/10 bg-white/[0.07] p-3 text-left transition active:scale-[0.98]"><span className={`flex h-11 w-11 items-center justify-center rounded-[18px] ${income ? "bg-emerald-400/15 text-emerald-300" : "bg-rose-400/15 text-rose-300"}`}>{income ? <ArrowDownLeft size={19}/> : <ArrowUp size={19}/>}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{row.merchantName || row.categoryName || (english ? "Transaction" : "Transaksi")}</p><p className="mt-1 truncate text-[10px] text-white/35">{[row.categoryName, row.paymentMethod, row.items.length ? `${row.items.length} item` : null, row.hasAttachment ? "attachment" : null].filter(Boolean).join(" · ")}</p></div><div className="text-right"><p className={`text-sm font-black ${income ? "text-emerald-300" : "text-white"}`}>{income ? "+" : "-"}{rupiah(row.amount)}</p><p className="mt-1 text-[9px] font-bold text-violet-300">{english ? "TAP DETAILS" : "LIHAT DETAIL"}</p></div></button>; })}</div></section>))}
+      {rows.length === 0 && <section className="rounded-[28px] border border-white/10 bg-white/5 p-8 text-center text-sm text-white/45">{english ? "No transactions match this filter." : "Tidak ada transaksi pada filter ini."}</section>}
+      <section className="rounded-[30px] bg-gradient-to-br from-violet-600 to-fuchsia-600 p-5"><p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/60">Your money era starts here</p><h2 className="mt-2 text-2xl font-black tracking-tight">{english ? "Money clarity, main character energy." : "Uang lebih jelas, hidup lebih sat-set."}</h2><p className="mt-2 text-xs leading-5 text-white/65">{english ? "Track transactions and build better money habits in one app." : "Catat transaksi dan bangun kebiasaan finansial yang lebih sehat dalam satu aplikasi."}</p><a href="/" className="mt-4 inline-flex rounded-2xl bg-white px-4 py-2.5 text-xs font-black text-violet-700">{english ? "Start for free →" : "Mulai gratis →"}</a></section><p className="text-center text-[10px] text-white/25">{english ? "Link valid until" : "Link berlaku sampai"} {localDate(data?.expiresAt)}</p>
+    </div>
+    {selected && (<><button type="button" className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm" onClick={() => setSelectedId(null)} aria-label="Close detail"/><section className="fixed inset-x-3 bottom-4 z-50 mx-auto max-h-[88dvh] max-w-md overflow-y-auto rounded-[30px] bg-[#18181B] p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-300">{english ? "Transaction detail" : "Detail transaksi"}</p><h2 className="mt-2 text-xl font-black">{selected.merchantName || selected.categoryName || (english ? "Transaction" : "Transaksi")}</h2><p className="mt-1 text-xs text-white/40">{localDate(selected.transactionDate)}</p></div><button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10" onClick={() => setSelectedId(null)}>×</button></div><div className="mt-5 rounded-[24px] bg-white/[0.06] p-4"><p className="text-[10px] uppercase text-white/35">{selected.transactionType === "income" ? (english ? "Income" : "Pemasukan") : (english ? "Expense" : "Pengeluaran")}</p><p className={`mt-1 text-3xl font-black ${selected.transactionType === "income" ? "text-emerald-300" : "text-rose-300"}`}>{rupiah(selected.amount)}</p><p className="mt-2 text-xs text-white/40">{[selected.categoryName, selected.paymentMethod].filter(Boolean).join(" · ")}</p></div>{selected.items.length > 0 && <div className="mt-5"><p className="mb-2 text-xs font-black">{english ? "Items" : "Item transaksi"}</p><div className="space-y-2">{selected.items.map((item, index) => <div key={`${item.itemName}-${index}`} className="flex items-center justify-between rounded-2xl bg-white/[0.06] px-3 py-2.5"><div><p className="text-xs font-bold">{item.itemName}</p><p className="text-[10px] text-white/35">{item.quantity} × {rupiah(item.unitPrice)}</p></div><p className="text-xs font-black">{rupiah(item.totalPrice)}</p></div>)}</div></div>}{selected.notes && <div className="mt-5"><p className="text-xs font-black">{english ? "Notes" : "Catatan"}</p><p className="mt-2 rounded-2xl bg-white/[0.06] p-3 text-xs leading-5 text-white/55">{selected.notes}</p></div>}{selected.hasAttachment && <div className="mt-5"><p className="mb-2 text-xs font-black">Attachment</p><PublicShareAttachment token={token} transactionId={selected.id}/></div>}</section></>)}
+  </main>);
+}
+
+function PublicShareAttachment({ token, transactionId }: { token: string; transactionId: string }) {
+  const [url, setUrl] = useState("");
+  const [type, setType] = useState("");
+  useEffect(() => { let active = true; let objectUrl = ""; fetch(downloadUrl(`/public/pocket-history/${token}/transactions/${transactionId}/attachment`)).then(async (response) => { if (!response.ok) throw new Error(); const blob = await response.blob(); if (!active) return; objectUrl = URL.createObjectURL(blob); setType(response.headers.get("content-type") || blob.type); setUrl(objectUrl); }).catch(() => setType("error")); return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); }; }, [token, transactionId]);
+  if (!url && type !== "error") return <div className="flex h-32 items-center justify-center rounded-2xl bg-white/5"><Loader2 className="animate-spin text-violet-300" size={20}/></div>;
+  if (type === "error") return <p className="rounded-2xl bg-rose-400/10 p-3 text-xs text-rose-300">Attachment tidak dapat dimuat.</p>;
+  if (type.startsWith("video/")) return <video src={url} controls className="max-h-72 w-full rounded-2xl bg-black"/>;
+  if (type === "application/pdf") return <a href={url} target="_blank" rel="noreferrer" className="block rounded-2xl bg-violet-500 px-4 py-3 text-center text-xs font-black">Open PDF</a>;
+  return <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="Transaction attachment" className="max-h-80 w-full rounded-2xl object-contain bg-black"/></a>;
 }
 
 

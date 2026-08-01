@@ -2175,6 +2175,16 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
     const [pocketTransactionMemberId, setPocketTransactionMemberId] = useState("all");
     const [pocketTransactionRows, setPocketTransactionRows] = useState<Transaction[]>([]);
     const [pocketTransactionLoading, setPocketTransactionLoading] = useState(false);
+    const [showPocketHistoryShare, setShowPocketHistoryShare] = useState(false);
+    const [shareHistorySaving, setShareHistorySaving] = useState(false);
+    const [shareHistoryPreset, setShareHistoryPreset] = useState<"today" | "last7" | "month" | "previous-month" | "custom">("last7");
+    const [shareHistoryFrom, setShareHistoryFrom] = useState("");
+    const [shareHistoryTo, setShareHistoryTo] = useState("");
+    const [shareHistoryType, setShareHistoryType] = useState<"all" | "income" | "expense">("all");
+    const [shareHistoryExpiry, setShareHistoryExpiry] = useState(7);
+    const [shareHistoryLink, setShareHistoryLink] = useState("");
+    const [activeHistoryShares, setActiveHistoryShares] = useState<Array<{ token: string; dateFrom: string; dateTo: string; transactionType: "income" | "expense" | null; expiresAt: string; createdAt: string }>>([]);
+    const [activeHistorySharesLoading, setActiveHistorySharesLoading] = useState(false);
     const [targetBalanceDraft, setTargetBalanceDraft] = useState("");
     const [targetDateDraft, setTargetDateDraft] = useState("");
     const [showTargetBalanceModal, setShowTargetBalanceModal] = useState(false);
@@ -2412,6 +2422,57 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
         }));
     }, [recentPocketTransactions]);
     const pocketTransactionFilterCount = (pocketTransactionDatePreset !== "all" ? 1 : 0) + (pocketTransactionSort !== "newest" ? 1 : 0) + (pocketTransactionMemberId !== "all" ? 1 : 0);
+    const shareHistoryBounds = useMemo(() => {
+        if (shareHistoryPreset === "custom") return { from: shareHistoryFrom, to: shareHistoryTo };
+        const today = jakartaDateParts();
+        const end = new Date(Date.UTC(today.year, today.month - 1, today.day, 12));
+        let start = new Date(end);
+        if (shareHistoryPreset === "last7") start.setUTCDate(start.getUTCDate() - 6);
+        if (shareHistoryPreset === "month") start = new Date(Date.UTC(today.year, today.month - 1, 1, 12));
+        if (shareHistoryPreset === "previous-month") {
+            start = new Date(Date.UTC(today.year, today.month - 2, 1, 12));
+            end.setUTCFullYear(today.year, today.month - 1, 0);
+        }
+        return { from: isoDateInput(start), to: isoDateInput(end) };
+    }, [shareHistoryFrom, shareHistoryPreset, shareHistoryTo]);
+    const createHistoryShare = async () => {
+        if (!selectedPocketId || !shareHistoryBounds.from || !shareHistoryBounds.to) return;
+        setShareHistorySaving(true);
+        setError(null);
+        try {
+            const result = await request<{ token: string; expiresAt: string }>(`/accounts/${selectedPocketId}/history-shares`, {
+                method: "POST",
+                body: JSON.stringify({
+                    dateFrom: shareHistoryBounds.from,
+                    dateTo: shareHistoryBounds.to,
+                    transactionType: shareHistoryType === "all" ? null : shareHistoryType,
+                    expiresInDays: shareHistoryExpiry,
+                    language
+                })
+            });
+            setShareHistoryLink(`${window.location.origin}/?pocketShare=${result.token}`);
+            await loadActiveHistoryShares();
+        } finally {
+            setShareHistorySaving(false);
+        }
+    };
+    const loadActiveHistoryShares = async () => {
+        if (!selectedPocketId) return;
+        setActiveHistorySharesLoading(true);
+        try {
+            setActiveHistoryShares(await request<typeof activeHistoryShares>(`/accounts/${selectedPocketId}/history-shares`));
+        } finally {
+            setActiveHistorySharesLoading(false);
+        }
+    };
+    const shareGeneratedHistoryLink = async () => {
+        if (!shareHistoryLink) return;
+        if (navigator.share) {
+            await navigator.share({ title: selectedPocket?.name ?? "Pocket history", text: language === "en" ? "See this Pocket history" : "Lihat riwayat Pocket ini", url: shareHistoryLink });
+            return;
+        }
+        await navigator.clipboard.writeText(shareHistoryLink);
+    };
     const pocketMembers = useMemo(() => {
         if (!selectedPocket)
             return [];
@@ -3541,11 +3602,11 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <p className="mt-2 text-sm font-semibold">Set target balance</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">Plan pocket balance</p>
               </button>)}
-            {(selectedPocket.canEdit !== false || selectedPocket.collaboratorRole === "viewer") && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openAutoBudgetModal}>
+            <button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openAutoBudgetModal}>
                 <Settings className="text-amber-600" size={18}/>
                 <p className="mt-2 text-sm font-semibold">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">{autoBudgetRule ? `${rupiah(autoBudgetRule.amount)} Â· ${autoBudgetRule.frequency}` : (language === "en" ? "Automate your budget" : "Otomatiskan budgeting")}</p>
-              </button>)}
+                <p className="mt-0.5 text-[11px] text-slate-500">{autoBudgetRule ? `${rupiah(autoBudgetRule.amount)} · ${autoBudgetRule.frequency}` : (language === "en" ? "Your personal automation" : "Otomatisasi pribadi Anda")}</p>
+              </button>
           </div>
 
           {targetDetails?.targetBalance && (() => {
@@ -3596,6 +3657,13 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
                 <p className="mt-0.5 text-xs font-semibold leading-4 text-slate-500">Search and filter transactions in this pocket.</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                  {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-violet-600 hover:bg-violet-50" onClick={() => {
+                    setShareHistoryLink("");
+                    setShowPocketHistoryShare(true);
+                    loadActiveHistoryShares().catch(() => setActiveHistoryShares([]));
+                  }}>
+                    <Share2 size={13}/> {language === "en" ? "Share" : "Bagikan"}
+                  </button>)}
                   <button type="button" className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold ${pocketTransactionFilterCount > 0 ? "bg-emerald-50 text-[#16A34A]" : "text-slate-500 hover:bg-slate-50"}`} onClick={() => setShowPocketTransactionFilter(true)}>
                     <ListFilter size={13}/> Filter{pocketTransactionFilterCount > 0 ? ` (${pocketTransactionFilterCount})` : ""}
                   </button>
@@ -3659,6 +3727,43 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
               </div>
             </div>
           </div>
+          {showPocketHistoryShare && selectedPocket.canEdit !== false && (<>
+              <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/30 backdrop-blur-[2px]" aria-label={language === "en" ? "Close share history" : "Tutup bagikan riwayat"} onClick={() => setShowPocketHistoryShare(false)}/>
+              <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[28px] border border-white/80 bg-white p-4 shadow-[0_28px_80px_rgba(15,23,42,0.28)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2">
+                <div className="rounded-[22px] bg-gradient-to-br from-violet-600 via-fuchsia-500 to-orange-400 p-4 text-white">
+                  <div className="flex items-start justify-between gap-3">
+                    <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">Pocket story</p><h2 className="mt-1 text-xl font-bold">{language === "en" ? "Share the money recap" : "Bagikan cerita keuangan"}</h2><p className="mt-1 text-xs leading-5 text-white/80">{language === "en" ? "A clean, read-only recap. No login needed." : "Ringkasan read-only yang aman. Tanpa perlu login."}</p></div>
+                    <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white" onClick={() => setShowPocketHistoryShare(false)}><X size={17}/></button>
+                  </div>
+                </div>
+                {!shareHistoryLink ? (<div className="mt-4 space-y-4">
+                  <div><p className="mb-2 text-xs font-semibold text-slate-700">{language === "en" ? "Date range" : "Rentang tanggal"}</p><div className="grid grid-cols-2 gap-2">
+                    {[
+                      ["today", language === "en" ? "Today" : "Hari ini"], ["last7", language === "en" ? "Last 7 days" : "7 hari terakhir"],
+                      ["month", language === "en" ? "This month" : "Bulan ini"], ["previous-month", language === "en" ? "Previous month" : "Bulan sebelumnya"],
+                      ["custom", language === "en" ? "Custom date" : "Tanggal custom"]
+                    ].map(([id, label]) => (<button key={id} type="button" className={`rounded-xl border px-3 py-2 text-xs font-semibold ${shareHistoryPreset === id ? "border-violet-200 bg-violet-50 text-violet-700" : "border-slate-200 text-slate-600"}`} onClick={() => setShareHistoryPreset(id as typeof shareHistoryPreset)}>{label}</button>))}
+                  </div></div>
+                  {shareHistoryPreset === "custom" && (<div className="grid grid-cols-2 gap-2"><DateFilterPicker label={language === "en" ? "From" : "Dari"} value={shareHistoryFrom} onChange={setShareHistoryFrom} language={language}/><DateFilterPicker label={language === "en" ? "To" : "Sampai"} value={shareHistoryTo} onChange={setShareHistoryTo} language={language} align="right"/></div>)}
+                  <div><p className="mb-2 text-xs font-semibold text-slate-700">{language === "en" ? "Transaction type" : "Jenis transaksi"}</p><div className="grid grid-cols-3 gap-2">{[["all", language === "en" ? "All" : "Semua"], ["income", language === "en" ? "Income" : "Pemasukan"], ["expense", language === "en" ? "Expense" : "Pengeluaran"]].map(([id, label]) => (<button key={id} type="button" className={`rounded-xl border px-2 py-2 text-xs font-semibold ${shareHistoryType === id ? "border-emerald-200 bg-emerald-50 text-[#16A34A]" : "border-slate-200 text-slate-600"}`} onClick={() => setShareHistoryType(id as typeof shareHistoryType)}>{label}</button>))}</div></div>
+                  <Field label={language === "en" ? "Link validity (days)" : "Masa berlaku link (hari)"}><input className="input" type="number" min={1} max={30} value={shareHistoryExpiry} onChange={(event) => setShareHistoryExpiry(Math.max(1, Math.min(30, Number(event.target.value) || 7)))}/></Field>
+                  <p className="rounded-2xl bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">{language === "en" ? "Default 7 days, maximum 30 days. Anyone with the link can view this recap until it expires." : "Default 7 hari, maksimal 30 hari. Siapa pun yang memiliki link dapat melihat ringkasan sampai kedaluwarsa."}</p>
+                  <button type="button" className="btn-primary w-full" disabled={shareHistorySaving || !shareHistoryBounds.from || !shareHistoryBounds.to} onClick={() => createHistoryShare().catch((reason) => setError(reason instanceof Error ? reason.message : "Gagal membuat link"))}>{shareHistorySaving ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>} {language === "en" ? "Create share link" : "Buat link berbagi"}</button>
+                </div>) : (<div className="mt-4 space-y-3"><div className="rounded-[20px] border border-emerald-100 bg-emerald-50 p-4 text-center"><CheckCircle2 className="mx-auto text-[#16A34A]" size={28}/><p className="mt-2 text-sm font-bold text-slate-900">{language === "en" ? "Your link is ready!" : "Link siap dibagikan!"}</p><p className="mt-1 break-all text-[11px] text-slate-500">{shareHistoryLink}</p></div><button type="button" className="btn-primary w-full" onClick={() => shareGeneratedHistoryLink().catch(() => navigator.clipboard.writeText(shareHistoryLink))}><Share2 size={16}/> {language === "en" ? "Share link" : "Bagikan link"}</button><button type="button" className="btn-secondary w-full" onClick={() => navigator.clipboard.writeText(shareHistoryLink)}>{language === "en" ? "Copy link" : "Salin link"}</button><button type="button" className="w-full text-center text-xs font-semibold text-violet-600" onClick={() => setShareHistoryLink("")}>{language === "en" ? "Create another link" : "Buat link lainnya"}</button></div>)}
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-bold text-slate-900">{language === "en" ? "Active links" : "Link yang sedang aktif"}</p><p className="mt-0.5 text-[11px] text-slate-500">{language === "en" ? "Links that can still be opened by guests." : "Link yang masih bisa dibuka oleh guest."}</p></div><span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-600">{activeHistoryShares.length}</span></div>
+                  <div className="mt-3 space-y-2">
+                    {activeHistorySharesLoading ? (<div className="flex items-center justify-center rounded-2xl bg-slate-50 py-5"><Loader2 size={17} className="animate-spin text-violet-500"/></div>) : activeHistoryShares.length ? activeHistoryShares.map((share) => {
+                      const url = `${window.location.origin}/?pocketShare=${share.token}`;
+                      return (<div key={share.token} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold text-slate-900">{localDate(share.dateFrom)} – {localDate(share.dateTo)}</p><p className="mt-1 text-[10px] text-slate-500">{share.transactionType === "income" ? (language === "en" ? "Income" : "Pemasukan") : share.transactionType === "expense" ? (language === "en" ? "Expense" : "Pengeluaran") : (language === "en" ? "All transactions" : "Semua transaksi")} · {language === "en" ? "expires" : "berakhir"} {localDate(share.expiresAt)}</p></div><span className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-4 ring-emerald-100"/></div>
+                        <div className="mt-3 grid grid-cols-3 gap-2"><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>{language === "en" ? "Preview" : "Lihat"}</button><button type="button" className="rounded-xl bg-white px-2 py-2 text-[10px] font-bold text-slate-600 shadow-sm" onClick={() => navigator.clipboard.writeText(url)}>{language === "en" ? "Copy" : "Salin"}</button><button type="button" className="rounded-xl bg-violet-600 px-2 py-2 text-[10px] font-bold text-white" onClick={() => navigator.share ? navigator.share({ title: selectedPocket.name, url }) : navigator.clipboard.writeText(url)}>{language === "en" ? "Share" : "Bagikan"}</button></div>
+                      </div>);
+                    }) : <p className="rounded-2xl bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">{language === "en" ? "No active links yet." : "Belum ada link yang aktif."}</p>}
+                  </div>
+                </div>
+              </section>
+            </>)}
           {showPocketTransactionFilter && (<>
               <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label="Tutup filter transaksi" onClick={() => setShowPocketTransactionFilter(false)}/>
               <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.24)] lg:bottom-auto lg:left-auto lg:right-8 lg:top-24 lg:mx-0 lg:w-96 lg:rounded-lg">
@@ -3765,7 +3870,7 @@ export function AccountsView({ accounts, currentUserId, request, onChanged, onAd
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/25 backdrop-blur-[1px]" aria-label={language === "en" ? "Close auto budgeting" : "Tutup auto budgeting"} onClick={() => setShowAutoBudgetModal(false)}/>
           <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[calc(100dvh-7rem)] max-w-md overflow-y-auto rounded-[26px] border border-slate-100 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-lg">
             <div className="flex items-start justify-between gap-3">
-              <div><h2 className="text-base font-semibold text-slate-950">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{language === "en" ? "The selected Pocket will be automatically debited at 07:00 when sufficient balance is available." : "Saldo pocket yang dipilih akan didebit otomatis pukul 07.00 jika saldo tersedia."}</p></div>
+              <div><h2 className="text-base font-semibold text-slate-950">{autoBudgetRule ? (language === "en" ? "Edit auto budgeting" : "Edit auto budgeting") : (language === "en" ? "Set auto budgeting" : "Atur auto budgeting")}</h2><p className="mt-1 text-xs leading-5 text-slate-500">{language === "en" ? "This is your personal rule. Other Pocket members can create their own rules." : "Ini adalah aturan pribadi Anda. Anggota Pocket lain dapat membuat aturan masing-masing."}</p></div>
               <button type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-50" onClick={() => setShowAutoBudgetModal(false)}><X size={17}/></button>
             </div>
             <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">

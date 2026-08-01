@@ -21,6 +21,7 @@ import { socialRoutes } from "./routes/socialRoutes.js";
 import { notificationRoutes } from "./routes/notificationRoutes.js";
 import { walletManagementRoutes } from "./routes/walletManagementRoutes.js";
 import { accountCollaboratorRoutes } from "./routes/accountCollaboratorRoutes.js";
+import { pocketHistoryShareRoutes, publicPocketHistoryRoutes } from "./routes/pocketHistoryShareRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -110,6 +111,8 @@ export function createApp() {
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/accounts", accountRoutes);
   app.use("/api/accounts", accountCollaboratorRoutes);
+  app.use("/api/accounts", pocketHistoryShareRoutes);
+  app.use("/api/public", publicPocketHistoryRoutes);
   app.use("/api/transactions", transactionRoutes);
   app.use("/api/receipts", receiptRoutes);
   app.use("/api/categories", categoryRoutes);

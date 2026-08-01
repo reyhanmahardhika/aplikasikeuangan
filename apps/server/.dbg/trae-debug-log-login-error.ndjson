@@ -13454,3 +13454,7 @@
 {"ts":"2026-07-31T11:18:02.523Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
 {"ts":"2026-08-01T04:15:44.212Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
 {"ts":"2026-08-01T04:28:01.116Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-08-01T11:04:56.826Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-08-01T11:05:57.536Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-08-01T11:06:05.880Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}
+{"ts":"2026-08-01T11:10:08.321Z","sessionId":"login-error","event":"accept_session_applied","data":{"view":"dashboard"}}

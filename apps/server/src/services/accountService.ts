@@ -37,7 +37,7 @@ export async function listAccounts(userId: string) {
             a.account_holder_name AS "accountHolderName",
             a.display_order AS "displayOrder",
             a.target_balance::text AS "targetBalance", a.target_date::text AS "targetDate",
-            EXISTS (SELECT 1 FROM pocket_auto_budget_rules abr WHERE abr.account_id=a.id AND abr.is_active=true) AS "autoBudgetingEnabled",
+            EXISTS (SELECT 1 FROM pocket_auto_budget_rules abr WHERE abr.account_id=a.id AND abr.user_id=$1 AND abr.is_active=true) AS "autoBudgetingEnabled",
             EXISTS (
               SELECT 1 FROM shared_wallets w
               WHERE w.storage_account_id = a.id AND w.is_active = true

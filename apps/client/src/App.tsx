@@ -1412,8 +1412,8 @@ function App() {
         <main
           className={
             view === "assistant"
-              ? "fixed inset-x-0 bottom-[calc(72px+env(safe-area-inset-bottom))] top-0 overflow-hidden p-0 lg:static lg:inset-auto lg:overflow-visible lg:px-8 lg:py-6"
-              : "app-main px-4 pb-28 pt-3 lg:px-8 lg:py-7"
+              ? "fixed inset-x-0 bottom-[calc(72px+env(safe-area-inset-bottom))] top-0 min-w-0 max-w-full overflow-hidden p-0 lg:static lg:inset-auto lg:overflow-visible lg:px-8 lg:py-6"
+              : "app-main min-w-0 max-w-full overflow-x-hidden px-4 pb-28 pt-3 lg:px-8 lg:py-7"
           }
           style={backSwipeOffset > 0 || backSwipeSettling ? {
             transform: `translate3d(${backSwipeOffset}px, 0, 0)`,

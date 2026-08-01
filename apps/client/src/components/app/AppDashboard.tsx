@@ -24,7 +24,7 @@ export function ExpenseDonut({ dashboard, language = "id" }: { dashboard: Dashbo
   const donutBackground = segments.length ? `conic-gradient(${segments.join(", ")}, #eef2f7 ${cursor}% 100%)` : "#eef2f7";
 
   return (
-    <div>
+    <div className="min-w-0">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="section-title">{language === "en" ? "Spending mix" : "Komposisi pengeluaran"}</h3>
@@ -35,7 +35,7 @@ export function ExpenseDonut({ dashboard, language = "id" }: { dashboard: Dashbo
       {rows.length === 0 ? (
         <EmptyState text={language === "en" ? "Categories will appear after your first expense." : "Kategori akan muncul setelah ada pengeluaran."} />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
+        <div className="grid min-w-0 gap-4 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-center">
           <div className="relative mx-auto h-40 w-40 rounded-full" style={{ background: donutBackground }}>
             <div className="absolute inset-9 flex flex-col items-center justify-center rounded-full bg-white text-center shadow-inner">
               <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-500">Total</span>
@@ -182,9 +182,9 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
   };
 
   return (
-    <div className="space-y-4 lg:space-y-5">
-      <section className="grid gap-4 xl:grid-cols-[1.16fr_0.84fr]">
-        <div className="balance-hero balance-hero-grid p-5 lg:p-6">
+    <div className="w-full min-w-0 max-w-full space-y-4 overflow-x-hidden lg:space-y-5">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.16fr)_minmax(0,0.84fr)]">
+        <div className="balance-hero balance-hero-grid min-w-0 p-5 lg:p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-white/48">{copy.activeBalance}</p>
@@ -212,7 +212,7 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
           </div>
         </div>
 
-        <button type="button" className="surface-card group flex min-h-[188px] w-full flex-col justify-between p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-200" onClick={onAssistant}>
+        <button type="button" className="surface-card group flex min-h-[188px] w-full min-w-0 flex-col justify-between p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-200" onClick={onAssistant}>
           <span>
             <span className="flex items-center gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E8F5EE] text-[#16845B]">
@@ -233,8 +233,8 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
         </button>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="surface-card overflow-hidden">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
+        <div className="surface-card min-w-0 overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5 lg:px-5">
             <div>
               <p className="eyebrow">{monthLabel}</p>
@@ -259,13 +259,13 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-1">
-          <div className="surface-card p-4 lg:p-5">
+        <div className="grid min-w-0 grid-cols-2 gap-4 xl:grid-cols-1">
+          <div className="surface-card min-w-0 p-4 lg:p-5">
             <p className="eyebrow">{copy.topCategory}</p>
             <p className="mt-2 truncate text-base font-extrabold tracking-[-0.025em] text-slate-950">{topCategory?.category ?? copy.noData}</p>
             <p className="mt-1 text-xs font-semibold text-slate-500">{topCategory ? rupiah(topCategory.total) : copy.noExpense}</p>
           </div>
-          <div className="surface-card p-4 lg:p-5">
+          <div className="surface-card min-w-0 p-4 lg:p-5">
             <p className="eyebrow">{copy.budget}</p>
             <p className={`mt-2 text-base font-extrabold tracking-[-0.025em] ${alertCount > 0 ? "text-amber-700" : "text-[#16845B]"}`}>{alertCount > 0 ? `${alertCount} ${copy.check}` : copy.controlled}</p>
             <p className="mt-1 truncate text-xs font-semibold text-slate-500">{alertCount > 0 ? `${dashboard.budgetAlerts[0].category} ${dashboard.budgetAlerts[0].usagePercent}%` : copy.noAlert}</p>
@@ -273,8 +273,8 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
         </div>
       </section>
 
-      <section className="grid gap-4 lg:gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="surface-card p-4 lg:p-5">
+      <section className="grid min-w-0 gap-4 lg:gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <div className="surface-card min-w-0 p-4 lg:p-5">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h3 className="section-title">{copy.cashFlow}</h3>
@@ -287,17 +287,17 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
           </div>
           <MiniCashFlowChart daily={dashboard.daily} />
         </div>
-        <div className="surface-card p-4 lg:p-5">
+        <div className="surface-card min-w-0 p-4 lg:p-5">
           <ExpenseDonut dashboard={dashboard} language={language} />
         </div>
       </section>
 
-      <section className="grid gap-4 lg:gap-5 xl:grid-cols-2">
-        <div className="card p-4 lg:p-5">
+      <section className="grid min-w-0 gap-4 lg:gap-5 xl:grid-cols-2">
+        <div className="card min-w-0 p-4 lg:p-5">
           <h3 className="section-title mb-4">{copy.recent}</h3>
           <TransactionList rows={dashboard.lastTransactions} />
         </div>
-        <div className="card p-4 lg:p-5">
+        <div className="card min-w-0 p-4 lg:p-5">
           <h3 className="section-title mb-4">{copy.budgetAlerts}</h3>
           {dashboard.budgetAlerts.length === 0 ? <EmptyState text={copy.noBudgetAlerts} /> : (
             <div className="space-y-3">
@@ -327,7 +327,7 @@ export function DashboardMetric({ label, value, helper, tone, icon }: {
     neutral: "bg-sky-50 text-sky-700"
   };
   return (
-    <div className="metric-cell p-3.5 lg:p-4">
+    <div className="metric-cell min-w-0 p-3.5 lg:p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-400">{label}</p>
@@ -346,7 +346,7 @@ export function MiniCashFlowChart({ daily }: { daily: DashboardSummary["daily"] 
   if (rows.length === 0) return <EmptyState text="Belum ada transaksi bulan ini." />;
 
   return (
-    <div className="flex h-40 items-end gap-2">
+    <div className="flex h-40 min-w-0 items-end gap-2 overflow-hidden">
       {rows.map((item) => {
         const incomeHeight = Math.max((Number(item.income) / maxDaily) * 100, Number(item.income) > 0 ? 5 : 0);
         const expenseHeight = Math.max((Number(item.expense) / maxDaily) * 100, Number(item.expense) > 0 ? 5 : 0);
@@ -368,11 +368,11 @@ function TransactionList({ rows }: { rows: DashboardSummary["lastTransactions"] 
   if (rows.length === 0) return <EmptyState text="Belum ada transaksi terbaru." />;
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {rows.map((row) => {
         const income = row.transactionType === "income";
         return (
-          <div key={row.id} className="data-row flex items-center justify-between gap-3 px-3 py-2.5">
+          <div key={row.id} className="data-row flex min-w-0 items-center justify-between gap-3 px-3 py-2.5">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-slate-950">{row.merchantName || row.categoryName || "Tanpa nama"}</p>
               <p className="mt-0.5 truncate text-xs text-slate-500">{row.accountName || row.paymentMethod || "Transaksi"}</p>

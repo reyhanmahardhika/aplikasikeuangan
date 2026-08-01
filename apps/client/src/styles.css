@@ -26,6 +26,9 @@
 
 html {
   font-size: 14px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
@@ -36,8 +39,11 @@ html {
 
 body {
   margin: 0;
+  width: 100%;
+  max-width: 100%;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
@@ -433,6 +439,9 @@ input[type="month"]::-webkit-calendar-picker-indicator {
 /* Unified product surfaces: intentionally restrained and data-first. */
 #root {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 ::selection {
@@ -457,6 +466,8 @@ a:focus-visible {
 /* Product shell */
 .app-shell {
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
   color: var(--color-ink);
   background: var(--color-canvas);
 }

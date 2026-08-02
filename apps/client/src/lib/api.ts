@@ -24,6 +24,10 @@ export type Session = {
     nickname?: string | null;
     title?: string | null;
     avatarUrl?: string | null;
+    isSuperAdmin?: boolean;
+    readOnly?: boolean;
+    impersonatedByUserId?: string | null;
+    impersonatedByEmail?: string | null;
   };
   accessToken: string;
   refreshToken: string;

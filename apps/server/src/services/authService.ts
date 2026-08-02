@@ -39,35 +39,51 @@ function resetOtpExpiry() {
 const googleClient = new OAuth2Client();
 const appleJwks = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
 
-function publicUser(row: any) {
+function isSuperAdminEmail(email?: string | null) {
+  return Boolean(email && config.superAdminEmails.includes(email.trim().toLowerCase()));
+}
+
+function publicUser(row: any, options: { readOnly?: boolean; impersonatedByUserId?: string | null; impersonatedByEmail?: string | null } = {}) {
+  const email = row.email;
   return {
     id: row.id ?? row.user_id,
     fullName: row.fullName ?? row.full_name,
-    email: row.email,
+    email,
     username: row.username ?? null,
     phone: row.phone ?? null,
     currency: row.currency,
     nickname: row.nickname ?? null,
     title: row.title ?? row.profile_title ?? null,
-    avatarUrl: row.avatarUrl ?? row.avatar_url ?? null
+    avatarUrl: row.avatarUrl ?? row.avatar_url ?? null,
+    isSuperAdmin: isSuperAdminEmail(email),
+    readOnly: options.readOnly === true,
+    impersonatedByUserId: options.impersonatedByUserId ?? null,
+    impersonatedByEmail: options.impersonatedByEmail ?? null
   };
 }
 
-async function createSession(row: any) {
-  const user = publicUser(row);
+async function createSession(row: any, options: { db?: DbClient; readOnly?: boolean; impersonatorUserId?: string | null; impersonatorEmail?: string | null } = {}) {
+  const user = publicUser(row, {
+    readOnly: options.readOnly,
+    impersonatedByUserId: options.impersonatorUserId ?? null,
+    impersonatedByEmail: options.impersonatorEmail ?? null
+  });
   return {
     user,
     accessToken: signAccessToken(user),
-    refreshToken: await createRefreshToken(user.id)
+    refreshToken: await createRefreshToken(user.id, options.db ?? pool, {
+      readOnly: options.readOnly === true,
+      impersonatorUserId: options.impersonatorUserId ?? null
+    })
   };
 }
 
-async function createRefreshToken(userId: string, db: DbClient = pool) {
+async function createRefreshToken(userId: string, db: DbClient = pool, options: { readOnly?: boolean; impersonatorUserId?: string | null } = {}) {
   const token = crypto.randomBytes(48).toString("base64url");
   await db.query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [userId, hashToken(token), refreshExpiry()]
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, impersonator_user_id, read_only)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [userId, hashToken(token), refreshExpiry(), options.impersonatorUserId ?? null, options.readOnly === true]
   );
   return token;
 }
@@ -234,9 +250,13 @@ export async function refreshAccessToken(refreshToken: string) {
           u.currency,
           u.nickname,
           u.profile_title,
-          u.avatar_url
+          u.avatar_url,
+          rt.impersonator_user_id,
+          rt.read_only,
+          impersonator.email AS impersonator_email
       FROM refresh_tokens rt
       JOIN users u ON u.id = rt.user_id
+      LEFT JOIN users impersonator ON impersonator.id = rt.impersonator_user_id
       WHERE rt.token_hash = $1
         AND rt.revoked_at IS NULL
         AND rt.expires_at > now()
@@ -255,7 +275,11 @@ export async function refreshAccessToken(refreshToken: string) {
       [refreshExpiry(), row.refresh_token_id]
     );
 
-    const user = publicUser(row);
+    const user = publicUser(row, {
+      readOnly: row.read_only,
+      impersonatedByUserId: row.impersonator_user_id,
+      impersonatedByEmail: row.impersonator_email
+    });
 
     return {
       user,
@@ -279,6 +303,68 @@ export async function getProfile(userId: string) {
     [userId]
   );
   return result.rows[0];
+}
+
+export async function listSuperAdminUsers(requester: Express.User, query = "") {
+  if (!requester.isSuperAdmin || requester.readOnly) throw unauthorized("Akses superadmin diperlukan");
+  const normalizedQuery = query.trim();
+  const result = await pool.query(
+    `SELECT id, full_name AS "fullName", email, username, phone, avatar_url AS "avatarUrl", created_at AS "createdAt"
+     FROM users
+     WHERE ($1 = '' OR lower(full_name) LIKE lower($2) OR lower(email) LIKE lower($2) OR lower(COALESCE(username, '')) LIKE lower($2))
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [normalizedQuery, `%${normalizedQuery}%`]
+  );
+  return result.rows.map((row) => ({
+    ...row,
+    isSuperAdmin: isSuperAdminEmail(row.email)
+  }));
+}
+
+export async function impersonateUser(requester: Express.User, targetUserId: string) {
+  if (!requester.isSuperAdmin || requester.readOnly) throw unauthorized("Akses superadmin diperlukan");
+  const result = await pool.query(
+    `SELECT id, full_name AS "fullName", email, username, phone, currency, nickname,
+            profile_title AS title, avatar_url AS "avatarUrl"
+     FROM users
+     WHERE id = $1`,
+    [targetUserId]
+  );
+  const target = result.rows[0];
+  if (!target) throw badRequest("User tujuan tidak ditemukan");
+  await writeAuditLog(pool, {
+    userId: requester.id,
+    action: "SUPERADMIN_IMPERSONATE",
+    entityName: "User",
+    entityId: target.id,
+    newValue: { targetUserId: target.id, targetEmail: target.email }
+  });
+  return createSession(target, {
+    readOnly: true,
+    impersonatorUserId: requester.id,
+    impersonatorEmail: requester.email
+  });
+}
+
+export async function stopImpersonation(requester: Express.User) {
+  if (!requester.readOnly || !requester.impersonatedByUserId) throw badRequest("Anda tidak sedang switch user");
+  const result = await pool.query(
+    `SELECT id, full_name AS "fullName", email, username, phone, currency, nickname,
+            profile_title AS title, avatar_url AS "avatarUrl"
+     FROM users
+     WHERE id = $1`,
+    [requester.impersonatedByUserId]
+  );
+  const superAdmin = result.rows[0];
+  if (!superAdmin || !isSuperAdminEmail(superAdmin.email)) throw unauthorized("Akun superadmin tidak ditemukan");
+  await writeAuditLog(pool, {
+    userId: superAdmin.id,
+    action: "SUPERADMIN_STOP_IMPERSONATION",
+    entityName: "User",
+    entityId: requester.id
+  });
+  return createSession(superAdmin);
 }
 
 export async function updateProfile(userId: string, input: {

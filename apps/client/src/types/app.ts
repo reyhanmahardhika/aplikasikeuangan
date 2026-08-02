@@ -18,6 +18,17 @@ export type NoticePayload = string | {
     type: "success" | "error";
 };
 
+export type SuperAdminUserOption = {
+    id: string;
+    fullName: string;
+    email: string;
+    username?: string | null;
+    phone?: string | null;
+    avatarUrl?: string | null;
+    isSuperAdmin?: boolean;
+    createdAt?: string;
+};
+
 export type Account = {
     id: string;
     name: string;
@@ -28,6 +39,10 @@ export type Account = {
     providerName?: string | null;
     accountNumber?: string | null;
     accountHolderName?: string | null;
+    goldBalanceGrams?: string | null;
+    goldBuyPricePerGram?: string | null;
+    goldSellPricePerGram?: string | null;
+    goldPriceUpdatedAt?: string | null;
     isSharedWalletAccount?: boolean;
     ownerUserId?: string | null;
     ownerName?: string | null;

@@ -2,11 +2,16 @@ import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "../config.js";
 import { unauthorized } from "../utils/errors.js";
+import { blockReadOnlyMutations } from "./readOnlyMode.js";
 
 type AccessPayload = {
   sub: string;
   email: string;
   fullName: string;
+  isSuperAdmin?: boolean;
+  readOnly?: boolean;
+  impersonatedByUserId?: string | null;
+  impersonatedByEmail?: string | null;
 };
 
 export function signAccessToken(user: Express.User) {
@@ -18,7 +23,11 @@ export function signAccessToken(user: Express.User) {
   return jwt.sign(
     {
       email: user.email,
-      fullName: user.fullName
+      fullName: user.fullName,
+      isSuperAdmin: user.isSuperAdmin === true,
+      readOnly: user.readOnly === true,
+      impersonatedByUserId: user.impersonatedByUserId ?? null,
+      impersonatedByEmail: user.impersonatedByEmail ?? null
     },
     config.jwtAccessSecret,
     options
@@ -36,9 +45,13 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
     req.user = {
       id: payload.sub,
       email: payload.email,
-      fullName: payload.fullName
+      fullName: payload.fullName,
+      isSuperAdmin: payload.isSuperAdmin === true,
+      readOnly: payload.readOnly === true,
+      impersonatedByUserId: payload.impersonatedByUserId ?? null,
+      impersonatedByEmail: payload.impersonatedByEmail ?? null
     };
-    return next();
+    return blockReadOnlyMutations(req, _res, next);
   } catch {
     return next(unauthorized("Token akses tidak valid atau kedaluwarsa"));
   }

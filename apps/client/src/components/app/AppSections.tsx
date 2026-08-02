@@ -682,13 +682,14 @@ export function ManualTransactionView({ accounts, categories, editing, initialTy
     </section>);
 }
 
-export function TransactionDetailView({ transaction, token, request, onBack, onEdit, onDelete }: {
+export function TransactionDetailView({ transaction, token, request, onBack, onEdit, onDelete, readOnly = false }: {
     transaction: TransactionDetail;
     token: string;
     request: <T>(path: string, options?: RequestInit) => Promise<T>;
     onBack: () => void;
     onEdit: () => void;
     onDelete: () => void;
+    readOnly?: boolean;
 }) {
     const isIncome = transaction.transactionType === "income";
     const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
@@ -829,7 +830,7 @@ export function TransactionDetailView({ transaction, token, request, onBack, onE
               </p>)}
           </div>)}
 
-        {transaction.canManage !== false && (<div className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 p-5">
+        {transaction.canManage !== false && !readOnly && (<div className="grid grid-cols-[1fr_auto] gap-2 border-t border-slate-100 p-5">
             <button type="button" className="btn-primary" onClick={onEdit}>
               <Settings size={15}/> Edit transaksi
             </button>
@@ -1585,11 +1586,27 @@ export function moneyValue(value: string | number | null | undefined) {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export function decimalValue(value: string | number | null | undefined) {
+    if (typeof value === "number")
+        return Number.isFinite(value) ? value : 0;
+    const normalized = String(value ?? "").trim().replace(",", ".");
+    if (!normalized)
+        return 0;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function formatGoldGrams(value: string | number | null | undefined) {
+    const grams = decimalValue(value);
+    return `${new Intl.NumberFormat("id-ID", { minimumFractionDigits: grams % 1 === 0 ? 0 : 2, maximumFractionDigits: 4 }).format(grams)} gr`;
+}
+
 export function accountTypeLabel(type: string) {
     const labels: Record<string, string> = {
         cash: "Tunai",
         bank: "Rekening",
         e_wallet: "E-wallet",
+        gold: "Emas",
         credit_card: "Kartu kredit",
         other: "Lainnya"
     };
@@ -1616,6 +1633,7 @@ export function accountTypeIcon(type: string): LucideIcon {
         cash: Banknote,
         bank: Landmark,
         e_wallet: Smartphone,
+        gold: CircleDollarSign,
         credit_card: CreditCard,
         other: Wallet
     };
@@ -1667,6 +1685,24 @@ export const pocketEMoneyOptions = [
     "Nobu e-money"
 ];
 
+export const pocketGoldProviderOptions = [
+    "Tring Pegadaian",
+    "Bank Jago"
+];
+
+export const goldProviderPricePresets: Record<string, { buy: number; sell: number; note: string }> = {
+    "Tring Pegadaian": {
+        buy: 2552000,
+        sell: 2449000,
+        note: "Preset awal dari contoh harga Pegadaian 24 Jun 2026. Sesuaikan dengan harga di aplikasi Tring saat transaksi."
+    },
+    "Bank Jago": {
+        buy: 2552000,
+        sell: 2449000,
+        note: "Bank Jago Kantong Emas bekerja sama dengan Treasury; isi sesuai harga beli/jual yang tampil di aplikasi Jago."
+    }
+};
+
 export const pocketCardColors = [
     "#16A34A", "#047857", "#0F766E", "#0891B2", "#2563EB", "#1D4ED8",
     "#4F46E5", "#7C3AED", "#9333EA", "#DB2777", "#E11D48", "#EA580C",
@@ -1691,7 +1727,8 @@ const pocketProviderBrandColors: Record<string, string> = {
     "blu by BCA Digital": "#00AEEF", GoPay: "#00AED6", OVO: "#4C3494", DANA: "#118EEA",
     ShopeePay: "#EE4D2D", LinkAja: "#E31E24", Sakuku: "#E21B2D", AstraPay: "#662D91",
     "Flazz BCA": "#0060AF", "Mandiri e-money": "#003D79", "BNI TapCash": "#F15A23",
-    "BRI BRIZZI": "#00529C", JakCard: "#E31E24", MegaCash: "#17479E", "KMT KAI Commuter": "#EE6B23"
+    "BRI BRIZZI": "#00529C", JakCard: "#E31E24", MegaCash: "#17479E", "KMT KAI Commuter": "#EE6B23",
+    "Tring Pegadaian": "#006B4F", "Bank Jago": "#F15A24"
 };
 
 export function providerLogoSticker(provider: string) {
@@ -1753,6 +1790,7 @@ export function getDefaultPocketLogo(accountType: string): string {
         case "cash": return "\u{1F4B5}";
         case "bank": return "\u{1F3E6}";
         case "e_wallet": return "\u{1F4F1}";
+        case "gold": return "\u{1F947}";
         case "other": return "\u{1F4B3}";
         case "credit_card": return "\u{1F4B3}";
         case "savings": return "\u{1F3E6}";
@@ -2124,7 +2162,7 @@ export function SchedulesView({ accounts, categories, request, onNavigate, onTra
     </div>);
 }
 
-export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onOpenTransaction, onChildFrameStateChange, onNotice, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id" }: {
+export function AccountsView({ accounts, categories, currentUserId, request, onChanged, onAddTransaction, onOpenTransactions, onOpenTransaction, onChildFrameStateChange, onNotice, initialView = "list", initialTab = "mine", initialSelectedPocketId = "", resetKey = 0, language = "id", readOnly = false }: {
     accounts: Account[];
     categories: Category[];
     currentUserId: string;
@@ -2140,6 +2178,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
     initialSelectedPocketId?: string;
     resetKey?: number;
     language?: AppLanguage;
+    readOnly?: boolean;
 }) {
     const [error, setError] = useState<string | null>(null);
     const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -2288,18 +2327,23 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
     const [hasTargetBalance, setHasTargetBalance] = useState(false);
     const [hasAutoBudgeting, setHasAutoBudgeting] = useState(false);
     const [pocketNameDraft, setPocketNameDraft] = useState("");
-    const [pocketTypeDraft, setPocketTypeDraft] = useState<"cash" | "bank" | "e_wallet" | "e_money">("bank");
+    const [pocketTypeDraft, setPocketTypeDraft] = useState<"cash" | "bank" | "e_wallet" | "e_money" | "gold">("bank");
     const [pocketInitialBalanceDraft, setPocketInitialBalanceDraft] = useState("");
     const [pocketProviderDraft, setPocketProviderDraft] = useState("");
     const [pocketNumberDraft, setPocketNumberDraft] = useState("");
     const [pocketHolderDraft, setPocketHolderDraft] = useState("");
+    const [pocketGoldGramsDraft, setPocketGoldGramsDraft] = useState("");
+    const [pocketGoldBuyPriceDraft, setPocketGoldBuyPriceDraft] = useState("");
+    const [pocketGoldSellPriceDraft, setPocketGoldSellPriceDraft] = useState("");
     const [pocketLogoDraft, setPocketLogoDraft] = useState("??");
     const [pocketBackgroundDraft, setPocketBackgroundDraft] = useState("#16A34A");
     const pocketProviderOptions = pocketTypeDraft === "bank"
         ? pocketBankOptions
         : pocketTypeDraft === "e_wallet"
             ? pocketEWalletOptions
-            : pocketEMoneyOptions;
+            : pocketTypeDraft === "gold"
+                ? pocketGoldProviderOptions
+                : pocketEMoneyOptions;
     const pocketProviderStickerOptions = pocketTypeDraft === "cash" ? [] : pocketProviderOptions;
     const pocketGalleryInputRef = useRef<HTMLInputElement>(null);
     const [showPocketLogoMenu, setShowPocketLogoMenu] = useState(false);
@@ -2517,6 +2561,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         onNotice?.({ message: language === "en" ? "Pocket history share link copied." : "Link share history pocket berhasil disalin.", type: "success" });
     };
     const openMutationImportModal = () => {
+        if (readOnly) return;
         setError(null);
         setMutationImportText("");
         setMutationImportRows([]);
@@ -2655,6 +2700,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         setTargetDetails(details);
     };
     const openTargetBalanceModal = () => {
+        if (readOnly) return;
         setError(null);
         setTargetNameDraft(targetDetails?.targetName ?? (selectedPocket?.name ? `Target ${selectedPocket.name}` : ""));
         setTargetImageDraft(targetDetails?.goalImageUrl ?? "");
@@ -2708,6 +2754,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         setAutoBudgetRule(await request<typeof autoBudgetRule>(`/accounts/${accountId}/auto-budget`));
     };
     const openAutoBudgetModal = () => {
+        if (readOnly) return;
         setError(null);
         setAutoBudgetDraft({
             sourceAccountId: autoBudgetRule?.sourceAccountId ?? spendableAccounts.find((account) => account.id !== selectedPocketId)?.id ?? "",
@@ -3102,11 +3149,14 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         const accountNumberParts = splitAccountNumberHolder(editingAccount?.accountNumber);
         const savedType = editingAccount?.accountType;
         setPocketNameDraft(editingAccount?.name ?? "");
-        setPocketTypeDraft(savedType === "cash" || savedType === "bank" || savedType === "e_wallet" || savedType === "e_money" ? savedType : "bank");
+        setPocketTypeDraft(savedType === "cash" || savedType === "bank" || savedType === "e_wallet" || savedType === "e_money" || savedType === "gold" ? savedType : "bank");
         setPocketInitialBalanceDraft(editingAccount ? moneyInputValue(editingAccount.initialBalance) : "");
         setPocketProviderDraft(editingAccount?.providerName ?? "");
         setPocketNumberDraft(accountNumberParts.number);
         setPocketHolderDraft(editingAccount?.accountHolderName ?? accountNumberParts.holder);
+        setPocketGoldGramsDraft(editingAccount?.accountType === "gold" ? String(editingAccount.goldBalanceGrams ?? "").replace(".", ",") : "");
+        setPocketGoldBuyPriceDraft(editingAccount?.accountType === "gold" ? moneyInputValue(editingAccount.goldBuyPricePerGram) : "");
+        setPocketGoldSellPriceDraft(editingAccount?.accountType === "gold" ? moneyInputValue(editingAccount.goldSellPricePerGram) : "");
         // Gunakan logo dan background dari server jika tersedia, jika tidak gunakan localStorage atau default
         const visuals = loadPocketVisuals();
         const accountVisual = editingAccount?.logo ? { logo: editingAccount.logo, background: editingAccount.background } : visuals[editingAccount?.id ?? ""];
@@ -3114,7 +3164,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         setPocketBackgroundDraft(accountVisual?.background || "#16A34A");
         setShowPocketLogoMenu(false);
         setShowPocketStickerPicker(false);
-    }, [accountView, editingAccount?.id, editingAccount?.accountNumber, editingAccount?.accountType, editingAccount?.initialBalance, editingAccount?.name, editingAccount?.providerName, editingAccount?.logo, editingAccount?.background]);
+    }, [accountView, editingAccount?.id, editingAccount?.accountNumber, editingAccount?.accountType, editingAccount?.initialBalance, editingAccount?.name, editingAccount?.providerName, editingAccount?.logo, editingAccount?.background, editingAccount?.goldBalanceGrams, editingAccount?.goldBuyPricePerGram, editingAccount?.goldSellPricePerGram]);
     const movePocket = (fromId: string, toId: string) => {
         if (!fromId || fromId === toId)
             return;
@@ -3235,15 +3285,23 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
         const selectedPocketType = pocketTypeDraft;
         const accountNumber = pocketNumberDraft.trim();
         const accountHolderName = pocketHolderDraft.trim();
+        const goldGrams = decimalValue(pocketGoldGramsDraft);
+        const goldBuyPrice = moneyValue(pocketGoldBuyPriceDraft);
+        const goldSellPrice = moneyValue(pocketGoldSellPriceDraft);
+        const goldInitialBalance = Math.round(goldGrams * goldSellPrice);
         try {
             const payload = {
                 name: pocketNameDraft.trim(),
                 accountType: selectedPocketType === "e_money" ? "other" : selectedPocketType,
-                initialBalance: String(form.get("initialBalance") || pocketInitialBalanceDraft),
+                initialBalance: selectedPocketType === "gold" ? String(goldInitialBalance) : String(form.get("initialBalance") || pocketInitialBalanceDraft),
                 currency: "IDR",
                 providerName: selectedPocketType === "cash" ? null : pocketProviderDraft.trim() || null,
-                accountNumber: selectedPocketType === "cash" ? null : accountNumber || null,
-                accountHolderName: selectedPocketType === "cash" || selectedPocketType === "e_money" ? null : accountHolderName || null,
+                accountNumber: selectedPocketType === "cash" || selectedPocketType === "gold" ? null : accountNumber || null,
+                accountHolderName: selectedPocketType === "cash" || selectedPocketType === "e_money" || selectedPocketType === "gold" ? null : accountHolderName || null,
+                goldBalanceGrams: selectedPocketType === "gold" ? String(goldGrams) : null,
+                goldBuyPricePerGram: selectedPocketType === "gold" ? String(goldBuyPrice) : null,
+                goldSellPricePerGram: selectedPocketType === "gold" ? String(goldSellPrice) : null,
+                goldPriceUpdatedAt: selectedPocketType === "gold" ? new Date().toISOString() : null,
                 allowNegative: false,
                 logo: pocketLogoDraft || null,
                 background: pocketBackgroundDraft || null
@@ -3490,7 +3548,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                   <button type="button" className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-100 bg-white text-[#16A34A] shadow-sm" onClick={() => onOpenTransactions("")} aria-label="View all transactions" title="View all transactions">
                     <ReceiptText size={15}/>
                   </button>
-                  {pocketTab === "mine" && (<button type="button" className="inline-flex items-center gap-1 rounded-full bg-[#16A34A] px-3 py-1.5 text-xs font-semibold text-white" onClick={() => {
+                  {pocketTab === "mine" && !readOnly && (<button type="button" className="inline-flex items-center gap-1 rounded-full bg-[#16A34A] px-3 py-1.5 text-xs font-semibold text-white" onClick={() => {
                 setError(null);
                 setEditingAccount(null);
                 setAccountView("account-form");
@@ -3584,8 +3642,9 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                       <div className="mt-0.5">
                         <p className="truncate text-base font-semibold">{account.name}</p>
                         <p className="mt-0.5 text-[10px] font-medium text-white/70">{accountTypeLabel(account.accountType)}{account.providerName ? ` \u00B7 ${account.providerName}` : ""}</p>
-                        <p className="mt-3 text-[10px] font-medium text-white/70">Saldo saat ini</p>
+                        <p className="mt-3 text-[10px] font-medium text-white/70">{account.accountType === "gold" ? "Nilai jual saat ini" : "Saldo saat ini"}</p>
                         <p className="mt-0.5 text-lg font-semibold">{rupiah(account.currentBalance)}</p>
+                        {account.accountType === "gold" && <p className="mt-0.5 text-[10px] font-semibold text-white/75">{formatGoldGrams(account.goldBalanceGrams)}</p>}
                       </div>
                       {hasMultipleMembers && (<button type="button" className="absolute bottom-0 right-0 inline-flex items-center rounded-full bg-black/15 px-1.5 py-1 backdrop-blur transition hover:bg-black/20 active:scale-[0.98]" aria-label={language === "en" ? "View Pocket users" : "Lihat pengguna Pocket"} onClick={(event) => {
                                 event.stopPropagation();
@@ -3617,7 +3676,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                 <ArrowLeft size={14}/> Kembali
               </button>
               <div className="flex items-center gap-2">
-                {selectedPocket.canEdit !== false && (<button type="button" className="relative inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white/90 backdrop-blur" onClick={() => {
+                {selectedPocket.canEdit !== false && !readOnly && (<button type="button" className="relative inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/14 text-white/90 backdrop-blur" onClick={() => {
                     setShowPocketInviteModal(true);
                 }} aria-label={language === "en" ? "Invite user" : "Undang user"} title={language === "en" ? "Invite user" : "Undang user"}>
                     <UserPlus size={15}/>
@@ -3627,7 +3686,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                       return pendingCount > 0 ? (<span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold leading-none text-white shadow-sm">{pendingCount}</span>) : null;
                     })()}
                   </button>)}
-                {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-white/14 px-3 text-xs font-semibold text-white/90 backdrop-blur" onClick={() => {
+                {selectedPocket.canEdit !== false && !readOnly && (<button type="button" className="inline-flex h-9 items-center justify-center gap-1 rounded-full bg-white/14 px-3 text-xs font-semibold text-white/90 backdrop-blur" onClick={() => {
                     setEditingAccount(selectedPocket);
                     setAccountView("account-form");
                 }}>
@@ -3647,6 +3706,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xl font-semibold text-white">{selectedPocket.name}</p>
                       <p className="mt-1 text-3xl font-semibold text-white">{rupiah(selectedPocket.currentBalance)}</p>
+                      {selectedPocket.accountType === "gold" && <p className="mt-1 text-sm font-semibold text-white/85">{formatGoldGrams(selectedPocket.goldBalanceGrams)} · jual {rupiah(selectedPocket.goldSellPricePerGram)}/gr</p>}
                       <p className="mt-1 text-xs text-white/75">
                         {[accountTypeLabel(selectedPocket.accountType), selectedPocket.providerName, cleanPocketMetadata(selectedPocket.accountNumber)].filter(Boolean).join(" \u00B7 ")}
                       </p>
@@ -3711,7 +3771,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
               </section>
             </>)}
 
-          <div className={`grid gap-2 ${selectedPocketCanSpend ? "grid-cols-3" : "grid-cols-2"}`}>
+          {!readOnly && <div className={`grid gap-2 ${selectedPocketCanSpend ? "grid-cols-3" : "grid-cols-2"}`}>
             {selectedPocketCanSpend && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" disabled={receivableAccounts.filter((account) => account.id !== selectedPocket.id).length < 1} onClick={() => {
                 setTransferMode("out");
                 setSourceAccountId(selectedPocket.id);
@@ -3743,7 +3803,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
               <p className="mt-0.5 text-[11px] text-slate-500">{language === "en" ? "CSV, XLSX, PDF, or paste text" : "CSV, XLSX, PDF, atau paste teks"}</p>
             </button>)}
             {/* Tampilkan set target balance hanya jika pocket belum memiliki target balance */}
-            {selectedPocket.canEdit !== false && !selectedPocket.targetBalance && !targetDetails?.targetBalance && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openTargetBalanceModal}>
+            {selectedPocket.canEdit !== false && !readOnly && !selectedPocket.targetBalance && !targetDetails?.targetBalance && (<button type="button" className="rounded-[20px] bg-white p-3 text-left shadow-soft transition active:scale-[0.99]" onClick={openTargetBalanceModal}>
                 <TrendingUp className="text-violet-700" size={18}/>
                 <p className="mt-2 text-sm font-semibold">{language === "en" ? "Set financial goal" : "Atur target keuangan"}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">{language === "en" ? "Plan deposits and timeline" : "Rencanakan setoran dan timeline"}</p>
@@ -3779,7 +3839,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                       <h3 className="mt-1 truncate text-lg font-semibold text-white">{targetDetails.targetName || (language === "en" ? "Financial goal" : "Target keuangan")}</h3>
                       <p className="mt-1 text-xs text-white/75">{language === "en" ? "Target date" : "Target tanggal"}: {localDate(targetDetails.targetDate)}</p>
                     </div>
-                    {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur" onClick={openTargetBalanceModal}>
+                    {selectedPocket.canEdit !== false && !readOnly && (<button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold text-white backdrop-blur" onClick={openTargetBalanceModal}>
                       <Settings size={14}/> {language === "en" ? "Edit" : "Edit"}
                     </button>)}
                   </div>
@@ -3841,7 +3901,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                 <p className="mt-0.5 text-xs font-semibold leading-4 text-slate-500">Search and filter transactions in this pocket.</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                  {selectedPocket.canEdit !== false && (<button type="button" className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-violet-600 hover:bg-violet-50" onClick={() => {
+                  {selectedPocket.canEdit !== false && !readOnly && (<button type="button" className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-violet-600 hover:bg-violet-50" onClick={() => {
                     setShareHistoryLink("");
                     setShowPocketHistoryShare(true);
                     loadActiveHistoryShares().catch(() => setActiveHistoryShares([]));
@@ -3911,7 +3971,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
               </div>
             </div>
           </div>
-          {showPocketHistoryShare && selectedPocket.canEdit !== false && (<>
+          {showPocketHistoryShare && selectedPocket.canEdit !== false && !readOnly && (<>
               <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/30 backdrop-blur-[2px]" aria-label={language === "en" ? "Close share history" : "Tutup bagikan riwayat"} onClick={() => setShowPocketHistoryShare(false)}/>
               <section className="fixed inset-x-3 bottom-24 z-50 mx-auto max-h-[78vh] max-w-md overflow-y-auto rounded-[28px] border border-white/80 bg-white p-4 shadow-[0_28px_80px_rgba(15,23,42,0.28)] lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2">
                 <div className="rounded-[22px] bg-gradient-to-br from-violet-600 via-fuchsia-500 to-orange-400 p-4 text-white">
@@ -4304,7 +4364,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                 <p className="rounded-2xl bg-slate-50 p-3 text-center text-xs text-slate-500">{language === "en" ? "No source pocket available." : "Tidak ada pocket sumber yang tersedia."}</p>
               )}
             </div>
-          </div>
+          </div>}
         </>)}
       {accountView === "pocket-detail" && selectedPocket && showPocketInviteModal && (<>
           <button type="button" data-scroll-lock="true" className="fixed inset-0 z-40 cursor-default bg-slate-950/20 backdrop-blur-[1px]" aria-label="Close invite user" onClick={() => setShowPocketInviteModal(false)}/>
@@ -4431,8 +4491,9 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
               <div className="relative z-10 mt-7">
                 <p className="text-xs font-medium text-white/70">Pocket preview</p>
                 <p className="mt-1 truncate text-xl font-semibold">{pocketNameDraft || "Nama pocket"}</p>
-                <p className="mt-4 text-xs font-medium text-white/70">Start balance</p>
-                <p className="mt-1 text-2xl font-semibold">{rupiah(moneyValue(pocketInitialBalanceDraft.replace(/\./g, "")))}</p>
+                <p className="mt-4 text-xs font-medium text-white/70">{pocketTypeDraft === "gold" ? "Saldo emas" : "Start balance"}</p>
+                <p className="mt-1 text-2xl font-semibold">{pocketTypeDraft === "gold" ? formatGoldGrams(pocketGoldGramsDraft) : rupiah(moneyValue(pocketInitialBalanceDraft.replace(/\./g, "")))}</p>
+                {pocketTypeDraft === "gold" && <p className="mt-1 text-xs font-semibold text-white/75">{rupiah(Math.round(decimalValue(pocketGoldGramsDraft) * moneyValue(pocketGoldSellPriceDraft)))}</p>}
               </div>
               <p className="relative z-10 mt-4 text-[11px] font-medium text-white/70">Tap logo untuk memilih sticker atau upload gambar. Pilih warna untuk background kartu.</p>
             </div>
@@ -4478,7 +4539,7 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
                   </div>
                   <div className="overflow-y-auto pr-1">
                     {pocketProviderStickerOptions.length > 0 && (<div className="mb-4">
-                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Logo {pocketTypeDraft === "bank" ? "bank" : pocketTypeDraft === "e_wallet" ? "e-wallet" : "e-money"}</p>
+                        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Logo {pocketTypeDraft === "bank" ? "bank" : pocketTypeDraft === "e_wallet" ? "e-wallet" : pocketTypeDraft === "gold" ? "emas" : "e-money"}</p>
                         <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
                           {pocketProviderStickerOptions.map((provider) => (<button key={provider} type="button" className="flex min-h-[72px] flex-col items-center justify-center gap-1.5 rounded-2xl border border-slate-100 bg-slate-50 p-2 transition hover:border-emerald-100 hover:bg-emerald-50" onClick={() => {
                     setPocketLogoDraft(providerLogoSticker(provider));
@@ -4508,41 +4569,77 @@ export function AccountsView({ accounts, categories, currentUserId, request, onC
 
             <Field label="Jenis pocket">
               <select className="input" name="pocketType" value={pocketTypeDraft} onChange={(event) => {
-                const nextType = event.target.value as "cash" | "bank" | "e_wallet" | "e_money";
+                const nextType = event.target.value as "cash" | "bank" | "e_wallet" | "e_money" | "gold";
                 setPocketTypeDraft(nextType);
-                setPocketProviderDraft("");
+                const nextProvider = nextType === "gold" ? pocketGoldProviderOptions[0] : "";
+                const pricePreset = nextProvider ? goldProviderPricePresets[nextProvider] : null;
+                setPocketProviderDraft(nextProvider);
                 setPocketNumberDraft("");
                 setPocketHolderDraft("");
-                setPocketLogoDraft(getDefaultPocketLogo(nextType === "e_money" ? "other" : nextType));
+                setPocketGoldGramsDraft("");
+                setPocketGoldBuyPriceDraft(pricePreset ? formatRupiahInput(pricePreset.buy) : "");
+                setPocketGoldSellPriceDraft(pricePreset ? formatRupiahInput(pricePreset.sell) : "");
+                setPocketLogoDraft(nextProvider ? providerLogoSticker(nextProvider) : getDefaultPocketLogo(nextType === "e_money" ? "other" : nextType));
             }}>
                 <option value="cash">Tunai</option>
                 <option value="bank">Rekening Bank</option>
                 <option value="e_wallet">E-wallet</option>
                 <option value="e_money">E-money</option>
+                <option value="gold">Emas</option>
               </select>
             </Field>
 
             {pocketTypeDraft !== "cash" && (<div className="space-y-3 rounded-[22px] bg-[#F8FAFC] p-3">
-                <Field label={pocketTypeDraft === "bank" ? "Pilih Bank" : pocketTypeDraft === "e_wallet" ? "Pilih e-wallet" : "Pilih e-money"}>
-                  <select className="input" name="providerName" value={pocketProviderDraft} onChange={(event) => setPocketProviderDraft(event.target.value)} required>
-                    <option value="" disabled>{pocketTypeDraft === "bank" ? "Pilih bank" : pocketTypeDraft === "e_wallet" ? "Pilih e-wallet" : "Pilih e-money"}</option>
+                <Field label={pocketTypeDraft === "bank" ? "Pilih Bank" : pocketTypeDraft === "e_wallet" ? "Pilih e-wallet" : pocketTypeDraft === "gold" ? "Pilih penyedia emas" : "Pilih e-money"}>
+                  <select className="input" name="providerName" value={pocketProviderDraft} onChange={(event) => {
+                const provider = event.target.value;
+                setPocketProviderDraft(provider);
+                const pricePreset = goldProviderPricePresets[provider];
+                if (pocketTypeDraft === "gold" && pricePreset) {
+                    setPocketGoldBuyPriceDraft(formatRupiahInput(pricePreset.buy));
+                    setPocketGoldSellPriceDraft(formatRupiahInput(pricePreset.sell));
+                    setPocketLogoDraft(providerLogoSticker(provider));
+                }
+            }} required>
+                    <option value="" disabled>{pocketTypeDraft === "bank" ? "Pilih bank" : pocketTypeDraft === "e_wallet" ? "Pilih e-wallet" : pocketTypeDraft === "gold" ? "Pilih penyedia emas" : "Pilih e-money"}</option>
                     {pocketProviderDraft && !pocketProviderOptions.includes(pocketProviderDraft) && <option value={pocketProviderDraft}>{pocketProviderDraft}</option>}
                     {pocketProviderOptions.map((option) => <option key={option} value={option}>{option}</option>)}
                   </select>
                 </Field>
 
-                <Field label={`${pocketTypeDraft === "bank" ? (language === "en" ? "Account number" : "Nomor rekening") : pocketTypeDraft === "e_wallet" ? (language === "en" ? "E-wallet number" : "Nomor e-wallet") : (language === "en" ? "E-money number" : "Nomor e-money")} (${language === "en" ? "optional" : "opsional"})`}>
-                  <input className="input" name="accountNumber" inputMode="numeric" placeholder={language === "en" ? "Account number (optional)" : "Nomor akun (opsional)"} value={pocketNumberDraft} onChange={(event) => setPocketNumberDraft(event.target.value)}/>
-                </Field>
+                {pocketTypeDraft === "gold" ? (<div className="space-y-3">
+                    <Field label={language === "en" ? "Gold balance (grams)" : "Saldo emas (gram)"}>
+                      <input className="input" name="goldBalanceGrams" inputMode="decimal" placeholder="Contoh: 0,25" value={pocketGoldGramsDraft} onChange={(event) => setPocketGoldGramsDraft(event.target.value.replace(/[^\d,.]/g, ""))} required/>
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label={language === "en" ? "Buy price / gram" : "Harga beli / gram"}>
+                        <input className="input" name="goldBuyPricePerGram" inputMode="numeric" value={pocketGoldBuyPriceDraft} onChange={(event) => setPocketGoldBuyPriceDraft(formatRupiahInput(event.target.value))} required/>
+                      </Field>
+                      <Field label={language === "en" ? "Sell price / gram" : "Harga jual / gram"}>
+                        <input className="input" name="goldSellPricePerGram" inputMode="numeric" value={pocketGoldSellPriceDraft} onChange={(event) => setPocketGoldSellPriceDraft(formatRupiahInput(event.target.value))} required/>
+                      </Field>
+                    </div>
+                    <p className="rounded-2xl bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-700">
+                      {goldProviderPricePresets[pocketProviderDraft]?.note ?? (language === "en" ? "Update the price according to the provider app before saving." : "Update harga sesuai aplikasi penyedia sebelum disimpan.")}
+                    </p>
+                  </div>) : (<>
+                    <Field label={`${pocketTypeDraft === "bank" ? (language === "en" ? "Account number" : "Nomor rekening") : pocketTypeDraft === "e_wallet" ? (language === "en" ? "E-wallet number" : "Nomor e-wallet") : (language === "en" ? "E-money number" : "Nomor e-money")} (${language === "en" ? "optional" : "opsional"})`}>
+                      <input className="input" name="accountNumber" inputMode="numeric" placeholder={language === "en" ? "Account number (optional)" : "Nomor akun (opsional)"} value={pocketNumberDraft} onChange={(event) => setPocketNumberDraft(event.target.value)}/>
+                    </Field>
 
-                {pocketTypeDraft !== "e_money" && (<Field label={language === "en" ? "Account holder (optional)" : "Atas nama (opsional)"}>
-                    <input className="input" name="accountHolderName" placeholder={language === "en" ? "Account holder name (optional)" : "Nama pemilik (opsional)"} value={pocketHolderDraft} onChange={(event) => setPocketHolderDraft(event.target.value)}/>
-                  </Field>)}
+                    {pocketTypeDraft !== "e_money" && (<Field label={language === "en" ? "Account holder (optional)" : "Atas nama (opsional)"}>
+                        <input className="input" name="accountHolderName" placeholder={language === "en" ? "Account holder name (optional)" : "Nama pemilik (opsional)"} value={pocketHolderDraft} onChange={(event) => setPocketHolderDraft(event.target.value)}/>
+                      </Field>)}
+                  </>)}
               </div>)}
 
-            <Field label="Saldo awal">
-              <input className="input" name="initialBalance" inputMode="numeric" placeholder="Contoh: 500.000" value={pocketInitialBalanceDraft} onInput={handleMoneyInput} onChange={(event) => setPocketInitialBalanceDraft(event.target.value)} required/>
-            </Field>
+            {pocketTypeDraft === "gold" ? (<div className="rounded-[22px] border border-amber-100 bg-amber-50/60 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">{language === "en" ? "Estimated sell value" : "Estimasi nilai jual"}</p>
+                <p className="mt-1 text-xl font-bold text-slate-950">{rupiah(Math.round(decimalValue(pocketGoldGramsDraft) * moneyValue(pocketGoldSellPriceDraft)))}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{formatGoldGrams(pocketGoldGramsDraft)} × {rupiah(moneyValue(pocketGoldSellPriceDraft))}</p>
+              </div>) : (<Field label="Saldo awal">
+                <input className="input" name="initialBalance" inputMode="numeric" placeholder="Contoh: 500.000" value={pocketInitialBalanceDraft} onInput={handleMoneyInput} onChange={(event) => setPocketInitialBalanceDraft(event.target.value)} required/>
+              </Field>)}
 
             {editingAccount && (<p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 lg:rounded-xl">
                 Saldo sekarang {rupiah(editingAccount.currentBalance)}. Saldo awal tidak bisa dibuat minus dari form ini.

@@ -60,12 +60,20 @@ export const profileUpdateSchema = z.object({
 
 export const accountSchema = z.object({
   name: z.string().min(2).max(140),
-  accountType: z.enum(["cash", "bank", "e_wallet", "credit_card", "other"]),
+  accountType: z.enum(["cash", "bank", "e_wallet", "credit_card", "gold", "other"]),
   initialBalance: nonNegativeMoney,
   currency: z.string().length(3).default("IDR"),
   providerName: z.string().trim().max(120).optional().nullable(),
-    accountNumber: z.string().trim().max(120).optional().nullable(),
-    accountHolderName: z.string().trim().max(160).optional().nullable(),
+  accountNumber: z.string().trim().max(120).optional().nullable(),
+  accountHolderName: z.string().trim().max(160).optional().nullable(),
+  goldBalanceGrams: z.union([z.string(), z.number()]).optional().nullable().refine((value) => {
+    if (value === undefined || value === null || value === "") return true;
+    const cleaned = String(value).replace(",", ".");
+    return /^\d+(?:\.\d{1,4})?$/.test(cleaned) && Number(cleaned) >= 0;
+  }, "Gram emas tidak boleh negatif"),
+  goldBuyPricePerGram: nonNegativeMoney.optional().nullable(),
+  goldSellPricePerGram: nonNegativeMoney.optional().nullable(),
+  goldPriceUpdatedAt: z.string().datetime().optional().nullable(),
   allowNegative: z.boolean().default(false),
   isActive: z.boolean().default(true)
 });

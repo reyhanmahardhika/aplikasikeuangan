@@ -29,5 +29,7 @@ services:
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: receipts
+      - key: SUPERADMIN_EMAILS
+        value: reyhanmahardhika24@gmail.com
       - key: AI_PROVIDER
         value: heuristic

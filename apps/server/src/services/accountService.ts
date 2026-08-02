@@ -57,6 +57,15 @@ function recurringDailyAmount(amount: string | number, frequency: string) {
   return 0;
 }
 
+function normalizeGoldGrams(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) value = value.toString();
+  if (typeof value !== "string") throw badRequest("Gram emas harus berupa angka");
+  const cleaned = value.trim().replace(",", ".");
+  if (!/^\d+(?:\.\d{1,4})?$/.test(cleaned)) throw badRequest("Format gram emas tidak valid");
+  if (Number(cleaned) < 0) throw badRequest("Gram emas tidak boleh negatif");
+  return Number(cleaned).toFixed(4);
+}
+
 export async function listAccounts(userId: string) {
   const result = await pool.query(
     `SELECT a.id, a.name, a.account_type AS "accountType",
@@ -65,6 +74,10 @@ export async function listAccounts(userId: string) {
             a.currency, a.allow_negative AS "allowNegative",
             a.provider_name AS "providerName", a.account_number AS "accountNumber",
             a.account_holder_name AS "accountHolderName",
+            a.gold_balance_grams::text AS "goldBalanceGrams",
+            a.gold_buy_price_per_gram::text AS "goldBuyPricePerGram",
+            a.gold_sell_price_per_gram::text AS "goldSellPricePerGram",
+            a.gold_price_updated_at AS "goldPriceUpdatedAt",
             a.display_order AS "displayOrder",
             a.target_balance::text AS "targetBalance", a.target_date::text AS "targetDate",
             EXISTS (SELECT 1 FROM pocket_auto_budget_rules abr WHERE abr.account_id=a.id AND abr.user_id=$1 AND abr.is_active=true) AS "autoBudgetingEnabled",
@@ -302,18 +315,31 @@ export async function createAccount(userId: string, payload: {
   providerName?: string | null;
   accountNumber?: string | null;
   accountHolderName?: string | null;
+  goldBalanceGrams?: unknown;
+  goldBuyPricePerGram?: unknown;
+  goldSellPricePerGram?: unknown;
+  goldPriceUpdatedAt?: string | null;
   allowNegative?: boolean;
   isActive?: boolean;
 }) {
   const initialBalance = normalizeNonNegativeMoney(payload.initialBalance);
+  const goldBalanceGrams = payload.accountType === "gold" ? normalizeGoldGrams(payload.goldBalanceGrams ?? 0) : null;
+  const goldBuyPricePerGram = payload.accountType === "gold" ? normalizeNonNegativeMoney(payload.goldBuyPricePerGram ?? 0) : null;
+  const goldSellPricePerGram = payload.accountType === "gold" ? normalizeNonNegativeMoney(payload.goldSellPricePerGram ?? 0) : null;
   const result = await pool.query(
     `INSERT INTO accounts (user_id, name, account_type, initial_balance, current_balance, currency,
-                           provider_name, account_number, account_holder_name, allow_negative, is_active, display_order)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10,
+                           provider_name, account_number, account_holder_name,
+                           gold_balance_grams, gold_buy_price_per_gram, gold_sell_price_per_gram, gold_price_updated_at,
+                           allow_negative, is_active, display_order)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::timestamptz, now()), $13, $14,
              COALESCE((SELECT max(display_order) + 1 FROM accounts WHERE user_id = $1), 0))
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
                provider_name AS "providerName", account_number AS "accountNumber", account_holder_name AS "accountHolderName",
+               gold_balance_grams::text AS "goldBalanceGrams",
+               gold_buy_price_per_gram::text AS "goldBuyPricePerGram",
+               gold_sell_price_per_gram::text AS "goldSellPricePerGram",
+               gold_price_updated_at AS "goldPriceUpdatedAt",
                is_active AS "isActive"`,
     [
       userId,
@@ -324,6 +350,10 @@ export async function createAccount(userId: string, payload: {
       payload.providerName || null,
       payload.accountNumber || null,
       payload.accountHolderName || null,
+      goldBalanceGrams,
+      goldBuyPricePerGram,
+      goldSellPricePerGram,
+      payload.accountType === "gold" ? payload.goldPriceUpdatedAt ?? null : null,
       payload.allowNegative ?? false,
       payload.isActive ?? true
     ]
@@ -376,6 +406,16 @@ export async function updateAccount(userId: string, accountId: string, payload: 
     providerName: payload.providerName === undefined ? account.provider_name : payload.providerName,
     accountNumber: payload.accountNumber === undefined ? account.account_number : payload.accountNumber,
     accountHolderName: payload.accountHolderName === undefined ? account.account_holder_name : payload.accountHolderName,
+    goldBalanceGrams: payload.accountType === "gold" || account.account_type === "gold"
+      ? normalizeGoldGrams(payload.goldBalanceGrams === undefined ? account.gold_balance_grams ?? 0 : payload.goldBalanceGrams)
+      : null,
+    goldBuyPricePerGram: payload.accountType === "gold" || account.account_type === "gold"
+      ? normalizeNonNegativeMoney(payload.goldBuyPricePerGram === undefined ? account.gold_buy_price_per_gram ?? 0 : payload.goldBuyPricePerGram)
+      : null,
+    goldSellPricePerGram: payload.accountType === "gold" || account.account_type === "gold"
+      ? normalizeNonNegativeMoney(payload.goldSellPricePerGram === undefined ? account.gold_sell_price_per_gram ?? 0 : payload.goldSellPricePerGram)
+      : null,
+    goldPriceUpdatedAt: payload.goldPriceUpdatedAt === undefined ? account.gold_price_updated_at : payload.goldPriceUpdatedAt,
     allowNegative: payload.allowNegative ?? account.allow_negative,
     isActive: payload.isActive ?? account.is_active
   };
@@ -393,17 +433,24 @@ export async function updateAccount(userId: string, accountId: string, payload: 
              END
            )
            FROM transactions t
-           WHERE t.account_id = $10
+           WHERE t.account_id = $14
          ), 0),
          currency = $4, provider_name = $5, account_number = $6, account_holder_name = $7,
-         allow_negative = $8, is_active = $9, updated_at = now()
-     WHERE id = $10 AND user_id = $11
+         gold_balance_grams = $8, gold_buy_price_per_gram = $9, gold_sell_price_per_gram = $10,
+         gold_price_updated_at = CASE WHEN $2::varchar = 'gold' THEN COALESCE($11::timestamptz, now()) ELSE NULL END,
+         allow_negative = $12, is_active = $13, updated_at = now()
+     WHERE id = $14 AND user_id = $15
      RETURNING id, name, account_type AS "accountType", initial_balance AS "initialBalance",
                current_balance AS "currentBalance", currency, allow_negative AS "allowNegative",
                provider_name AS "providerName", account_number AS "accountNumber", account_holder_name AS "accountHolderName",
+               gold_balance_grams::text AS "goldBalanceGrams",
+               gold_buy_price_per_gram::text AS "goldBuyPricePerGram",
+               gold_sell_price_per_gram::text AS "goldSellPricePerGram",
+               gold_price_updated_at AS "goldPriceUpdatedAt",
                is_active AS "isActive"`,
     [next.name, next.accountType, next.initialBalance, next.currency, next.providerName || null,
-      next.accountNumber || null, next.accountHolderName || null, next.allowNegative, next.isActive, accountId, userId]
+      next.accountNumber || null, next.accountHolderName || null, next.goldBalanceGrams, next.goldBuyPricePerGram,
+      next.goldSellPricePerGram, next.goldPriceUpdatedAt ?? null, next.allowNegative, next.isActive, accountId, userId]
   );
 
   await writeAuditLog(pool, { userId, action: "UPDATE", entityName: "Account", entityId: accountId, previousValue: account, newValue: result.rows[0] });

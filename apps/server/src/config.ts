@@ -16,6 +16,10 @@ export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? 4000),
   clientUrl: process.env.CLIENT_URL ?? "http://localhost:5173",
+  superAdminEmails: (process.env.SUPERADMIN_EMAILS ?? "reyhanmahardhika24@gmail.com")
+    .split(";")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
   goldPriceSyncHours: Number(process.env.GOLD_PRICE_SYNC_HOURS ?? 6),
   pegadaianGoldPriceApiUrl: process.env.PEGADAIAN_GOLD_PRICE_API_URL,
   pegadaianGoldPriceApiKey: process.env.PEGADAIAN_GOLD_PRICE_API_KEY,

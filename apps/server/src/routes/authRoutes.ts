@@ -4,7 +4,7 @@ import { authRateLimiter } from "../middleware/rateLimit.js";
 import { requireAuth } from "../middleware/auth.js";
 import { config } from "../config.js";
 import { changePasswordSchema, forgotPasswordRequestSchema, forgotPasswordVerifySchema, loginSchema, profileUpdateSchema, registerOtpVerifySchema, registerSchema, socialLoginSchema } from "../validators/schemas.js";
-import { changePassword, getProfile, login, refreshAccessToken, register, requestPasswordReset, revokeRefreshToken, socialLogin, updateProfile, verifyPasswordResetOtp, verifyRegisterOtp } from "../services/authService.js";
+import { changePassword, getProfile, impersonateUser, listSuperAdminUsers, login, refreshAccessToken, register, requestPasswordReset, revokeRefreshToken, socialLogin, stopImpersonation, updateProfile, verifyPasswordResetOtp, verifyRegisterOtp } from "../services/authService.js";
 
 export const authRoutes = Router();
 
@@ -108,5 +108,31 @@ authRoutes.post(
   asyncHandler(async (req, res) => {
     const payload = changePasswordSchema.parse(req.body);
     res.json(await changePassword(req.user!.id, payload.currentPassword, payload.newPassword));
+  })
+);
+
+authRoutes.get(
+  "/superadmin/users",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = z.object({ q: z.string().max(160).optional().default("") }).parse(req.query);
+    res.json(await listSuperAdminUsers(req.user!, input.q));
+  })
+);
+
+authRoutes.post(
+  "/superadmin/impersonate",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const input = z.object({ userId: z.string().uuid() }).parse(req.body);
+    res.json(await impersonateUser(req.user!, input.userId));
+  })
+);
+
+authRoutes.post(
+  "/superadmin/stop-impersonation",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await stopImpersonation(req.user!));
   })
 );

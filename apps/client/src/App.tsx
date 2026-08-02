@@ -390,6 +390,10 @@ function App() {
 
   const request = async <T,>(path: string, options: RequestInit = {}) => {
     const method = String(options.method ?? "GET").toUpperCase();
+    const readOnlyMutationAllowed = path === "/auth/logout" || path === "/auth/refresh-token" || path === "/auth/superadmin/stop-impersonation";
+    if (sessionRef.current?.user.readOnly && ["POST", "PUT", "PATCH", "DELETE"].includes(method) && !readOnlyMutationAllowed) {
+      throw new ApiError(403, "Mode superadmin hanya bisa melihat data. Perubahan data tidak diizinkan.");
+    }
     try {
       const result = await apiFetch<T>(path, sessionRef.current?.accessToken, options);
       const message = successMessageFor(path, method);
@@ -442,6 +446,16 @@ function App() {
       setView("dashboard");
       window.history.replaceState({}, "", window.location.pathname);
       window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  };
+
+  const stopSuperAdminImpersonation = async () => {
+    try {
+      const nextSession = await request<Session>("/auth/superadmin/stop-impersonation", { method: "POST" });
+      acceptSession(nextSession);
+      setNotice({ message: "Kembali ke akun superadmin.", type: "success" });
+    } catch (error) {
+      setNotice({ message: error instanceof Error ? error.message : "Gagal kembali ke akun superadmin.", type: "error" });
     }
   };
 
@@ -947,10 +961,18 @@ function App() {
   };
 
   const openAddActionSheet = () => {
+    if (sessionRef.current?.user.readOnly) {
+      setNotice({ message: "Mode superadmin hanya bisa melihat data.", type: "error" });
+      return;
+    }
     setAddActionOpen(true);
   };
 
   const startAddTransaction = (type: "income" | "expense") => {
+    if (sessionRef.current?.user.readOnly) {
+      setNotice({ message: "Mode superadmin hanya bisa melihat data.", type: "error" });
+      return;
+    }
     setAddActionOpen(false);
     setEditing(null);
     setManualInitialType(type);
@@ -961,6 +983,10 @@ function App() {
   };
 
   const startPocketTransaction = (accountId: string) => {
+    if (sessionRef.current?.user.readOnly) {
+      setNotice({ message: "Mode superadmin hanya bisa melihat data.", type: "error" });
+      return;
+    }
     setEditing(null);
     setManualInitialType("expense");
     setManualInitialAccountId(accountId);
@@ -999,6 +1025,10 @@ function App() {
   };
 
   const startAccountTransfer = () => {
+    if (sessionRef.current?.user.readOnly) {
+      setNotice({ message: "Mode superadmin hanya bisa melihat data.", type: "error" });
+      return;
+    }
     setAddActionOpen(false);
     setEditing(null);
     setAccountsInitialView("transfer-form");
@@ -1034,12 +1064,20 @@ function App() {
   };
 
   const startEditingTransaction = () => {
+    if (sessionRef.current?.user.readOnly) {
+      setNotice({ message: "Mode superadmin hanya bisa melihat data.", type: "error" });
+      return;
+    }
     if (!selectedTransaction) return;
     setEditing(selectedTransaction);
     openChildView("manual", "transactionDetail");
   };
 
   const removeTransaction = async (id: string) => {
+    if (sessionRef.current?.user.readOnly) {
+      setNotice({ message: "Mode superadmin hanya bisa melihat data.", type: "error" });
+      return;
+    }
     if (!window.confirm("Hapus transaksi ini?")) return;
     await request(`/transactions/${id}`, { method: "DELETE" });
     setSelectedTransaction(null);
@@ -1263,6 +1301,7 @@ function App() {
   if (!activeSession) {
     return <AuthView onSignedIn={acceptSession} onInstall={installApp} showInstall={!installedAsApp} />;
   }
+  const readOnlyMode = activeSession.user.readOnly === true;
 
   return (
     <div className="app-shell">
@@ -1377,6 +1416,19 @@ function App() {
           })()
         )}
 
+        {readOnlyMode && (
+          <div className="fixed left-4 right-4 top-[4.35rem] z-40 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800 shadow-[0_18px_44px_rgba(15,23,42,0.12)] lg:left-[calc(18rem+1.5rem)] lg:right-6 lg:top-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="min-w-0">
+                Mode lihat saja: sedang melihat sebagai <span className="font-extrabold">{activeSession.user.fullName}</span>. Perubahan data dinonaktifkan.
+              </span>
+              <button type="button" className="shrink-0 rounded-full bg-white px-3 py-1.5 text-[11px] font-extrabold text-amber-700 shadow-sm" onClick={() => stopSuperAdminImpersonation()}>
+                Kembali
+              </button>
+            </div>
+          </div>
+        )}
+
         {(pullDistance > 0 || pullRefreshing) && (
           <div className="pointer-events-none fixed inset-x-0 top-[4.4rem] z-30 flex justify-center lg:hidden">
             <div
@@ -1449,6 +1501,7 @@ function App() {
               error={coreLoadError}
               language={language}
               onAdd={openAddActionSheet}
+              readOnly={readOnlyMode}
               onAssistant={openAssistant}
               onRetry={() => {
                 refreshCore().catch((error) => {
@@ -1533,6 +1586,7 @@ function App() {
               }}
               onEdit={startEditingTransaction}
               onDelete={() => removeTransaction(selectedTransaction.id)}
+              readOnly={readOnlyMode}
             />
           )}
           {view === "accounts" && (
@@ -1558,6 +1612,7 @@ function App() {
               }}
               onNotice={setNotice}
               onChildFrameStateChange={applyChildFrameState}
+              readOnly={readOnlyMode}
             />
           )}
           {view === "categories" && <CategoriesView categories={categories} request={request} onChanged={refreshCore} />}
@@ -1622,7 +1677,7 @@ function App() {
             navigate(nextView);
           }}
         />
-        {addActionOpen && (
+        {addActionOpen && !readOnlyMode && (
           <AddActionSheet
             language={language}
             onClose={() => setAddActionOpen(false)}

@@ -65,7 +65,7 @@ export function ExpenseDonut({ dashboard, language = "id" }: { dashboard: Dashbo
   );
 }
 
-export function DashboardView({ dashboard, loading, error, language, onAdd, onAssistant, onRetry }: {
+export function DashboardView({ dashboard, loading, error, language, onAdd, onAssistant, onRetry, readOnly = false }: {
   dashboard: DashboardSummary | null;
   loading: boolean;
   error: string | null;
@@ -73,6 +73,7 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
   onAdd: () => void;
   onAssistant: () => void;
   onRetry: () => void;
+  readOnly?: boolean;
 }) {
   const state = resolveAsyncContentState({ loading, error, data: dashboard });
   if (state === "loading") return <LoadingState />;
@@ -205,11 +206,11 @@ export function DashboardView({ dashboard, loading, error, language, onAdd, onAs
             </div>
           </div>
 
-          <div className="relative z-[1] mt-4 flex flex-wrap gap-2">
+          {!readOnly && <div className="relative z-[1] mt-4 flex flex-wrap gap-2">
             <button className="accent-button inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-extrabold transition" onClick={onAdd}>
               <Plus size={15} strokeWidth={2.5} /> {copy.add}
             </button>
-          </div>
+          </div>}
         </div>
 
         <button type="button" className="surface-card group flex min-h-[188px] w-full min-w-0 flex-col justify-between p-5 text-left transition hover:-translate-y-0.5 hover:border-emerald-200" onClick={onAssistant}>
